@@ -1,0 +1,185 @@
+<!doctype html>
+<html><head><meta charset="utf-8">
+<style>
+  :root{
+    --void:#040405; --glass:rgba(255,255,255,.045); --glass-hi:rgba(255,255,255,.09);
+    --hair:rgba(255,255,255,.08); --white:#F5F5F2; --dim:rgba(245,245,242,.46); --faint:rgba(245,245,242,.22);
+    --hal:#FF2B1C;
+    --type:"Futura","Century Gothic","Avenir Next","Segoe UI",system-ui,sans-serif;
+  }
+  .wrap{display:flex;flex-direction:column;gap:22px;font-family:var(--type)}
+  .cap{font:500 10px/1 var(--type);letter-spacing:.32em;text-transform:uppercase;color:var(--muted-foreground);margin:0 0 8px 2px}
+  .screen{
+    position:relative;overflow:hidden;border-radius:calc(var(--radius) + 6px);padding:20px;color:var(--white);
+    background:
+      radial-gradient(120% 70% at 50% -20%, rgba(255,255,255,.07), transparent 60%),
+      linear-gradient(180deg,#0a0a0c 0%, var(--void) 55%);
+    box-shadow: inset 0 1px 0 rgba(255,255,255,.08), 0 30px 60px -30px rgba(0,0,0,.6);
+  }
+  .bar{display:flex;align-items:center;gap:18px;margin-bottom:22px}
+  .mark{font:500 13px/1 var(--type);letter-spacing:.62em;padding-left:2px}
+  .mark i{display:inline-block;width:6px;height:6px;border-radius:50%;background:var(--hal);
+          box-shadow:0 0 10px 2px rgba(255,43,28,.55);margin-left:-2px;vertical-align:2px;font-style:normal}
+  .nav{display:flex;gap:18px;font-size:10px;letter-spacing:.28em;text-transform:uppercase;color:var(--dim)}
+  .nav b{color:var(--white);font-weight:500;position:relative}
+  .nav b:after{content:"";position:absolute;left:0;right:.28em;bottom:-8px;height:1px;background:var(--white)}
+  .search{margin-left:auto;flex:0 1 220px;height:28px;border-radius:14px;background:var(--glass);
+          box-shadow:inset 0 0 0 1px var(--hair);display:flex;align-items:center;padding:0 12px;
+          font-size:11px;color:var(--faint);letter-spacing:.06em;backdrop-filter:blur(12px);white-space:nowrap;overflow:hidden}
+  .search:before{content:"";flex:none;width:9px;height:9px;border:1px solid var(--faint);border-radius:50%;margin-right:9px}
+  .hero{display:flex;gap:20px;align-items:flex-end;padding:18px;border-radius:14px;margin-bottom:24px;
+        background:linear-gradient(135deg,rgba(255,255,255,.06),rgba(255,255,255,.015));
+        box-shadow:inset 0 0 0 1px var(--hair), inset 0 1px 0 rgba(255,255,255,.1)}
+  .hero .cover{width:92px;flex:none}
+  .hero .meta{flex:1;min-width:0;padding-bottom:4px}
+  .eyebrow{font-size:9px;letter-spacing:.34em;text-transform:uppercase;color:var(--dim);margin-bottom:10px}
+  .title{font-size:24px;font-weight:400;letter-spacing:.04em;margin:0 0 6px}
+  .sub{font-size:11px;color:var(--dim);letter-spacing:.06em;margin-bottom:16px}
+  .prog{height:1px;background:var(--hair);position:relative}
+  .prog span{position:absolute;inset:0 auto 0 0;background:var(--white);box-shadow:0 0 8px rgba(255,255,255,.6)}
+  .row{display:flex;justify-content:space-between;font-size:9px;letter-spacing:.24em;color:var(--faint);margin-top:8px;text-transform:uppercase}
+  .btn{flex:none;align-self:center;height:34px;padding:0 18px;border-radius:17px;background:var(--white);color:#000;
+       font:500 10px/34px var(--type);letter-spacing:.3em;text-transform:uppercase}
+  .shelfhead{display:flex;justify-content:space-between;align-items:baseline;margin:0 2px 12px}
+  .shelfhead h3{margin:0;font-weight:400;font-size:10px;letter-spacing:.34em;text-transform:uppercase}
+  .shelfhead span{font-size:9px;letter-spacing:.24em;color:var(--faint);text-transform:uppercase}
+  .grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(72px,1fr));gap:18px 12px}
+  .cover{position:relative;aspect-ratio:2/3;border-radius:4px;overflow:hidden;
+         box-shadow:0 0 0 1px rgba(255,255,255,.06), 0 14px 24px -12px rgba(0,0,0,.9)}
+  .cover:after{content:"";position:absolute;inset:0;
+         background:linear-gradient(115deg,rgba(255,255,255,.22) 0%,rgba(255,255,255,0) 32%,rgba(255,255,255,0) 100%)}
+  .cover .t{position:absolute;left:8px;right:8px;bottom:9px;font-size:11px;letter-spacing:.18em;font-weight:500;line-height:1.15}
+  .cover .n{position:absolute;top:8px;left:8px;font-size:8px;letter-spacing:.2em;opacity:.8}
+  .item .lbl{font-size:10px;letter-spacing:.06em;margin-top:9px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .item .lbl2{font-size:9px;color:var(--faint);letter-spacing:.16em;margin-top:3px;text-transform:uppercase;display:flex;gap:6px;align-items:center}
+  .tag{font-size:7px;letter-spacing:.2em;padding:2px 4px;border-radius:2px;box-shadow:inset 0 0 0 1px var(--faint);color:var(--dim)}
+  .mini{height:1px;background:var(--hair);margin-top:7px;position:relative}
+  .mini span{position:absolute;inset:0 auto 0 0;background:var(--white)}
+  .reader{padding:0;height:440px;cursor:pointer}
+  .stage{position:absolute;inset:0;overflow:hidden;background:radial-gradient(80% 80% at 50% 50%,#0d0d10,#020203)}
+  .page{position:absolute;left:0;top:0;width:300px;height:450px;background:#f4f2ec;transform-origin:0 0;
+        transition:transform 1100ms cubic-bezier(.65,0,.35,1);box-shadow:0 0 80px rgba(0,0,0,.8)}
+  .p{position:absolute;overflow:hidden;outline:1.4px solid #111;transition:opacity 900ms ease, filter 900ms ease}
+  .page.guided .p{opacity:.1;filter:blur(1px)}
+  .page.guided .p.on{opacity:1;filter:none}
+  .hud{position:absolute;left:0;right:0;bottom:0;padding:16px 20px;display:flex;align-items:center;gap:16px;
+       background:linear-gradient(0deg,rgba(0,0,0,.75),transparent);font-size:9px;letter-spacing:.3em;text-transform:uppercase;color:var(--dim)}
+  .dots{display:flex;gap:7px}
+  .dots i{width:5px;height:5px;border-radius:50%;background:var(--faint);transition:all .5s}
+  .dots i.on{background:var(--white);box-shadow:0 0 8px rgba(255,255,255,.8)}
+  .count{color:var(--white);min-width:64px}
+  .seg{margin-left:auto;display:flex;border-radius:12px;box-shadow:inset 0 0 0 1px var(--hair);background:var(--glass);overflow:hidden}
+  .seg button{all:unset;cursor:pointer;padding:7px 12px;font:500 9px/1 var(--type);letter-spacing:.26em;color:var(--dim)}
+  .seg button.on{background:var(--white);color:#000}
+  .topl{position:absolute;top:16px;left:20px;font-size:9px;letter-spacing:.32em;text-transform:uppercase;color:var(--dim)}
+  .topl b{color:var(--white);font-weight:500}
+  .topr{position:absolute;top:16px;right:20px;display:flex;align-items:center;gap:8px;font-size:9px;letter-spacing:.32em;color:var(--dim)}
+  .topr i{width:6px;height:6px;border-radius:50%;background:var(--hal);box-shadow:0 0 10px 2px rgba(255,43,28,.5)}
+</style></head>
+<body>
+<div class="wrap">
+
+  <div>
+    <div class="cap">01 — Library</div>
+    <div class="screen">
+      <div class="bar">
+        <div class="mark">AION<i></i></div>
+        <div class="nav"><b>Library</b><span>Arcs</span><span>Creators</span><span>Lists</span></div>
+        <div class="search">Search 2,418 issues</div>
+      </div>
+
+      <div class="hero">
+        <div class="cover" style="background:radial-gradient(circle at 70% 34%,#f5f5f2 0 10%,transparent 11%),linear-gradient(180deg,#05060a,#1b1e2a)">
+          <div class="n">Nº 03</div><div class="t">MONOLITH</div>
+        </div>
+        <div class="meta">
+          <div class="eyebrow">Resume · Guided view · Panel 4 of 6</div>
+          <div class="title">Monolith</div>
+          <div class="sub">Vol. 1 · Issue 3 — “The Sentinel”</div>
+          <div class="prog"><span style="width:62%"></span></div>
+          <div class="row"><span>Page 14 of 22</span><span>8 min left</span></div>
+        </div>
+        <div class="btn">Continue</div>
+      </div>
+
+      <div class="shelfhead"><h3>Recently added</h3><span>Comics &amp; Manga · 8</span></div>
+      <div class="grid" id="grid"></div>
+    </div>
+  </div>
+
+  <div>
+    <div class="cap">02 — Reader · Guided View &nbsp;(click to advance)</div>
+    <div class="screen reader">
+      <div class="stage" id="stage">
+        <div class="page" id="page"></div>
+      </div>
+      <div class="topl"><b>Monolith</b> &nbsp;·&nbsp; 03 &nbsp;·&nbsp; P.14</div>
+      <div class="topr"><i></i>GUIDED</div>
+      <div class="hud">
+        <span class="count" id="count">PAGE</span>
+        <div class="dots" id="dots"></div>
+        <div class="seg">
+          <button id="ltr" class="on">LTR · Comic</button>
+          <button id="rtl">RTL · Manga</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+</div>
+<script>
+const covers=[
+  ["SAGA","Nº 54","linear-gradient(160deg,#f2efe6 0 55%,#d9361f 55% 57%,#f2efe6 57%)","#111","Comic",.4],
+  ["BERSERK","VOL 41","linear-gradient(180deg,#0a0a0a,#2a2522)","#eee","Manga",1],
+  ["AKIRA","VOL 06","linear-gradient(180deg,#c9201a 0 62%,#f3f0e8 62%)","#fff","Manga",0],
+  ["BLACK HOLE","Nº 12","radial-gradient(circle at 50% 42%,#000 0 26%,#f1efe8 27%)","#000","Comic",.8],
+  ["VAGABOND","VOL 37","linear-gradient(180deg,#e8e3d6,#b9b2a2)","#1a1a1a","Manga",.15],
+  ["PLANETARY","Nº 27","radial-gradient(circle at 70% 30%,#f5f5f2 0 9%,transparent 10%),linear-gradient(180deg,#0b1020,#050508)","#eee","Comic",0],
+  ["MONSTRESS","Nº 50","linear-gradient(200deg,#3a2a22,#0e0b0a)","#eadfcf","Comic",.55],
+  ["ASTRO CITY","Nº 01","linear-gradient(180deg,#f4f2ec 0 30%,#14161c 30%)","#fff","Comic",0],
+];
+document.getElementById('grid').innerHTML=covers.map(([t,n,bg,fg,k,p])=>`
+  <div class="item">
+    <div class="cover" style="background:${bg};color:${fg}"><div class="n">${n}</div><div class="t">${t}</div></div>
+    <div class="lbl">${t.split(' ').map(w=>w[0]+w.slice(1).toLowerCase()).join(' ')}</div>
+    <div class="lbl2">${n}${k==="Manga"?'<span class="tag">RTL</span>':''}</div>
+    <div class="mini">${p?`<span style="width:${p*100}%"></span>`:''}</div>
+  </div>`).join('');
+
+const P=[[12,12,276,130],[12,150,134,140],[154,150,134,140],[12,298,88,140],[108,298,88,140],[204,298,84,140]];
+const art=[
+  "radial-gradient(140% 120% at 50% 160%,#151515 0 58%,#f4f2ec 58.5% 59.5%,transparent 60%),radial-gradient(circle at 50% 40%,#fff 0 4%,transparent 5%),linear-gradient(180deg,#000,#0c0c0c)",
+  "linear-gradient(90deg,transparent 42%,#050505 42% 58%,transparent 58%) 0 30%/100% 50% no-repeat,linear-gradient(180deg,#f1eee6 0 76%,#cfc8b8 76%)",
+  "radial-gradient(circle at 50% 50%,#ffd2c8 0 4%,#ff2b1c 5% 14%,#3a0602 22%,#000 32%,#1b1b1b 33% 36%,#000 37%)",
+  "repeating-linear-gradient(0deg,#111 0 2px,#f4f2ec 2px 9px)",
+  "radial-gradient(circle at 50% 60%,#111 0 18%,transparent 19%),linear-gradient(180deg,#e9e5da,#f4f2ec)",
+  "linear-gradient(180deg,#f4f2ec,#f4f2ec) 50% 100%/2px 62% no-repeat,radial-gradient(circle at 50% 20%,#fff 0 6%,#000 7%)",
+];
+const page=document.getElementById('page'), stage=document.getElementById('stage');
+page.innerHTML=P.map(([x,y,w,h],i)=>`<div class="p" style="left:${x}px;top:${y}px;width:${w}px;height:${h}px;background:${art[i]}"></div>`).join('');
+const els=[...page.children];
+const orders={ltr:[0,1,2,3,4,5],rtl:[0,2,1,5,4,3]};
+let mode='ltr', step=0;
+const dots=document.getElementById('dots'); dots.innerHTML='<i></i>'.repeat(7);
+function fit(x,y,w,h,pad){
+  const W=stage.clientWidth,H=stage.clientHeight-40;
+  const s=Math.min(W*pad/w,H*pad/h);
+  return `translate(${W/2-(x+w/2)*s}px,${(H/2+6)-(y+h/2)*s}px) scale(${s})`;
+}
+function render(){
+  const c=document.getElementById('count');
+  [...dots.children].forEach((d,i)=>d.classList.toggle('on',i===step));
+  els.forEach(e=>e.classList.remove('on'));
+  if(step===0){page.classList.remove('guided');page.style.transform=fit(0,0,300,450,.9);c.textContent='PAGE';return}
+  const idx=orders[mode][step-1]; els[idx].classList.add('on'); page.classList.add('guided');
+  const [x,y,w,h]=P[idx]; page.style.transform=fit(x,y,w,h,.82);
+  c.textContent=`PANEL ${String(step).padStart(2,'0')}`;
+}
+const adv=()=>{step=(step+1)%7;render()};
+let t=setInterval(adv,2600);
+function setMode(m,e){e.stopPropagation();mode=m;ltr.classList.toggle('on',m==='ltr');rtl.classList.toggle('on',m==='rtl');step=0;render();clearInterval(t);t=setInterval(adv,2600)}
+ltr.onclick=e=>setMode('ltr',e); rtl.onclick=e=>setMode('rtl',e);
+document.querySelector('.reader').onclick=()=>{adv();clearInterval(t);t=setInterval(adv,2600)};
+page.style.transition="none";render();page.offsetWidth;page.style.transition="";addEventListener('resize',render);
+</script>
+</body></html>

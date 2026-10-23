@@ -1,0 +1,305 @@
+<!doctype html>
+<html><head><meta charset="utf-8">
+<style>
+  *{box-sizing:border-box}
+  .wrap{display:flex;flex-direction:column;gap:34px}
+  .lab{font:600 13px var(--font-sans);color:var(--foreground);margin:0 0 10px 2px}
+  .lab small{display:block;font-weight:400;font-size:12px;color:var(--muted-foreground);margin-top:3px;line-height:1.45}
+  .mock{position:relative;width:100%;border-radius:10px;overflow:hidden;box-shadow:0 0 0 1px rgba(127,127,127,.18)}
+  .vp{position:absolute;left:0;top:0;width:1280px;height:800px;transform-origin:0 0;overflow:hidden;
+      font-family:"Segoe UI Variable Text","Segoe UI",system-ui,sans-serif;color:#f5f5f7;font-size:13px;-webkit-font-smoothing:antialiased}
+  .vp *{margin:0}
+  .disp{font-family:"Segoe UI Variable Display","Segoe UI",system-ui,sans-serif}
+  .ell{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  img.c{display:block;width:100%;aspect-ratio:2/3;object-fit:cover}
+
+  /* generic sidebar */
+  .sb{position:absolute;left:0;top:0;bottom:0;width:224px;padding:16px 10px}
+  .sb .it{display:flex;align-items:center;gap:11px;padding:7px 10px;border-radius:7px;color:#d1d1d6;font-size:13px;position:relative}
+  .sb .it svg{width:16px;height:16px;flex:none;opacity:.8}
+  .sb .it .k{margin-left:auto;font-size:11.5px;color:#7c7c82}
+  .sb .g{font-size:11px;font-weight:600;color:#8e8e93;margin:18px 10px 6px}
+  .main{position:absolute;left:224px;right:0;top:0;bottom:0;overflow:hidden}
+
+  /* ========== 1 · Now Reading hero ========== */
+  .m1 .vp{background:#161618}
+  .m1 .sb{background:rgba(255,255,255,.025);border-right:1px solid rgba(255,255,255,.05)}
+  .m1 .sb .on{background:rgba(255,255,255,.08);color:#fff}
+  .m1 .main{padding:22px 30px}
+  .m1 .hero{position:relative;height:300px;border-radius:18px;overflow:hidden;display:flex;align-items:flex-end;padding:30px;gap:30px;
+            box-shadow:0 0 0 1px rgba(255,255,255,.07),0 30px 60px -30px rgba(0,0,0,.8)}
+  .m1 .hero .bg{position:absolute;inset:-60px;background-size:cover;background-position:center;filter:blur(50px) saturate(1.5) brightness(.75);transform:scale(1.2)}
+  .m1 .hero .shade{position:absolute;inset:0;background:linear-gradient(90deg,rgba(10,10,12,.7),rgba(10,10,12,.2) 60%,rgba(10,10,12,.55))}
+  .m1 .hero .cv{position:relative;width:160px;border-radius:8px;overflow:hidden;box-shadow:0 24px 40px -12px rgba(0,0,0,.8),0 0 0 1px rgba(255,255,255,.1)}
+  .m1 .hero .txt{position:relative;flex:1;padding-bottom:6px}
+  .m1 .eye{font-size:12px;font-weight:600;letter-spacing:.06em;text-transform:uppercase;color:rgba(255,255,255,.7)}
+  .m1 .ht{font-size:40px;font-weight:600;letter-spacing:-.02em;margin-top:6px}
+  .m1 .hs{font-size:14px;color:rgba(255,255,255,.75);margin-top:4px}
+  .m1 .bar{width:300px;height:4px;border-radius:2px;background:rgba(255,255,255,.2);margin-top:18px;overflow:hidden}
+  .m1 .bar span{display:block;height:100%;background:#fff;border-radius:2px}
+  .m1 .btns{display:flex;gap:10px;margin-top:18px;align-items:center}
+  .m1 .b1{background:#fff;color:#111;font-weight:600;border-radius:999px;padding:9px 22px;font-size:13px}
+  .m1 .b2{background:rgba(255,255,255,.14);border-radius:999px;padding:9px 18px;font-size:13px;backdrop-filter:blur(10px)}
+  .m1 .upn{position:relative;width:250px;align-self:stretch;display:flex;flex-direction:column;justify-content:flex-end;gap:10px}
+  .m1 .upn .h{font-size:12px;color:rgba(255,255,255,.65);font-weight:600}
+  .m1 .mini{display:flex;gap:12px;align-items:center;padding:8px;border-radius:12px;background:rgba(0,0,0,.28);backdrop-filter:blur(14px)}
+  .m1 .mini img{width:34px;border-radius:4px}
+  .m1 .mini .a{font-size:12.5px} .m1 .mini .b{font-size:11.5px;color:rgba(255,255,255,.6)}
+  .m1 .sh{display:flex;align-items:baseline;margin:26px 0 12px;font-size:17px;font-weight:600}
+  .m1 .sh small{margin-left:auto;font-size:12px;font-weight:400;color:#8e8e93}
+  .m1 .row{display:flex;gap:18px}
+  .m1 .row .t{width:118px;flex:none}
+  .m1 .row img{border-radius:7px;box-shadow:0 10px 20px -10px rgba(0,0,0,.9)}
+  .m1 .pb{height:3px;border-radius:2px;background:#3a3a3c;margin-top:8px;overflow:hidden}.m1 .pb span{display:block;height:100%;background:#f5f5f7}
+  .m1 .l1{font-size:12.5px;margin-top:6px}.m1 .l2{font-size:11.5px;color:#8e8e93}
+
+  /* ========== 2 · Windows 11 Mica ========== */
+  .m2 .vp{background:radial-gradient(120% 90% at 0% 0%,#2a3240 0%,#202024 45%,#1c1c1e 100%)}
+  .m2 .sb{background:transparent;padding-top:52px}
+  .m2 .search{position:absolute;left:12px;right:12px;top:12px;height:32px;border-radius:7px;background:rgba(255,255,255,.06);border:1px solid rgba(255,255,255,.07);border-bottom-color:rgba(255,255,255,.14);display:flex;align-items:center;padding:0 10px;color:#9a9aa0;font-size:12.5px}
+  .m2 .sb .on{background:rgba(255,255,255,.07);color:#fff}
+  .m2 .sb .on:before{content:"";position:absolute;left:0;top:50%;width:3px;height:16px;margin-top:-8px;border-radius:2px;background:#60cdff}
+  .m2 .main{top:8px;right:8px;bottom:8px;left:232px;border-radius:10px;background:rgba(39,39,42,.92);border:1px solid rgba(255,255,255,.06);padding:26px 30px;box-shadow:0 8px 28px rgba(0,0,0,.28)}
+  .m2 h1{font-size:28px;font-weight:600}
+  .m2 .sub{color:#a0a0a6;margin-top:2px;font-size:13px}
+  .m2 .sh{font-size:14px;font-weight:600;margin:24px 0 10px;display:flex}
+  .m2 .sh small{margin-left:auto;color:#60cdff;font-weight:400;font-size:12.5px}
+  .m2 .cards{display:grid;grid-template-columns:repeat(3,1fr);gap:10px}
+  .m2 .card{display:flex;gap:14px;align-items:center;padding:10px;border-radius:9px;background:rgba(255,255,255,.045);border:1px solid rgba(255,255,255,.05)}
+  .m2 .card img{width:52px;border-radius:5px;box-shadow:0 4px 10px rgba(0,0,0,.4)}
+  .m2 .card .a{font-size:13px;font-weight:600}.m2 .card .b{font-size:12px;color:#a0a0a6;margin-top:1px}
+  .m2 .ring{margin-left:auto;width:36px;height:36px;flex:none;border-radius:50%;display:grid;place-items:center;font-size:10px;color:#cfcfd4}
+  .m2 .ring i{width:28px;height:28px;border-radius:50%;background:#2b2b2e;display:grid;place-items:center;font-style:normal}
+  .m2 .tiles{display:grid;grid-template-columns:repeat(4,1fr);gap:10px}
+  .m2 .tile{border-radius:9px;background:rgba(255,255,255,.045);border:1px solid rgba(255,255,255,.05);padding:10px}
+  .m2 .mos{display:grid;grid-template-columns:1fr 1fr;grid-template-rows:1fr 1fr;gap:3px;border-radius:6px;overflow:hidden;aspect-ratio:16/10}
+  .m2 .mos img{width:100%;height:100%;min-height:0;object-fit:cover;object-position:center 20%}
+  .m2 .tile .a{font-size:13.5px;font-weight:600;margin-top:10px}.m2 .tile .b{font-size:12px;color:#a0a0a6}
+
+  /* ========== 3 · Shelf ========== */
+  .m3 .vp{background:linear-gradient(180deg,#1f1c1a,#171514)}
+  .m3 .sb{background:#141211;border-right:1px solid rgba(255,240,220,.05)}
+  .m3 .sb .on{background:rgba(255,240,220,.08);color:#fff}
+  .m3 .main{padding:24px 34px}
+  .m3 h1{font-size:26px;font-weight:600;letter-spacing:-.01em}
+  .m3 .sh{font-size:15px;font-weight:600;margin:22px 0 0;color:#e9e3dc;display:flex}
+  .m3 .sh small{margin-left:auto;color:#8f8780;font-weight:400;font-size:12px}
+  .m3 .shelf{position:relative;display:flex;gap:22px;align-items:flex-end;padding:18px 18px 0;height:250px}
+  .m3 .shelf:after{content:"";position:absolute;left:0;right:0;bottom:-14px;height:14px;border-radius:2px;
+      background:linear-gradient(180deg,#3a332d,#26211d);box-shadow:0 14px 24px rgba(0,0,0,.6),inset 0 1px 0 rgba(255,240,220,.12)}
+  .m3 .book{position:relative;width:128px;flex:none;border-radius:2px 5px 5px 2px;overflow:hidden;
+      box-shadow:0 -1px 0 rgba(255,255,255,.06),6px 10px 18px -6px rgba(0,0,0,.85),2px 0 3px rgba(0,0,0,.4)}
+  .m3 .book:before{content:"";position:absolute;left:0;top:0;bottom:0;width:9px;z-index:1;
+      background:linear-gradient(90deg,rgba(0,0,0,.45),rgba(255,255,255,.18) 35%,rgba(0,0,0,.25) 70%,transparent)}
+  .m3 .book:after{content:"";position:absolute;inset:0;background:linear-gradient(115deg,rgba(255,255,255,.14),transparent 30%)}
+  .m3 .book .rib{position:absolute;left:0;right:0;bottom:0;height:4px;background:rgba(0,0,0,.5);z-index:2}
+  .m3 .book .rib span{display:block;height:100%;background:#f3e6d3}
+  .m3 .names{display:flex;gap:22px;padding:24px 18px 0}
+  .m3 .names div{width:128px;flex:none;font-size:12px;color:#d9d1c8}.m3 .names i{display:block;font-style:normal;color:#8f8780;font-size:11px}
+  .m3 .stacks{display:flex;gap:70px;padding:44px 40px 0 64px;height:250px;align-items:flex-end;perspective:900px}
+  .m3 .stk{position:relative;width:118px;height:170px;transform-style:preserve-3d;transform:rotateY(-22deg)}
+  .m3 .stk img{position:absolute;inset:0;width:100%;height:100%;object-fit:cover;border-radius:2px 4px 4px 2px;box-shadow:4px 8px 16px rgba(0,0,0,.7)}
+  .m3 .stk img:nth-child(1){transform:translateZ(-36px) translateX(30px)}
+  .m3 .stk img:nth-child(2){transform:translateZ(-18px) translateX(15px)}
+  .m3 .stkname{font-size:13px;font-weight:600;margin-top:14px;color:#e9e3dc}.m3 .stkname i{display:block;font-weight:400;font-style:normal;font-size:11.5px;color:#8f8780}
+
+  /* ========== 4 · Bento ========== */
+  .m4 .vp{background:#141416}
+  .m4 .sb{background:#141416}
+  .m4 .sb .on{background:#232326;color:#fff}
+  .m4 .main{padding:20px 24px 20px 4px}
+  .m4 .bento{display:grid;grid-template-columns:1.25fr 1fr 1fr 1fr;grid-template-rows:310px 180px 228px;gap:12px;height:100%}
+  .m4 .b{position:relative;border-radius:18px;background:#1f1f22;overflow:hidden;padding:18px;box-shadow:inset 0 0 0 1px rgba(255,255,255,.05)}
+  .m4 .big{grid-row:1/3;grid-column:1/2;padding:0;display:flex;flex-direction:column;justify-content:flex-end}
+  .m4 .big .bg{position:absolute;inset:0;background-size:cover;background-position:center 20%}
+  .m4 .big .fade{position:absolute;inset:0;background:linear-gradient(180deg,transparent 30%,rgba(16,16,18,.75) 62%,#141416 100%)}
+  .m4 .big .in{position:relative;padding:22px}
+  .m4 .k{font-size:11.5px;font-weight:600;color:#9a9aa0;text-transform:uppercase;letter-spacing:.06em}
+  .m4 .bt{font-size:30px;font-weight:600;letter-spacing:-.02em;margin-top:6px}
+  .m4 .bs{color:#c7c7cc;margin-top:2px}
+  .m4 .bar{height:4px;border-radius:2px;background:rgba(255,255,255,.18);margin-top:16px;overflow:hidden}.m4 .bar span{display:block;height:100%;background:#fff}
+  .m4 .meta{display:flex;justify-content:space-between;font-size:12px;color:#9a9aa0;margin-top:8px}
+  .m4 .pill{display:inline-block;background:#fff;color:#111;font-weight:600;border-radius:999px;padding:8px 20px;margin-top:16px}
+  .m4 .strip{grid-column:2/5;grid-row:1/2}
+  .m4 .strip .r{display:flex;gap:14px;margin-top:14px}
+  .m4 .strip .r>div{width:112px;flex:none}
+  .m4 .strip img{border-radius:6px}
+  .m4 .pb{height:3px;border-radius:2px;background:#3a3a3c;margin-top:7px;overflow:hidden}.m4 .pb span{display:block;height:100%;background:#f5f5f7}
+  .m4 .l1{font-size:12px;margin-top:5px}.m4 .l2{font-size:11px;color:#8e8e93}
+  .m4 .stat .n{font-size:38px;font-weight:600;letter-spacing:-.03em;margin-top:8px}
+  .m4 .stat .u{color:#9a9aa0;font-size:12.5px}
+  .m4 .chart{position:absolute;left:18px;right:18px;bottom:18px;height:46px;display:flex;align-items:flex-end;gap:6px}
+  .m4 .chart i{flex:1;border-radius:3px;background:#3a3a3e}.m4 .chart i.t{background:#f5f5f7}
+  .m4 .nextup{display:flex;gap:14px;align-items:center;height:100%}
+  .m4 .nextup img{width:84px;border-radius:6px;box-shadow:0 10px 20px rgba(0,0,0,.6)}
+  .m4 .col{grid-row:3}
+  .m4 .col .bgc{position:absolute;inset:0;display:grid;grid-template-columns:repeat(3,1fr);opacity:.55}
+  .m4 .col .bgc img{width:100%;height:100%;object-fit:cover}
+  .m4 .col .fade{position:absolute;inset:0;background:linear-gradient(180deg,rgba(20,20,22,.1),rgba(20,20,22,.92) 75%)}
+  .m4 .col .in{position:absolute;left:18px;bottom:16px}
+  .m4 .col .a{font-size:20px;font-weight:600}.m4 .col .bb{font-size:12px;color:#b5b5ba}
+
+  /* ========== 5 · Apple Books refined ========== */
+  .m5 .vp{background:#1c1c1e}
+  .m5 .sb{background:rgba(255,255,255,.03);border-right:1px solid rgba(0,0,0,.4);padding-top:56px}
+  .m5 .search{position:absolute;left:12px;right:12px;top:14px;height:30px;border-radius:8px;background:rgba(255,255,255,.08);display:flex;align-items:center;padding:0 10px;color:#8e8e93;font-size:13px;gap:8px}
+  .m5 .sb .on{background:rgba(255,255,255,.1);color:#fff}
+  .m5 .main{padding:30px 40px}
+  .m5 h1{font-size:34px;font-weight:700;letter-spacing:-.02em}
+  .m5 .sh{font-size:21px;font-weight:700;letter-spacing:-.01em;margin:30px 0 16px;display:flex;align-items:baseline}
+  .m5 .sh small{margin-left:10px;font-size:13px;font-weight:400;color:#8e8e93}
+  .m5 .sh .arr{margin-left:auto;font-size:13px;color:#8e8e93;font-weight:400}
+  .m5 .row{display:flex;gap:28px;align-items:flex-end}
+  .m5 .t{flex:none}
+  .m5 .t img{border-radius:4px;box-shadow:0 1px 0 rgba(255,255,255,.08) inset,0 2px 4px rgba(0,0,0,.3),0 18px 30px -16px rgba(0,0,0,.9)}
+  .m5 .t .a{font-size:13px;font-weight:600;margin-top:12px}
+  .m5 .t .b{font-size:12px;color:#8e8e93;margin-top:1px;display:flex;align-items:center;gap:6px}
+  .m5 .dot{width:6px;height:6px;border-radius:50%;background:#0a84ff}
+  .m5 .pct{font-variant-numeric:tabular-nums}
+  .m5 .cols{display:grid;grid-template-columns:repeat(4,1fr);gap:22px}
+  .m5 .colc{display:flex;gap:14px;align-items:center}
+  .m5 .colc .fan{position:relative;width:86px;height:92px;flex:none}
+  .m5 .colc .fan img{position:absolute;width:56px;bottom:0;border-radius:3px;box-shadow:0 8px 14px rgba(0,0,0,.55)}
+  .m5 .colc .a{font-size:15px;font-weight:600}.m5 .colc .b{font-size:12px;color:#8e8e93;margin-top:2px}
+
+  /* ========== 6 · Ambient focus ========== */
+  .m6 .vp{background:#0f1115}
+  .m6 .amb{position:absolute;inset:-120px;background-size:cover;background-position:center;filter:blur(90px) saturate(1.6) brightness(.55);opacity:.95}
+  .m6 .veil{position:absolute;inset:0;background:linear-gradient(180deg,rgba(15,17,21,.15),rgba(15,17,21,.65) 55%,#0f1115 90%)}
+  .m6 .sb{background:rgba(10,12,16,.35);backdrop-filter:blur(30px);border-right:1px solid rgba(255,255,255,.06)}
+  .m6 .sb .on{background:rgba(255,255,255,.12);color:#fff}
+  .m6 .main{padding:26px 34px}
+  .m6 .flow{position:relative;height:330px;display:flex;align-items:center;justify-content:center;gap:0;margin-top:6px}
+  .m6 .fi{position:relative;width:118px;flex:none;margin:0 -10px;border-radius:6px;overflow:hidden;opacity:.6;transform:scale(.86);box-shadow:0 14px 26px rgba(0,0,0,.6)}
+  .m6 .fi.n1{opacity:.82;transform:scale(1);margin:0 6px}
+  .m6 .fi.f{width:196px;opacity:1;transform:none;margin:0 22px;border-radius:8px;box-shadow:0 34px 60px -16px rgba(0,0,0,.85),0 0 0 1px rgba(255,255,255,.12)}
+  .m6 .info{text-align:center;margin-top:8px}
+  .m6 .info .a{font-size:28px;font-weight:600;letter-spacing:-.02em}
+  .m6 .info .b{color:rgba(255,255,255,.72);margin-top:3px;font-size:13.5px}
+  .m6 .info .btns{display:flex;justify-content:center;gap:10px;margin-top:14px}
+  .m6 .b1{background:#fff;color:#111;font-weight:600;border-radius:999px;padding:8px 22px}
+  .m6 .b2{background:rgba(255,255,255,.14);border-radius:999px;padding:8px 18px}
+  .m6 .dots{display:flex;justify-content:center;gap:6px;margin-top:16px}.m6 .dots i{width:6px;height:6px;border-radius:50%;background:rgba(255,255,255,.3)}.m6 .dots i.on{background:#fff;width:18px;border-radius:3px}
+  .m6 .sh{font-size:15px;font-weight:600;margin:26px 0 12px}
+  .m6 .cols{display:grid;grid-template-columns:repeat(4,1fr);gap:12px}
+  .m6 .cc{position:relative;height:118px;border-radius:14px;overflow:hidden;box-shadow:inset 0 0 0 1px rgba(255,255,255,.08)}
+  .m6 .cc .bg{position:absolute;inset:-40px;background-size:cover;background-position:center;filter:blur(30px) saturate(1.5) brightness(.6)}
+  .m6 .cc .in{position:absolute;left:16px;top:14px}
+  .m6 .cc .a{font-size:17px;font-weight:600}.m6 .cc .b{font-size:12px;color:rgba(255,255,255,.75)}
+  .m6 .cc img{position:absolute;width:58px;bottom:-30px;border-radius:4px;box-shadow:0 8px 18px rgba(0,0,0,.5)}
+</style></head>
+<body>
+<div class="wrap" id="wrap"></div>
+<script>
+const D = {"cont": [{"s": "The Darwin Incident", "l": "Vol. 1", "p": 6, "n": 189, "img": "file:///H:/Comics/.yacreaderlibrary/covers/c48392b0f4937eb2046b908c6ebcda2ebf4081d9336706100.jpg"}, {"s": "Vinland Saga", "l": "Vol. 12", "p": 45, "n": 362, "img": "file:///H:/Comics/.yacreaderlibrary/covers/0cd092d8295427cf9aa02d3d6368c7193c72b6a8618824723.jpg"}, {"s": "The Black Beetle", "l": "#1", "p": 140, "n": 192, "img": "file:///H:/Comics/.yacreaderlibrary/covers/f8d3435dc941afb7e669eb3e5d67c92098e12710656326203.jpg"}, {"s": "Kagurabachi", "l": "Vol. 1", "p": 25, "n": 202, "img": "file:///H:/Comics/.yacreaderlibrary/covers/6bcdc481dd1716712c6ebd4b7acc4f9c39670812216002280.jpg"}, {"s": "One-Punch Man", "l": "Vol. 8", "p": 112, "n": 181, "img": "file:///H:/Comics/.yacreaderlibrary/covers/5303bc1db634bb5ec6eb77d43f576f0e0cda54a0246902119.jpg"}, {"s": "The Hedge Knight II - The Sworn Sword", "l": "#1", "p": 35, "n": 163, "img": "file:///H:/Comics/.yacreaderlibrary/covers/e7b7cc576c9b9a1a3c90989fd7d9f49c65c069f9113595368.jpg"}, {"s": "Marvel Knights Spider-Man", "l": "#1", "p": 117, "n": 284, "img": "file:///H:/Comics/.yacreaderlibrary/covers/82f98b1d26268dd03fdabede115edbbbd3136eeb389819394.jpg"}, {"s": "Ultimate Spider-Man", "l": "Vol. 20", "p": 6, "n": 138, "img": "file:///H:/Comics/.yacreaderlibrary/covers/b0278fb42c982ac18dcd68d85fd64d1b07a81410182925367.jpg"}, {"s": "Daredevil by Frank Miller", "l": "#1", "p": 2, "n": 321, "img": "file:///H:/Comics/.yacreaderlibrary/covers/5a7316c52220430acf4d4507adc705b89a52944b539703092.jpg"}], "recent": [{"s": "Vinland Saga", "l": "Vol. 15", "img": "file:///H:/Comics/.yacreaderlibrary/covers/f68e7c1545b7842e6dfad310365fa0c6ec7cca211354372822.jpg"}, {"s": "The Black Beetle", "l": "#1", "img": "file:///H:/Comics/.yacreaderlibrary/covers/f8d3435dc941afb7e669eb3e5d67c92098e12710656326203.jpg"}, {"s": "Absolute Green Arrow ", "l": "#5", "img": "file:///H:/Comics/.yacreaderlibrary/covers/3ce1f34925328403182f1683863c1a4f4505d8ca59892982.jpg"}, {"s": "Absolute Wonder Woman", "l": "#24", "img": "file:///H:/Comics/.yacreaderlibrary/covers/ac37451d628eae9cad4efde33d2b65ac504849fd53211020.jpg"}, {"s": "Absolute Flash", "l": "#19", "img": "file:///H:/Comics/.yacreaderlibrary/covers/baf133fb078af5f769fe20652ad6e7e4d18c1e4053998205.jpg"}, {"s": "Absolute Batman", "l": "#24", "img": "file:///H:/Comics/.yacreaderlibrary/covers/fc48ace8e7574384b278f404c5e065db08a74d7a49581403.jpg"}, {"s": "Justice League – The Darkseid War", "l": "#1", "img": "file:///H:/Comics/.yacreaderlibrary/covers/7242a4ea6b2b9c46ffbb72a1a062215c8a57fd36808643246.jpg"}, {"s": "Punisher & Fury MAX By Garth Ennis", "l": "Punisher & Fury MAX By Garth Ennis Omnibus", "img": "file:///H:/Comics/.yacreaderlibrary/covers/dee7321a865ec2f373d9c570c30acc295f54cabe3247089479.jpg"}, {"s": "The Invincible Iron Man by Gerry Duggan", "l": "Invincible Iron Man by Gerry Duggan - The Complete Collection", "img": "file:///H:/Comics/.yacreaderlibrary/covers/f801886eff281013f133a684fabc20f1471b1f101007591877.jpg"}], "vinland": [{"l": "Vol. 1", "t": "Book One", "img": "file:///H:/Comics/.yacreaderlibrary/covers/1cc60a2018652ca866b7e8c0aea38394e5363a5e835303596.jpg"}, {"l": "Vol. 2", "t": "Book Two", "img": "file:///H:/Comics/.yacreaderlibrary/covers/dd3cc6136b92894c291bdd10e37a7e2b71d92616774485393.jpg"}, {"l": "Vol. 3", "t": "Book Three", "img": "file:///H:/Comics/.yacreaderlibrary/covers/b093f7383064e23baf36359d2fcf79fda8d4a584804762242.jpg"}, {"l": "Vol. 4", "t": "Book Four", "img": "file:///H:/Comics/.yacreaderlibrary/covers/f41d5ccba9f39e3ae418bdadc4da6eac4974e1c8794021967.jpg"}, {"l": "Vol. 5", "t": "Book Five", "img": "file:///H:/Comics/.yacreaderlibrary/covers/f1888af38380854f8ffaa5fcaa773d94f114dbb7642819378.jpg"}, {"l": "Vol. 6", "t": "Book Six", "img": "file:///H:/Comics/.yacreaderlibrary/covers/1f7d58457b69971e247730aea6806aa2e74af196629891242.jpg"}, {"l": "Vol. 7", "t": "Book Seven", "img": "file:///H:/Comics/.yacreaderlibrary/covers/e298bdb32adcd9f684cb7ac949e7362d201dea53804735994.jpg"}, {"l": "Vol. 8", "t": "Book Eight: Troubled Waters", "img": "file:///H:/Comics/.yacreaderlibrary/covers/b234634e400f31be815820af0530e19fc53657f8717899043.jpg"}, {"l": "Vol. 9", "t": "Book Nine: Fighting for a Future", "img": "file:///H:/Comics/.yacreaderlibrary/covers/4ae84103c5e207f4879926522f3fb1cb1ae5c42f910732744.jpg"}, {"l": "Vol. 10", "t": "Book Ten", "img": "file:///H:/Comics/.yacreaderlibrary/covers/06a7df1d98af3008812f08c2a473920f1da6685e879072286.jpg"}, {"l": "Vol. 11", "t": "Book Eleven: The Mighty Laid Low", "img": "file:///H:/Comics/.yacreaderlibrary/covers/41e7ff69c047dc3c938503c9affe91501996fe06844817006.jpg"}, {"l": "Vol. 12", "t": "Book Twelve", "img": "file:///H:/Comics/.yacreaderlibrary/covers/0cd092d8295427cf9aa02d3d6368c7193c72b6a8618824723.jpg"}, {"l": "Vol. 13", "t": "Book Thirteen: A Dream Comes Ashore", "img": "file:///H:/Comics/.yacreaderlibrary/covers/4f7eee87a3edee5a726c258c8db1936a87fd913d717347282.jpg"}, {"l": "Vol. 14", "t": "Book Fourteen: Cultivating Wheat and a Peaceful Heart", "img": "file:///H:/Comics/.yacreaderlibrary/covers/5f1eb4ab0a401f6473ee9d53ee0d237ffbb91ecc1569978739.jpg"}, {"l": "Vol. 15", "t": "", "img": "file:///H:/Comics/.yacreaderlibrary/covers/f68e7c1545b7842e6dfad310365fa0c6ec7cca211354372822.jpg"}], "cols": [{"name": "DC", "series": 163, "count": 776, "imgs": ["file:///H:/Comics/.yacreaderlibrary/covers/710b12d416e73500fe7af32a1bd7bfef49c6b7b775306553.jpg", "file:///H:/Comics/.yacreaderlibrary/covers/c7258271e4d88bfe62ec9f67af8cffe326474fe1184210914.jpg", "file:///H:/Comics/.yacreaderlibrary/covers/34abb9a08fbb18fc7ba86fc3312176d48733d94c168904935.jpg", "file:///H:/Comics/.yacreaderlibrary/covers/4109531ecf89ade91861c85aa82a16c3cfba2ec0128362040.jpg"]}, {"name": "Indie", "series": 243, "count": 986, "imgs": ["file:///H:/Comics/.yacreaderlibrary/covers/f1d5ff0b9cb3be52bffca5a9bc8fe7bd0d90bf5c153155241.jpg", "file:///H:/Comics/.yacreaderlibrary/covers/e3b4814b5032902bfbed87571e6fbf13dcba4661592541187.jpg", "file:///H:/Comics/.yacreaderlibrary/covers/1dea543bd85e7a1872c508a867bfc07653b874ca906536692.jpg", "file:///H:/Comics/.yacreaderlibrary/covers/05c54ce38c68aa62a7d6e14194640f37340c1caf239520574.jpg"]}, {"name": "Manga", "series": 188, "count": 3872, "imgs": ["file:///H:/Comics/.yacreaderlibrary/covers/7f86f17c0c9c4d3c6c678f331326eaf85e7bb349343087776.jpg", "file:///H:/Comics/.yacreaderlibrary/covers/e8b6111eac87f6b9d6d171b5450ad96ec96499a566082205.jpg", "file:///H:/Comics/.yacreaderlibrary/covers/b9384358cce0ae3e2fc85213a9cb4f6f19d1a0d0236264855.jpg", "file:///H:/Comics/.yacreaderlibrary/covers/86e3636b9c685bb7986343c0b2f9fc81db73afcf394700243.jpg"]}, {"name": "Marvel", "series": 233, "count": 957, "imgs": ["file:///H:/Comics/.yacreaderlibrary/covers/0aa94d76dbeb8ffade2b1d6e90a9773e3d925a422338788805.jpg", "file:///H:/Comics/.yacreaderlibrary/covers/c4904aea9c69d9f73f310e408edeb14f927a26341328006293.jpg", "file:///H:/Comics/.yacreaderlibrary/covers/0fe864f34198eba948c03d89d832ba15be5a742554154843.jpg", "file:///H:/Comics/.yacreaderlibrary/covers/55591b432dc3255c79ec17e6d680269bb478c670962083736.jpg"]}]};
+const I = {
+  home:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M3 10.5 12 3l9 7.5V20a1 1 0 0 1-1 1h-5v-6h-6v6H4a1 1 0 0 1-1-1z"/></svg>',
+  cont:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M6 4h12a1 1 0 0 1 1 1v16l-7-4-7 4V5a1 1 0 0 1 1-1z"/></svg>',
+  rec:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 7v5l3 2M21 12a9 9 0 1 1-18 0 9 9 0 0 1 18 0z"/></svg>',
+  stack:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 7h16M6 4h12M3 10h18v10H3z"/></svg>',
+  gear:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3M4.9 4.9l2.1 2.1M17 17l2.1 2.1M4.9 19.1 7 17M17 7l2.1-2.1"/></svg>',
+  search:'<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg>',
+};
+const C = D.cont, R = D.recent, V = D.vinland, COLS = D.cols;
+const pct = c => Math.round((c.p + 1) / c.n * 100);
+const img = (src, cls = 'c', st = '') => `<img class="${cls}" src="${src}" style="${st}" alt="">`;
+function sidebar(extra = '') {
+  return `<div class="sb">${extra}
+    <div class="it on">${I.home}Home</div><div class="it">${I.cont}Continue Reading<span class="k">24</span></div><div class="it">${I.rec}Recently Added</div>
+    <div class="g">Collections</div>
+    ${COLS.map(c => `<div class="it">${I.stack}${c.name}<span class="k">${c.series}</span></div>`).join('')}
+    <div class="it" style="position:absolute;left:10px;right:10px;bottom:12px">${I.gear}Settings</div></div>`;
+}
+const M = [];
+
+/* 1 */
+M.push(['Now Reading hero', 'The current book gets a big hero card whose backdrop is its own cover, blurred. Everything else steps back into smaller rows. One clear focal point instead of a flat wall of covers.', `
+<div class="vp">${sidebar()}
+ <div class="main">
+  <div class="hero"><div class="bg" style="background-image:url('${C[1].img}')"></div><div class="shade"></div>
+    <div class="cv">${img(C[1].img)}</div>
+    <div class="txt"><div class="eye">Continue reading</div><div class="ht disp">${C[1].s}</div><div class="hs">${C[1].l} · Page ${C[1].p + 1} of ${C[1].n} · Makoto Yukimura</div>
+      <div class="bar"><span style="width:${pct(C[1])}%"></span></div>
+      <div class="btns"><span class="b1">Resume</span><span class="b2">View series</span></div></div>
+    <div class="upn"><div class="h">Up next</div>${C.slice(2, 5).map(c => `<div class="mini">${img(c.img)}<div><div class="a">${c.s}</div><div class="b">${c.l} · ${pct(c)}%</div></div></div>`).join('')}</div>
+  </div>
+  <div class="sh">Jump back in<small>See all</small></div>
+  <div class="row">${C.slice(0, 8).map(c => `<div class="t">${img(c.img)}<div class="pb"><span style="width:${pct(c)}%"></span></div><div class="l1 ell">${c.s}</div><div class="l2">${c.l}</div></div>`).join('')}</div>
+ </div></div>`]);
+
+/* 2 */
+const ring = c => `<div class="ring" style="background:conic-gradient(#60cdff ${pct(c) * 3.6}deg,rgba(255,255,255,.12) 0)"><i>${pct(c)}%</i></div>`;
+M.push(['Windows 11 Mica', 'Leans into Windows itself: a tinted Mica backdrop, a raised content surface, a search box and an accent pill in the sidebar. Continue Reading becomes cards with progress rings; collections become cover mosaics.', `
+<div class="vp">${sidebar('<div class="search">' + I.search + '&nbsp; Search library</div>')}
+ <div class="main">
+  <h1 class="disp">Good evening</h1><div class="sub">24 books in progress · 3 added this week</div>
+  <div class="sh">Continue reading<small>See all</small></div>
+  <div class="cards">${C.slice(0, 6).map(c => `<div class="card">${img(c.img)}<div style="min-width:0"><div class="a ell">${c.s}</div><div class="b">${c.l} · page ${c.p + 1} of ${c.n}</div></div>${ring(c)}</div>`).join('')}</div>
+  <div class="sh">Collections</div>
+  <div class="tiles">${COLS.map(c => `<div class="tile"><div class="mos">${c.imgs.slice(0, 4).map(s => `<img src="${s}" alt="">`).join('')}</div><div class="a">${c.name}</div><div class="b">${c.series} series · ${c.count.toLocaleString()} ${c.name === 'Manga' ? 'volumes' : 'issues'}</div></div>`).join('')}</div>
+ </div></div>`]);
+
+/* 3 */
+M.push(['Shelf', 'Covers become physical books standing on a shelf: a spine highlight, a cast shadow, a ribbon showing progress. Collections are 3D stacks. Warm, tactile and still minimal.', `
+<div class="vp">${sidebar()}
+ <div class="main">
+  <h1 class="disp">Home</h1>
+  <div class="sh">Continue reading<small>24 in progress</small></div>
+  <div class="shelf">${C.slice(0, 7).map(c => `<div class="book">${img(c.img)}<div class="rib"><span style="width:${pct(c)}%"></span></div></div>`).join('')}</div>
+  <div class="names">${C.slice(0, 7).map(c => `<div class="ell">${c.s}<i>${c.l} · ${pct(c)}%</i></div>`).join('')}</div>
+  <div class="sh" style="margin-top:30px">Collections</div>
+  <div class="stacks">${COLS.map(c => `<div><div class="stk">${c.imgs.slice(0, 3).map(s => `<img src="${s}" alt="">`).join('')}</div><div class="stkname">${c.name}<i>${c.series} series</i></div></div>`).join('')}</div>
+ </div></div>`]);
+
+/* 4 */
+const bars = [3, 5, 2, 7, 4, 8, 6];
+M.push(['Bento', 'A dashboard of rounded tiles with different sizes for different importance: a tall card for what you’re reading, a strip for the rest, a reading stat, "next in series", and collections as cover collages.', `
+<div class="vp">${sidebar()}
+ <div class="main"><div class="bento">
+  <div class="b big"><div class="bg" style="background-image:url('${C[1].img}')"></div><div class="fade"></div>
+    <div class="in"><div class="k">Now reading</div><div class="bt disp">${C[1].s}</div><div class="bs">${C[1].l} · Book Twelve</div>
+     <div class="bar"><span style="width:${pct(C[1])}%"></span></div><div class="meta"><span>Page ${C[1].p + 1} of ${C[1].n}</span><span>~2 h left</span></div><span class="pill">Resume</span></div></div>
+  <div class="b strip"><div class="k">Jump back in</div><div class="r">${C.slice(2, 8).map(c => `<div>${img(c.img)}<div class="pb"><span style="width:${pct(c)}%"></span></div><div class="l1 ell">${c.s}</div><div class="l2">${c.l}</div></div>`).join('')}</div></div>
+  <div class="b stat"><div class="k">This week</div><div class="n disp">1,284</div><div class="u">pages · 6 books</div><div class="chart">${bars.map((h, i) => `<i class="${i === 5 ? 't' : ''}" style="height:${h * 12}%"></i>`).join('')}</div></div>
+  <div class="b" style="grid-column:3/5"><div class="nextup">${img(V[12].img)}<div><div class="k">Next in Vinland Saga</div><div class="bt disp" style="font-size:22px">${V[12].l}</div><div class="bs">${V[12].t || ''}</div><span class="pill" style="background:rgba(255,255,255,.12);color:#fff">Queue it</span></div></div></div>
+  ${COLS.map(c => `<div class="b col"><div class="bgc">${c.imgs.slice(0, 3).map(s => `<img src="${s}" alt="">`).join('')}</div><div class="fade"></div><div class="in"><div class="a">${c.name}</div><div class="bb">${c.series} series</div></div></div>`).join('')}
+ </div></div></div>`]);
+
+/* 5 */
+M.push(['Apple Books, refined', 'Same structure as today, done properly: big bold headings, a search field, larger covers with real paper-like shadows, generous spacing, a blue dot for new books and percentages instead of thin bars.', `
+<div class="vp">${sidebar('<div class="search">' + I.search + 'Search</div>')}
+ <div class="main">
+  <h1 class="disp">Home</h1>
+  <div class="sh">Continue Reading<span class="arr">See All ›</span></div>
+  <div class="row">${C.slice(0, 6).map((c, i) => `<div class="t" style="width:${i === 0 ? 150 : 132}px">${img(c.img)}<div class="a ell">${c.s}</div><div class="b"><span class="pct">${pct(c)}%</span> · ${c.l}</div></div>`).join('')}</div>
+  <div class="sh">Collections</div>
+  <div class="cols">${COLS.map(c => `<div class="colc"><div class="fan">${c.imgs.slice(0, 3).map((s, i) => `<img src="${s}" style="left:${i * 15}px;transform:rotate(${(i - 1) * 7}deg);z-index:${3 - i}" alt="">`).join('')}</div><div><div class="a">${c.name}</div><div class="b">${c.series} series<br>${c.count.toLocaleString()} ${c.name === 'Manga' ? 'volumes' : 'issues'}</div></div></div>`).join('')}</div>
+  <div class="sh">Recently Added<small>This week</small></div>
+  <div class="row">${R.slice(0, 7).map(c => `<div class="t" style="width:112px">${img(c.img)}<div class="a ell">${c.s}</div><div class="b"><span class="dot"></span>New · ${c.l}</div></div>`).join('')}</div>
+ </div></div>`]);
+
+/* 6 */
+M.push(['Ambient focus', 'The whole window takes on the colour of the book in focus. Continue Reading becomes a gentle cover-flow with the current book large in the centre; collections are tinted with their own covers. The most atmospheric option.', `
+<div class="vp"><div class="amb" style="background-image:url('${C[1].img}')"></div><div class="veil"></div>${sidebar()}
+ <div class="main">
+  <div class="flow">${[C[4], C[3], C[0], C[1], C[2], C[5], C[6]].map((c, i) => `<div class="fi ${i === 3 ? 'f' : (i === 2 || i === 4) ? 'n1' : ''}">${img(c.img)}</div>`).join('')}</div>
+  <div class="info"><div class="a disp">${C[1].s} · ${C[1].l}</div><div class="b">Page ${C[1].p + 1} of ${C[1].n} · ${pct(C[1])}% · Makoto Yukimura</div>
+    <div class="btns"><span class="b1">Resume</span><span class="b2">View series</span></div>
+    <div class="dots">${C.slice(0, 7).map((_, i) => `<i class="${i === 3 ? 'on' : ''}"></i>`).join('')}</div></div>
+  <div class="sh">Collections</div>
+  <div class="cols">${COLS.map(c => `<div class="cc"><div class="bg" style="background-image:url('${c.imgs[0]}')"></div><div class="in"><div class="a">${c.name}</div><div class="b">${c.series} series</div></div>${img(c.imgs[1], 'c', 'position:absolute;width:58px;right:70px;bottom:-30px;transform:rotate(-8deg);border-radius:4px')}${img(c.imgs[0], 'c', 'position:absolute;width:58px;right:16px;bottom:-26px;transform:rotate(6deg);border-radius:4px')}</div>`).join('')}</div>
+ </div></div>`]);
+
+const only = +new URLSearchParams(location.search).get('only');
+document.getElementById('wrap').innerHTML = M.map((m, i) => [m, i]).filter(([, i]) => !only || i + 1 === only).map(([[t, d, h], i]) =>
+  `<section><div class="lab">${i + 1} · ${t}<small>${d}</small></div><div class="mock m${i + 1}">${h}</div></section>`).join('');
+function fit() {
+  document.querySelectorAll('.mock').forEach(m => {
+    const s = m.clientWidth / 1280;
+    m.querySelector('.vp').style.transform = `scale(${s})`;
+    m.style.height = 800 * s + 'px';
+  });
+}
+fit(); addEventListener('resize', fit);
+</script>
+</body></html>

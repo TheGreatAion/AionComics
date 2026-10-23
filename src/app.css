@@ -1,0 +1,182 @@
+/* AionComics: the art is the interface. Monochrome, one typeface, no accent colour. */
+:root {
+  --bg: #0a0a0a;
+  --raised: #161616;
+  --menu: #1a1a1a;
+  --text: #ececec;
+  --text-2: #8f8f8f;
+  --text-3: #555;
+  --cap: #cfcfcf;
+  --line: #222;
+  --track: #2a2a2a;
+  --font: "Geist Variable", system-ui, sans-serif;
+  --mono: "Geist Mono", ui-monospace, monospace;
+  --ease: cubic-bezier(0.2, 0.7, 0, 1);
+  --pad: 56px;
+  color-scheme: dark;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html {
+  /* Hiding the scrollbar while reading must not shift covers the reader flies back to. */
+  scrollbar-gutter: stable;
+  background: var(--bg);
+  color: var(--text);
+  font: 400 14px/1.45 var(--font);
+  -webkit-font-smoothing: antialiased;
+}
+
+body {
+  margin: 0;
+  min-height: 100vh;
+  overflow-x: hidden;
+  user-select: none;
+  cursor: default;
+}
+
+h1,
+h2,
+h3,
+p {
+  margin: 0;
+}
+
+button {
+  font: inherit;
+  color: inherit;
+  background: none;
+  border: 0;
+  padding: 0;
+  cursor: pointer;
+}
+
+input {
+  font: inherit;
+  color: inherit;
+}
+
+img {
+  display: block;
+}
+
+:focus {
+  outline: none;
+}
+:focus-visible {
+  outline: 1px solid var(--text);
+  outline-offset: 4px;
+}
+
+::selection {
+  background: var(--text);
+  color: var(--bg);
+}
+
+::-webkit-scrollbar {
+  width: 10px;
+  height: 0;
+}
+::-webkit-scrollbar-thumb {
+  background: #262626;
+  border: 3px solid var(--bg);
+  border-radius: 6px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: #3a3a3a;
+}
+
+.mono {
+  font-family: var(--mono);
+  font-size: 12px;
+}
+
+/* The one solid button. */
+.btn {
+  background: var(--text);
+  color: var(--bg);
+  font-weight: 500;
+  padding: 12px 24px;
+  border-radius: 999px;
+  transition:
+    transform 0.3s var(--ease),
+    background 0.2s;
+}
+.btn:hover {
+  background: #fff;
+  transform: translateY(-1px);
+}
+
+/* Quiet text actions. */
+.link {
+  color: var(--text-2);
+  transition: color 0.2s;
+}
+.link:hover,
+.link.on {
+  color: var(--text);
+}
+
+/* Thin reading line under covers and in the hero. */
+.prog {
+  height: 1px;
+  background: var(--track);
+}
+.prog i {
+  display: block;
+  height: 100%;
+  background: var(--text);
+}
+.prog.blank {
+  background: none;
+}
+
+/* Covers in a grid: captions reserve two lines so covers line up along their bottoms. */
+.grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(156px, 1fr));
+  gap: 64px 36px;
+  align-items: end;
+}
+
+.empty {
+  color: var(--text-3);
+}
+
+/* Icon-only buttons; the label lives in the tooltip. */
+.ico {
+  width: 32px;
+  height: 32px;
+  flex: none;
+  display: inline-grid;
+  place-items: center;
+  border-radius: 6px;
+  color: var(--text-2);
+  transition:
+    background 0.15s,
+    color 0.15s;
+}
+.ico:hover:not(:disabled) {
+  background: rgba(255, 255, 255, 0.07);
+  color: var(--text);
+}
+.ico > span {
+  display: grid;
+}
+.ico.on {
+  color: var(--text);
+}
+.ico:disabled {
+  opacity: 0.35;
+  cursor: default;
+}
+.spin {
+  animation: spin 1.2s linear infinite;
+}
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
+}

@@ -1,0 +1,266 @@
+<!doctype html>
+<html><head><meta charset="utf-8">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Anton&family=DM+Sans:opsz,wght@9..40,400;9..40,500;9..40,600&family=Fraunces:ital,opsz,wght@0,9..144,300;0,9..144,400;1,9..144,300;1,9..144,400&family=Inter:wght@400;500;600&family=Inter+Tight:wght@400;600;700;800&family=Instrument+Serif:ital@0;1&family=Newsreader:ital,opsz,wght@0,6..72,300;0,6..72,400;1,6..72,300;1,6..72,400&display=swap">
+<style>
+  *{box-sizing:border-box}
+  .wrap{display:flex;flex-direction:column;gap:36px}
+  .lab{font:600 13px var(--font-sans);color:var(--foreground);margin:0 0 10px 2px}
+  .lab small{display:block;font-weight:400;font-size:12px;color:var(--muted-foreground);margin-top:3px}
+  .scr{position:relative;border-radius:var(--radius);overflow:hidden;padding:24px 28px 30px}
+  .ell{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+
+  /* generic placeholder cover */
+  .cv{position:relative;aspect-ratio:2/3;overflow:hidden;container-type:inline-size;border-radius:2px}
+  .cv .mh{position:absolute;top:6%;left:8%;right:8%;font-family:Anton,Impact,sans-serif;font-size:19cqw;line-height:.88;text-transform:uppercase;letter-spacing:.01em}
+  .cv .no{position:absolute;bottom:6%;left:8%;font:600 8.5cqw/1 Inter,sans-serif;letter-spacing:.04em}
+
+  /* ============ 1 · Editorial Ink ============ */
+  .ink{background:#14120f;color:#ece6da;font-family:Inter,sans-serif}
+  .ink .bar{display:flex;align-items:baseline;margin-bottom:8px}
+  .ink .wm{font:italic 300 24px Fraunces,serif}
+  .ink .nav{margin-left:auto;display:flex;gap:22px;font-size:12px;color:rgba(236,230,218,.5)}
+  .ink .nav b{color:#ece6da;font-weight:500}
+  .ink .hero{display:flex;gap:24px;align-items:flex-end;margin:0 -28px 34px;padding:26px 28px;background:radial-gradient(80% 160% at 0% 60%,rgba(111,147,176,.32),transparent 70%)}
+  .ink .hero>.cv{width:100px;flex:none;box-shadow:0 18px 30px -14px rgba(0,0,0,.85)}
+  .ink .ey{font-size:11px;color:rgba(236,230,218,.55);margin-bottom:8px}
+  .ink .ti{font:300 38px/1 Fraunces,serif;letter-spacing:-.01em}
+  .ink .cr{font:italic 300 15px Fraunces,serif;color:rgba(236,230,218,.62);margin:8px 0 16px}
+  .ink .pr{width:200px;height:1px;background:rgba(236,230,218,.16);position:relative}
+  .ink .pr span{position:absolute;inset:0 auto 0 0;width:52%;background:#ece6da}
+  .ink .pm{font-size:11px;color:rgba(236,230,218,.5);margin-top:8px}
+  .ink .also{margin-left:auto;align-self:flex-end}
+  .ink .also .ey{text-align:right}
+  .ink .also .r{display:flex;gap:8px}
+  .ink .also .cv{width:40px}
+  .ink .sec{display:flex;align-items:baseline;margin-bottom:18px;font:italic 300 19px Fraunces,serif}
+  .ink .sec small{margin-left:auto;font:12px Inter,sans-serif;color:rgba(236,230,218,.45)}
+  .ink .cols{display:grid;grid-template-columns:repeat(4,1fr);gap:24px}
+  .ink .stk{position:relative;width:104px;aspect-ratio:2/3;margin-top:16px}
+  .ink .stk .cv{position:absolute;inset:0;transform-origin:50% 0}
+  .ink .stk .b2{transform:translateY(-16px) scale(.86);opacity:.3}
+  .ink .stk .b1{transform:translateY(-8px) scale(.93);opacity:.6}
+  .ink .cn{font:300 21px Fraunces,serif;margin-top:14px}
+  .ink .cc{font-size:11px;color:rgba(236,230,218,.48);margin-top:4px}
+
+  /* ============ 2 · Editorial Paper ============ */
+  .paper{background:#f3eee4;color:#1b1915;font-family:Newsreader,serif}
+  .paper .mast{text-align:center;border-bottom:1px solid rgba(27,25,21,.2);padding-bottom:14px;margin-bottom:26px}
+  .paper .wm{font:italic 300 32px/1 Newsreader,serif}
+  .paper .nav{font:500 10px Inter,sans-serif;letter-spacing:.22em;text-transform:uppercase;color:rgba(27,25,21,.5);display:flex;justify-content:center;gap:26px;margin-top:12px}
+  .paper .nav b{color:#1b1915;font-weight:500}
+  .paper .sec{display:flex;align-items:baseline;margin-bottom:14px}
+  .paper .sec h4{margin:0;font:400 21px Newsreader,serif}
+  .paper .sec small{margin-left:auto;font:italic 300 14px Newsreader,serif;color:rgba(27,25,21,.55)}
+  .paper .row{display:grid;grid-template-columns:repeat(7,1fr);gap:14px;margin-bottom:34px}
+  .paper .row .cv{box-shadow:0 10px 18px -12px rgba(40,30,10,.5)}
+  .paper .pl{height:1px;background:rgba(27,25,21,.15);margin-top:9px;position:relative}
+  .paper .pl span{position:absolute;inset:0 auto 0 0;background:#1b1915}
+  .paper .l1{font:400 13.5px Newsreader,serif;margin-top:8px}
+  .paper .l2{font:italic 300 12.5px Newsreader,serif;color:rgba(27,25,21,.55)}
+  .paper .shelf{display:flex;align-items:flex-end;gap:5px;height:206px;border-bottom:2px solid #1b1915;padding:0 6px}
+  .paper .sp{width:46px;writing-mode:vertical-rl;display:flex;justify-content:space-between;align-items:center;padding:14px 0;border-radius:1px 1px 0 0;box-shadow:inset -3px 0 0 rgba(0,0,0,.12)}
+  .paper .sp b{font:400 16px Newsreader,serif;letter-spacing:.02em}
+  .paper .sp i{font:500 9px Inter,sans-serif;font-style:normal;letter-spacing:.14em;text-transform:uppercase;opacity:.75}
+  .paper .gap{width:22px}
+
+  /* ============ 3 · Gallery ============ */
+  .gal{background:#fbfaf7;color:#1f1e1c;font-family:Inter,sans-serif}
+  .gal .bar{display:flex;align-items:baseline}
+  .gal .wm{font:500 11px Inter,sans-serif;letter-spacing:.42em}
+  .gal .nav{margin-left:auto;display:flex;gap:22px;font-size:11px;color:#9a968d}
+  .gal .nav b{font-weight:500;color:#1f1e1c}
+  .gal .feat{display:grid;grid-template-columns:150px 1fr;gap:40px;align-items:end;padding:40px 0 48px 36px}
+  .gal .feat .cv{box-shadow:0 34px 40px -24px rgba(0,0,0,.5),0 2px 4px rgba(0,0,0,.08)}
+  .gal .ct{font:400 34px/1.02 "Instrument Serif",serif}
+  .gal .ct i{color:#8c877d}
+  .gal .cm{font-size:11px;color:#8c877d;margin-top:12px;line-height:1.7}
+  .gal .cp{font-size:11px;margin-top:16px;color:#1f1e1c}
+  .gal .cp u{text-underline-offset:3px;text-decoration-thickness:1px}
+  .gal .sec{font:italic 400 22px "Instrument Serif",serif;margin:0 0 20px}
+  .gal .cols{display:grid;grid-template-columns:repeat(4,1fr);gap:24px}
+  .gal .fr{width:108px;background:#fff;padding:9px;box-shadow:0 1px 2px rgba(0,0,0,.06),0 16px 26px -18px rgba(0,0,0,.35)}
+  .gal .cn{font:400 19px "Instrument Serif",serif;margin-top:16px}
+  .gal .cc{font-size:10px;color:#9a968d;margin-top:3px;letter-spacing:.02em}
+
+  /* ============ 4 · Quiet Native ============ */
+  .nat{background:#1d1d1f;color:#f5f5f7;font-family:"Segoe UI Variable Text","Segoe UI",Inter,system-ui,sans-serif;padding:0;display:grid;grid-template-columns:184px 1fr}
+  .nat .side{background:#171719;border-right:1px solid rgba(255,255,255,.06);padding:16px 10px;font-size:12.5px}
+  .nat .g{font-size:10.5px;color:#8e8e93;font-weight:600;margin:16px 8px 6px}
+  .nat .i{white-space:nowrap;display:flex;align-items:center;gap:9px;padding:6px 8px;border-radius:6px;color:#d1d1d6}
+  .nat .i.on{background:#2c2c30;color:#fff}
+  .nat .ic{width:11px;height:11px;border-radius:3px;border:1.5px solid currentColor;opacity:.65;flex:none}
+  .nat .k{margin-left:auto;color:#6e6e73;font-size:11px}
+  .nat .main{padding:16px 22px 24px;min-width:0}
+  .nat .tool{display:flex;align-items:center}
+  .nat .tool h4{margin:0;font-size:20px;font-weight:600}
+  .nat .srch{margin-left:auto;width:170px;height:28px;border-radius:7px;background:#2c2c30;color:#8e8e93;font-size:12px;display:flex;align-items:center;padding:0 10px}
+  .nat .sh{display:flex;align-items:baseline;margin:20px 0 10px;font-size:14px;font-weight:600}
+  .nat .sh small{margin-left:auto;color:#8e8e93;font-weight:400;font-size:12px}
+  .nat .row{display:grid;grid-template-columns:repeat(6,1fr);gap:12px}
+  .nat .row .cv{border-radius:6px}
+  .nat .pl{height:3px;border-radius:2px;background:#3a3a3c;margin-top:7px;overflow:hidden}
+  .nat .pl span{display:block;height:100%;background:#f5f5f7}
+  .nat .l1{font-size:12px;margin-top:6px}
+  .nat .l2{font-size:11px;color:#8e8e93}
+  .nat .cols{display:grid;grid-template-columns:repeat(4,1fr);gap:12px}
+  .nat .tile{background:#262628;border-radius:10px;padding:12px;min-width:0}
+  .nat .fan{position:relative;height:84px}
+  .nat .fan .cv{position:absolute;width:48px;left:50%;top:6px;border-radius:4px;box-shadow:0 6px 12px rgba(0,0,0,.4);transform-origin:50% 100%}
+  .nat .tn{font-size:13px;font-weight:600;margin-top:10px}
+  .nat .tc{font-size:11px;color:#8e8e93;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+
+  /* ============ 5 · Ambient ============ */
+  .amb{color:#fff;font-family:"DM Sans",sans-serif;background:
+      radial-gradient(70% 90% at 10% 20%,rgba(130,170,200,.55),transparent 60%),
+      radial-gradient(60% 70% at 88% 0%,rgba(29,59,90,.9),transparent 65%),
+      radial-gradient(90% 60% at 50% 115%,#070a10,transparent 70%),#0d131c}
+  .amb .bar{display:flex;align-items:center;margin-bottom:28px}
+  .amb .wm{font:600 16px "DM Sans",sans-serif;letter-spacing:-.01em}
+  .amb .nav{margin-left:28px;display:flex;gap:20px;font-size:13px;color:rgba(255,255,255,.62)}
+  .amb .nav b{color:#fff;font-weight:500}
+  .amb .srch{margin-left:auto;font-size:12px;color:rgba(255,255,255,.6);border:1px solid rgba(255,255,255,.18);border-radius:999px;padding:6px 14px}
+  .amb .hero{display:flex;gap:30px;align-items:center;margin-bottom:36px}
+  .amb .hero>.cv{width:132px;flex:none;border-radius:6px;box-shadow:0 30px 50px -18px rgba(0,0,0,.75)}
+  .amb .chip{font-size:11px;letter-spacing:.1em;text-transform:uppercase;color:rgba(255,255,255,.72)}
+  .amb .ti{font:600 42px/1 "DM Sans",sans-serif;letter-spacing:-.03em;margin:10px 0 8px}
+  .amb .sub{font-size:14px;color:rgba(255,255,255,.75)}
+  .amb .btns{display:flex;gap:10px;margin-top:20px;align-items:center}
+  .amb .b1{background:#fff;color:#0d131c;border-radius:999px;padding:9px 20px;font-size:13px;font-weight:600}
+  .amb .b2{border:1px solid rgba(255,255,255,.3);border-radius:999px;padding:8px 18px;font-size:13px}
+  .amb .pm{font-size:12px;color:rgba(255,255,255,.6);margin-left:8px}
+  .amb .sh{font-size:15px;font-weight:600;margin-bottom:12px}
+  .amb .cols{display:grid;grid-template-columns:repeat(4,1fr);gap:12px}
+  .amb .card{position:relative;height:128px;border-radius:14px;padding:14px;overflow:hidden}
+  .amb .card .cn{font-size:16px;font-weight:600}
+  .amb .card .cc{font-size:11px;color:rgba(255,255,255,.72);margin-top:2px}
+  .amb .card .cv{position:absolute;width:52px;bottom:-26px;border-radius:4px;box-shadow:0 8px 16px rgba(0,0,0,.4)}
+
+  /* ============ 6 · Swiss ============ */
+  .sw{background:#f2f2ee;color:#111;font-family:"Inter Tight",Inter,sans-serif}
+  .sw .top{display:grid;grid-template-columns:1fr auto;align-items:end}
+  .sw .big{font:800 68px/.82 "Inter Tight",sans-serif;letter-spacing:-.05em}
+  .sw .stats{display:grid;grid-template-columns:repeat(3,auto);gap:26px;text-align:left}
+  .sw .stats b{display:block;font-size:20px;font-weight:700;letter-spacing:-.02em}
+  .sw .stats span{font-size:10px;text-transform:uppercase;letter-spacing:.08em;color:#666}
+  .sw .rule{height:1px;background:#111;margin:20px 0 10px}
+  .sw .sh{display:grid;grid-template-columns:44px 1fr auto;font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.06em;margin-bottom:12px}
+  .sw .sh span:last-child{font-weight:500;color:#666;text-transform:none;letter-spacing:0}
+  .sw .row{display:grid;grid-template-columns:repeat(7,1fr);gap:8px;margin-left:44px}
+  .sw .row .cv{border-radius:0}
+  .sw .pl{height:2px;background:rgba(17,17,17,.12);margin-top:6px}
+  .sw .pl span{display:block;height:100%;background:#111}
+  .sw .l1{font-size:10.5px;font-weight:700;margin-top:6px;letter-spacing:-.01em}
+  .sw .l2{font-size:10px;color:#666}
+  .sw .crow{display:grid;grid-template-columns:44px 1fr 150px auto;align-items:center;padding:9px 0;border-top:1px solid rgba(17,17,17,.15)}
+  .sw .crow .ix{font-size:11px;font-weight:700}
+  .sw .crow .nm{font-size:30px;font-weight:700;letter-spacing:-.035em;line-height:1}
+  .sw .crow .ct{font-size:12px;color:#555}
+  .sw .thumbs{display:flex;gap:4px}
+  .sw .thumbs .cv{width:28px;border-radius:0}
+</style></head>
+<body>
+<div class="wrap" id="wrap"></div>
+<script>
+const S={
+  vinland:{t:'Vinland Saga',n:'Vol. 12',a:'Makoto Yukimura',mh:'#fff',art:'linear-gradient(162deg,transparent 58%,#0e1a26 58.4%),linear-gradient(200deg,transparent 66%,#14283a 66.4%),linear-gradient(180deg,#d7e5ee,#7d9fbb 55%,#1d3b5a)'},
+  saga:{t:'Saga',n:'#54',a:'Vaughan / Staples',mh:'#fff3df',art:'radial-gradient(circle at 50% 60%,#f6c06b 0 20%,transparent 21%),linear-gradient(180deg,#3b1f4a,#e8503a 68%,#2a1230)'},
+  kagura:{t:'Kagurabachi',n:'Vol. 1',a:'Takeru Hokazono',mh:'#fff',art:'linear-gradient(115deg,#0b0b0b 0 55%,#b3121b 55% 58%,#2b2b2b 58%)'},
+  opm:{t:'One-Punch Man',n:'Vol. 8',a:'ONE / Yusuke Murata',mh:'#111',art:'radial-gradient(circle at 50% 58%,#fff4d6 0 15%,transparent 16%),linear-gradient(180deg,#f5c400 0 62%,#d7261e 62% 66%,#f5c400 66%)'},
+  monstress:{t:'Monstress',n:'#50',a:'Liu / Takeda',mh:'#e4c47a',art:'radial-gradient(70% 45% at 50% 72%,#c9a24a 0 25%,transparent 62%),linear-gradient(180deg,#0d2423,#12302f 60%,#06100f)'},
+  daredevil:{t:'Daredevil',n:'#1',a:'Miller / Janson',mh:'#fff',art:'linear-gradient(200deg,#b22222 0 46%,#5a0e0e 46% 70%,#120404 70%)'},
+  akira:{t:'Akira',n:'Vol. 3',a:'Katsuhiro Otomo',mh:'#fff',art:'radial-gradient(circle at 50% 64%,#f3efe6 0 17%,transparent 18%),linear-gradient(180deg,#d7261e,#9c140f)'},
+  blackhole:{t:'Black Hole',n:'#4',a:'Charles Burns',mh:'#111',art:'radial-gradient(circle at 50% 58%,#000 0 30%,#f2efe8 31%)'},
+  flash:{t:'Flashpoint',n:'#1',a:'Johns / Kubert',mh:'#fff',art:'linear-gradient(168deg,#f2c230 0 30%,#c8211a 30% 70%,#1a0d0d 70%)'},
+  watch:{t:'Watchmen',n:'#1',a:'Moore / Gibbons',mh:'#f5d000',art:'radial-gradient(circle at 50% 56%,#f5d000 0 24%,transparent 25%),#121212'},
+  sand:{t:'Sandman',n:'#1',a:'Neil Gaiman',mh:'#d9d2ff',art:'radial-gradient(circle at 50% 40%,#5b4c86 0 18%,transparent 40%),linear-gradient(180deg,#1a1626,#3e3359)'},
+  spidey:{t:'Ultimate Spider-Man',n:'#20',a:'Bendis / Bagley',mh:'#fff',art:'linear-gradient(135deg,transparent 48%,#d42020 48% 60%,transparent 60%),linear-gradient(180deg,#2b6ae0,#0b2a6b)'},
+  ff:{t:'Fantastic Four',n:'#1',a:'Lee / Kirby',mh:'#fff',art:'radial-gradient(circle at 50% 45%,#fff 0 9%,transparent 10%),linear-gradient(180deg,#2a62d6 0 72%,#f2f2f2 72%)'},
+};
+const cv=(k,st='')=>{const s=S[k];return `<div class="cv" style="background:${s.art};${st}"><span class="mh" style="color:${s.mh}">${s.t}</span><span class="no" style="color:${s.mh}">${s.n}</span></div>`};
+const CONT=[['vinland',.52],['saga',.6],['kagura',.2],['opm',.55],['monstress',.3],['daredevil',.85],['akira',.1]];
+const COLS=[['DC',['flash','watch','sand'],'3 series · 91 issues','200,33,26'],['Indie',['saga','monstress','blackhole'],'5 series · 138 issues','232,80,58'],['Manga',['vinland','akira','opm'],'5 series · 114 volumes','111,147,176'],['Marvel',['daredevil','spidey','ff'],'4 series · 110 issues','150,30,30']];
+
+const screens=[];
+
+/* 1 · Editorial Ink */
+screens.push(['Editorial — Ink','Warm ink-black, serif titles, and a soft tint taken from the cover you’re reading.',`
+<div class="scr ink">
+  <div class="bar"><div class="wm">Aion</div><div class="nav"><b>Library</b><span>Lists</span><span>Search</span></div></div>
+  <div class="hero">${cv('vinland')}
+    <div><div class="ey">Continue reading</div><div class="ti">Vinland Saga</div><div class="cr">Volume Twelve — Makoto Yukimura</div>
+      <div class="pr"><span></span></div><div class="pm">Page 112 of 216</div></div>
+    <div class="also"><div class="ey">Also reading</div><div class="r">${CONT.slice(1,5).map(([k])=>cv(k)).join('')}</div></div>
+  </div>
+  <div class="sec">Collections<small>4 collections · 453 books</small></div>
+  <div class="cols">${COLS.map(([n,c,m])=>`<div><div class="stk">${cv(c[2]).replace('class="cv"','class="cv b2"')}${cv(c[1]).replace('class="cv"','class="cv b1"')}${cv(c[0])}</div><div class="cn">${n}</div><div class="cc">${m}</div></div>`).join('')}</div>
+</div>`]);
+
+/* 2 · Editorial Paper */
+const spines=[['DC','3 series','#b42a1f','#f3eee4',190],['Indie','5 series','#3b2447','#f3eee4',176],['Manga','5 series','#1f3f5e','#f3eee4',198],['Marvel','4 series','#7d1717','#f3eee4',184],null,['Unread','212','#ddd5c4','#1b1915',160],['X-Men','list','#2b2a27','#f3eee4',192],['Summer 2026','list','#c49a3c','#1b1915',170]];
+screens.push(['Editorial — Paper','Paper and ink with a magazine masthead. Collections and reading lists sit on a shelf as book spines.',`
+<div class="scr paper">
+  <div class="mast"><div class="wm">Aion</div><div class="nav"><b>Library</b><span>Collections</span><span>Lists</span><span>Search</span></div></div>
+  <div class="sec"><h4>Continue reading</h4><small>Seven in progress</small></div>
+  <div class="row">${CONT.map(([k,p])=>`<div>${cv(k)}<div class="pl"><span style="width:${p*100}%"></span></div><div class="l1 ell">${S[k].t}</div><div class="l2">${S[k].n}</div></div>`).join('')}</div>
+  <div class="sec"><h4>The shelf</h4><small>Collections & lists</small></div>
+  <div class="shelf">${spines.map(s=>s?`<div class="sp" style="height:${s[4]}px;background:${s[2]};color:${s[3]}"><b>${s[0]}</b><i>${s[1]}</i></div>`:'<div class="gap"></div>').join('')}</div>
+</div>`]);
+
+/* 3 · Gallery */
+screens.push(['Gallery','White walls and lots of space. Covers are hung like framed prints, with captions like a museum label.',`
+<div class="scr gal">
+  <div class="bar"><div class="wm">AION</div><div class="nav"><b>Library</b><span>Collections</span><span>Lists</span><span>Search</span></div></div>
+  <div class="feat">${cv('vinland')}
+    <div><div class="ct">Vinland Saga,<br><i>Volume Twelve</i></div>
+      <div class="cm">Makoto Yukimura<br>Kodansha, 2013 · Manga, read right to left</div>
+      <div class="cp">Page 112 of 216 — <u>Continue</u></div></div>
+  </div>
+  <div class="sec">Collections</div>
+  <div class="cols">${COLS.map(([n,c,m])=>`<div><div class="fr">${cv(c[0])}</div><div class="cn">${n}</div><div class="cc">${m}</div></div>`).join('')}</div>
+</div>`]);
+
+/* 4 · Quiet Native */
+screens.push(['Quiet native','A sidebar, the system font, and rounded tiles. Familiar and dense, like Apple Books or Photos.',`
+<div class="scr nat">
+  <div class="side">
+    <div class="i on"><span class="ic"></span>Home</div><div class="i"><span class="ic"></span>Continue Reading<span class="k">7</span></div><div class="i"><span class="ic"></span>Recently Added</div>
+    <div class="g">Collections</div>${COLS.map(([n,,m])=>`<div class="i"><span class="ic"></span>${n}<span class="k">${m.split(' ')[0]}</span></div>`).join('')}
+    <div class="g">Lists</div><div class="i"><span class="ic"></span>Unread</div><div class="i"><span class="ic"></span>Favorites</div>
+  </div>
+  <div class="main">
+    <div class="tool"><h4>Home</h4><div class="srch">Search</div></div>
+    <div class="sh">Continue Reading<small>See all</small></div>
+    <div class="row">${CONT.slice(0,6).map(([k,p])=>`<div>${cv(k)}<div class="pl"><span style="width:${p*100}%"></span></div><div class="l1 ell">${S[k].t}</div><div class="l2">${S[k].n}</div></div>`).join('')}</div>
+    <div class="sh">Collections</div>
+    <div class="cols">${COLS.map(([n,c,m])=>`<div class="tile"><div class="fan">${cv(c[2],'transform:translateX(-50%) rotate(-11deg) translateX(-14px)')}${cv(c[1],'transform:translateX(-50%) rotate(11deg) translateX(14px)')}${cv(c[0],'transform:translateX(-50%)')}</div><div class="tn">${n}</div><div class="tc">${m}</div></div>`).join('')}</div>
+  </div>
+</div>`]);
+
+/* 5 · Ambient */
+screens.push(['Ambient','The whole screen takes on the colour of what you’re reading, like a modern streaming app.',`
+<div class="scr amb">
+  <div class="bar"><div class="wm">aion</div><div class="nav"><b>Home</b><span>Collections</span><span>Lists</span></div><div class="srch">Search</div></div>
+  <div class="hero">${cv('vinland')}
+    <div><div class="chip">Continue · Volume 12</div><div class="ti">Vinland Saga</div><div class="sub">Makoto Yukimura · Kodansha</div>
+      <div class="btns"><span class="b1">Resume</span><span class="b2">Details</span><span class="pm">Page 112 of 216 · ~25 min left</span></div></div>
+  </div>
+  <div class="sh">Collections</div>
+  <div class="cols">${COLS.map(([n,c,m,t])=>`<div class="card" style="background:linear-gradient(155deg,rgba(${t},.62),rgba(${t},.14))"><div class="cn">${n}</div><div class="cc">${m}</div>${cv(c[1],'right:46px;transform:rotate(-8deg)')}${cv(c[0],'right:12px;transform:rotate(6deg)')}</div>`).join('')}</div>
+</div>`]);
+
+/* 6 · Swiss */
+screens.push(['Swiss grid','A strict grid, big bold type, and thin rules. Graphic and confident, with no decoration.',`
+<div class="scr sw">
+  <div class="top"><div class="big">Library</div>
+    <div class="stats"><div><b>2,418</b><span>Issues</span></div><div><b>312</b><span>Series</span></div><div><b>4</b><span>Collections</span></div></div></div>
+  <div class="rule"></div>
+  <div class="sh"><span>01</span><span>Continue reading</span><span>7 in progress</span></div>
+  <div class="row">${CONT.map(([k,p])=>`<div>${cv(k)}<div class="pl"><span style="width:${p*100}%"></span></div><div class="l1 ell">${S[k].t}</div><div class="l2">${S[k].n}</div></div>`).join('')}</div>
+  <div class="rule"></div>
+  <div class="sh"><span>02</span><span>Collections</span><span>Sorted by name</span></div>
+  ${COLS.map(([n,c,m],i)=>`<div class="crow"><span class="ix">0${i+1}</span><span class="nm">${n}</span><span class="ct">${m}</span><span class="thumbs">${c.map(k=>cv(k)).join('')}</span></div>`).join('')}
+</div>`]);
+
+document.getElementById('wrap').innerHTML=screens.map(([t,d,h],i)=>`<section><div class="lab">${i+1} · ${t}<small>${d}</small></div>${h}</section>`).join('');
+</script>
+</body></html>

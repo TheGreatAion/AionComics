@@ -1,0 +1,722 @@
+<script lang="ts">
+  import { api, coverUrl, storyTitle, type Panel } from "$lib/api";
+  import Icon, { type IconName } from "$lib/components/Icon.svelte";
+  import WindowControls from "$lib/components/WindowControls.svelte";
+  import { fly, FLIGHT_MS, visible } from "$lib/flight";
+  import { menu, reader, showMenu } from "$lib/state.svelte";
+  import { ACTIONS, keysFor, menuItems } from "./actions";
+  import Bookmarks from "./Bookmarks.svelte";
+  import { Ctl, type Step } from "./ctl.svelte";
+  import Extract from "./Extract.svelte";
+  import Flow from "./Flow.svelte";
+  import GoTo from "./GoTo.svelte";
+  import GuidedView from "./GuidedView.svelte";
+  import { chord, loadOverrides, pretty } from "./keys";
+  import Options from "./Options.svelte";
+  import PageView from "./PageView.svelte";
+  import PanelEditor from "./PanelEditor.svelte";
+  import { prefs } from "./prefs.svelte";
+  import ScrollView from "./ScrollView.svelte";
+  import Shortcuts from "./Shortcuts.svelte";
+
+  let { id, onclose, onopen }: { id: number; onclose: () => void; onopen: (id: number) => void } = $props();
+
+  const c = new Ctl({ open: (n) => onopen(n), close: () => close() });
+  let overrides = $state(loadOverrides());
+  let pageImg = $state<HTMLImageElement>();
+  let chrome = $state(true);
+  let hideTimer: ReturnType<typeof setTimeout> | undefined;
+  let saveTimer: ReturnType<typeof setTimeout> | undefined;
+  let clock = $state(new Date());
+  /** Bumped after panel edits so Guided View refetches. */
+  let panelsRev = $state(0);
+
+  // The cover (or page) the reader grew out of. It flies in onto the first page and back out on close.
+  let arriving = $state(!!reader.from && !prefs.scroll && visible(reader.from.getBoundingClientRect()));
+  let leaving = $state(false);
+
+  // Never leave a blank screen: if the first page is slow, skip the flight and bring the controls back.
+  $effect(() => {
+    if (!arriving) return;
+    const t = setTimeout(() => (arriving = false), 1500);
+    return () => clearTimeout(t);
+  });
+
+  $effect(() => {
+    const book = id;
+    c.error = null;
+    c.steps = null;
+    c.overlay = null;
+    c.rotation = 0;
+    api
+      .openComic(book)
+      .then((r) => book === id && c.load(r))
+      .catch((e) => (c.error = String(e)));
+  });
+
+  // Guided View stops for the page or spread on screen, and the next spread's ahead of time.
+  $effect(() => {
+    void panelsRev;
+    if (!c.info || c.mode !== "guided") return;
+    const [book, pages, rtl] = [c.id, c.shown, c.rtl];
+    const key = pages.join("-");
+    c.steps = null;
+    Promise.all(pages.map((p) => api.pagePanels(book, p, rtl).catch(() => [] as Panel[]))).then((lists) => {
+      if (book !== c.id || key !== c.shown.join("-")) return;
+      const steps: Step[] = [];
+      lists.forEach((list, k) => {
+        if (list.length) for (const panel of list) steps.push({ page: pages[k], panel });
+        // In a spread, a page with no panels (splash art) still gets a stop of its own.
+        else if (pages.length > 1) steps.push({ page: pages[k], panel: null });
+      });
+      c.steps = steps;
+      if (c.landOnLast) c.step = steps.length - 1;
+      c.landOnLast = false;
+      for (const n of [pages[pages.length - 1] + 1, pages[pages.length - 1] + 2]) {
+        if (n <= c.last) api.pagePanels(book, n, rtl).catch(() => {});
+      }
+    });
+  });
+
+  // Save progress shortly after the page settles. Opening a book isn't reading it: nothing is saved
+  // until the page moves from where the book opened, so flipping through books leaves them as they were.
+  let pending: [number, number, number] | null = null;
+  let movedIn = 0;
+  function flush() {
+    clearTimeout(saveTimer);
+    if (!pending) return Promise.resolve();
+    const [book, p, count] = pending;
+    pending = null;
+    return api.saveProgress(book, p, count);
+  }
+  $effect(() => {
+    if (!c.info) return;
+    const [book, p, count] = [c.id, c.furthest, c.count];
+    // A turn just before switching books still counts.
+    if (pending && pending[0] !== book) flush();
+    if (movedIn !== book) {
+      if (c.page === c.openedAt) return;
+      movedIn = book;
+    }
+    pending = [book, p, count];
+    clearTimeout(saveTimer);
+    saveTimer = setTimeout(flush, 400);
+  });
+
+  $effect(() => {
+    const t = setInterval(() => (clock = new Date()), 15000);
+    return () => clearInterval(t);
+  });
+
+  // The library keeps its scrollbar gutter while hidden (so covers don't shift under the flight back),
+  // and nothing can paint over it but the page background: make that the reader's too.
+  const readerBg = $derived(prefs.background === "grey" ? "#1b1b1b" : "#000");
+  $effect(() => {
+    document.documentElement.style.background = readerBg;
+    return () => (document.documentElement.style.background = "");
+  });
+
+  function arrive(img: HTMLImageElement) {
+    pageImg = img;
+    const from = reader.from;
+    if (!arriving || !from) return (arriving = false);
+    fly(from.currentSrc || from.src, from.getBoundingClientRect(), img.getBoundingClientRect(), {
+      hide: [from, img],
+      done: () => (arriving = false),
+    });
+  }
+
+  function close() {
+    if (leaving) return;
+    if (c.fullscreen) c.setFullscreen(false);
+    if (pending && pending[0] !== c.id) flush();
+    if (c.info && movedIn === c.id) pending = [c.id, c.furthest, c.count];
+    const save = flush();
+    const to = reader.from;
+    // Shrink back only when the page is shown plainly; from a zoomed or turned page it would jump.
+    const plain =
+      c.zoom === 1 && c.rotation === 0 && (c.mode === "pages" || (c.mode === "guided" && c.step === -1));
+    if (to?.isConnected && pageImg?.isConnected && plain && visible(to.getBoundingClientRect())) {
+      leaving = true;
+      fly(pageImg.currentSrc || pageImg.src, pageImg.getBoundingClientRect(), to.getBoundingClientRect(), {
+        hide: [pageImg, to],
+        done: () => save.finally(onclose),
+      });
+    } else {
+      save.finally(onclose);
+    }
+  }
+
+  function onkey(e: KeyboardEvent) {
+    if (menu.open || leaving) return;
+    if (e.key === "Escape" && c.overlay) {
+      e.preventDefault();
+      c.overlay = null;
+      return;
+    }
+    if (e.key === "Escape" && c.endCard) {
+      c.endCard = false;
+      return;
+    }
+    // A held arrow key stops at the end card; going on to the next book takes a fresh press.
+    if (c.endCard && e.repeat) {
+      e.preventDefault();
+      return;
+    }
+    // Esc leaves full screen before it leaves the book.
+    if (e.key === "Escape" && c.fullscreen) {
+      e.preventDefault();
+      c.setFullscreen(false);
+      return;
+    }
+    // The shortcuts sheet and the panel editor take the keyboard while open.
+    if (c.overlay === "shortcuts" || c.overlay === "editor") return;
+    const k = chord(e);
+    const a = ACTIONS.find((x) => keysFor(x, overrides).includes(k));
+    if (!a || (a.enabled && !a.enabled(c))) return;
+    e.preventDefault();
+    a.run(c);
+    wake();
+  }
+
+  // The bars fade after a few idle seconds, but never from under the pointer: resting on the toolbar
+  // or the page line keeps them, and leaving them (or the window) starts the full wait again.
+  const IDLE_MS = 3000;
+  let overBars = false;
+  function wake() {
+    chrome = true;
+    clearTimeout(hideTimer);
+    hideTimer = setTimeout(() => {
+      if (!c.overlay && !menu.open && !overBars) chrome = false;
+    }, IDLE_MS);
+  }
+  function bars(over: boolean) {
+    overBars = over;
+    wake();
+  }
+
+  function zone(z: "left" | "middle" | "right") {
+    if (c.overlay && c.overlay !== "flow") {
+      c.overlay = null;
+      return;
+    }
+    if (z === "left") c.left();
+    else if (z === "right") c.right();
+    else if (chrome) chrome = false;
+    else wake();
+  }
+
+  const openMenu = (e: MouseEvent) => showMenu(e, menuItems(c, overrides));
+
+  $effect(() => {
+    wake();
+    return () => clearTimeout(hideTimer);
+  });
+
+  const count = $derived.by(() => {
+    if (!c.info) return "";
+    const s = c.shown;
+    const pages = s.length === 2 ? `${s[0] + 1}–${s[1] + 1}` : `${s[0] + 1}`;
+    return `${pages} / ${c.count}`;
+  });
+  const time = $derived(clock.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }));
+  const panel = $derived(
+    c.mode === "guided" && c.steps?.length && c.step >= 0 ? `Panel ${c.step + 1} / ${c.steps.length}` : "",
+  );
+  const byId = Object.fromEntries(ACTIONS.map((a) => [a.id, a]));
+  const tip = (id: string) => {
+    const a = byId[id];
+    const k = keysFor(a, overrides)[0];
+    return k ? `${a.label} (${pretty(k)})` : a.label;
+  };
+  const showChrome = $derived((chrome || c.endCard || !!c.overlay) && !arriving && !leaving);
+</script>
+
+<svelte:window onkeydown={onkey} />
+
+<div
+  class="reader"
+  class:hide-cursor={!chrome && !c.magnifier}
+  class:leaving
+  style:--fade="{FLIGHT_MS}ms"
+  style:--reader-bg={readerBg}
+  onmousemove={(e) => bars(!!(e.target as Element).closest?.(".toolbar.shown, .bottom.shown"))}
+  oncontextmenu={openMenu}
+  role="presentation"
+>
+  {#if c.error}
+    <div class="center msg">
+      <p>Couldn’t open this book.</p>
+      <p class="sub">{c.error}</p>
+      <button class="btn" onclick={onclose}>Back to library</button>
+    </div>
+  {:else if c.info}
+    {#key c.id}
+      {#if c.mode === "guided"}
+        <GuidedView {c} onzone={zone} onready={arrive} bind:img={pageImg} />
+      {:else if c.mode === "scroll"}
+        <ScrollView {c} onzone={zone} />
+      {:else}
+        <PageView {c} onzone={zone} onready={arrive} bind:img={pageImg} />
+      {/if}
+    {/key}
+
+    {#if c.endCard}
+      {@const nextTitle = c.info.next ? storyTitle(c.info.next) : null}
+      <div class="end" role="dialog">
+        <div class="end-card">
+          <p class="done">You finished {[c.info.comic.seriesName.trim(), c.info.comic.label].filter(Boolean).join(" ")}.</p>
+          {#if c.info.next}
+            <button class="next" onclick={() => onopen(c.info!.next!.id)}>
+              <img src={coverUrl(c.info.next.id)} alt="" />
+              <span class="nl">{c.info.next.label}</span>
+              {#if nextTitle}<span class="nt">{nextTitle}</span>{/if}
+            </button>
+            <div class="end-actions">
+              <button class="btn icon-btn" onclick={() => onopen(c.info!.next!.id)}><Icon name="play" size={14} />{c.info.next.label}</button>
+              <button class="ico" title="Back to library" aria-label="Back to library" onclick={close}><Icon name="back" size={18} /></button>
+            </div>
+          {:else}
+            <div class="end-actions">
+              <button class="btn icon-btn" onclick={close}><Icon name="back" size={15} />Library</button>
+              <button class="link" onclick={() => (c.endCard = false)}>Stay</button>
+            </div>
+          {/if}
+        </div>
+      </div>
+    {/if}
+
+    <!-- The page number can stay on screen after everything else has faded (I, or Options). -->
+    {#if prefs.info && !showChrome}
+      <div class="pin mono">{#if panel}{panel}&ensp;·&ensp;{/if}{count}&ensp;·&ensp;{time}</div>
+    {/if}
+
+    {#snippet tool(id: string, icon: IconName | null, text = "")}
+      {@const a = byId[id]}
+      <button
+        class="tool"
+        class:on={a.checked?.(c)}
+        disabled={a.enabled ? !a.enabled(c) : false}
+        title={tip(id)}
+        aria-label={a.label}
+        onclick={() => (a.run(c), wake())}
+      >
+        {#if icon}<Icon name={icon} />{:else}<span class="txt mono">{text}</span>{/if}
+      </button>
+    {/snippet}
+
+    <!-- The reader's own title bar: drag the window by it; the tools sit in quiet groups. -->
+    <header
+      class="toolbar"
+      class:shown={showChrome}
+      data-tauri-drag-region
+      role="toolbar"
+      tabindex="-1"
+      onpointerenter={() => bars(true)}
+      onpointerleave={() => bars(false)}
+    >
+      <button class="tool back" onclick={close} title="Back to library (Esc)" aria-label="Back to library">
+        <Icon name="back" />
+      </button>
+      <div class="title" data-tauri-drag-region>
+        <span>{c.info.comic.seriesName.trim()}</span>
+        {#if c.info.comic.label}<span class="dim">{c.info.comic.label}</span>{/if}
+        {#if c.rtl}<span class="dim mono rtl">Right to left</span>{/if}
+      </div>
+      <div class="tools" data-tauri-drag-region>
+        <div class="group g-pages">{@render tool("flow", "strip")}{@render tool("goto", "goto")}</div>
+        <div class="group">
+          {@render tool("fitHeight", "fitHeight")}{@render tool("fitWidth", "fitWidth")}{@render tool("fitPage", "fitPage")}{@render tool("fullSize", null, "1:1")}{@render tool("scroll", "scroll")}
+        </div>
+        <div class="group">{@render tool("double", "double")}{@render tool("doubleManga", "doubleRtl")}</div>
+        <div class="group g-rotate">{@render tool("rotateLeft", "rotateLeft")}{@render tool("rotateRight", "rotateRight")}</div>
+        <div class="group g-zoom">
+          {@render tool("zoomOut", "zoomOut")}{@render tool("zoomIn", "zoomIn")}{@render tool("magnifier", "magnifier")}
+        </div>
+        <div class="group g-marks">{@render tool("bookmark", "bookmark")}{@render tool("bookmarks", "bookmarks")}</div>
+        <div class="group">{@render tool("guided", "guided")}{@render tool("editPanels", "editPanels")}</div>
+        <div class="group">
+          {@render tool("options", "options")}
+          <button class="tool" onclick={openMenu} title="All tools (or right-click the page)" aria-label="All tools">
+            <Icon name="more" />
+          </button>
+        </div>
+      </div>
+      <div class="status mono" data-tauri-drag-region>
+        <span>{count}</span><span class="dim">{time}</span>
+      </div>
+      <button
+        class="tool"
+        class:on={c.fullscreen}
+        onclick={() => c.setFullscreen(!c.fullscreen)}
+        title={tip("fullscreen")}
+        aria-label="Full screen"
+      >
+        <Icon name={c.fullscreen ? "exitFullscreen" : "fullscreen"} />
+      </button>
+      {#if !c.fullscreen}<div class="win"><WindowControls /></div>{/if}
+    </header>
+
+    <div class="bottom" class:shown={showChrome} onpointerenter={() => bars(true)} onpointerleave={() => bars(false)} role="presentation">
+      <div class="track">
+        <input
+          type="range"
+          min="0"
+          max={c.last}
+          value={c.page}
+          oninput={(e) => c.goTo(+(e.currentTarget as HTMLInputElement).value)}
+          style:direction={c.flipped ? "rtl" : "ltr"}
+          style:--p="{(c.page / Math.max(c.last, 1)) * 100}%"
+          aria-label="Page"
+        />
+        {#each c.bookmarks as b (b)}
+          <span class="mark" style:left="{((c.flipped ? c.last - b : b) / Math.max(c.last, 1)) * 100}%"></span>
+        {/each}
+      </div>
+      {#if panel}<span class="panel mono">{panel}</span>{/if}
+    </div>
+
+    {#if c.overlay === "goto"}<GoTo {c} />{/if}
+    {#if c.overlay === "flow"}<Flow {c} />{/if}
+    {#if c.overlay === "bookmarks"}<Bookmarks {c} />{/if}
+    {#if c.overlay === "options"}<Options {c} />{/if}
+    {#if c.overlay === "extract"}<Extract {c} />{/if}
+    {#if c.overlay === "shortcuts"}<Shortcuts bind:overrides onclose={() => (c.overlay = null)} />{/if}
+    {#if c.overlay === "editor"}
+      <PanelEditor {c} onsaved={() => panelsRev++} />
+    {/if}
+
+    <div class="note" class:on={!!c.note}>{c.note}</div>
+  {:else if !arriving}
+    <div class="center spinner"></div>
+  {/if}
+</div>
+
+<style>
+  .reader {
+    position: fixed;
+    inset: 0;
+    z-index: 100;
+    background: var(--reader-bg);
+    color: var(--text);
+    --muted: #6a6a6a;
+    /* The library dims away behind the page as it flies in, and returns as it flies back. */
+    animation: dim var(--fade) ease-out;
+    transition: background var(--fade) ease-in;
+  }
+  @keyframes dim {
+    from {
+      background: rgba(0, 0, 0, 0);
+    }
+  }
+  .reader.leaving {
+    background: rgba(0, 0, 0, 0);
+  }
+  .reader.hide-cursor {
+    cursor: none;
+  }
+
+  .center {
+    position: absolute;
+    left: 50%;
+    top: 50%;
+    transform: translate(-50%, -50%);
+  }
+  .msg {
+    text-align: center;
+  }
+  .msg .sub {
+    color: var(--muted);
+    margin: 8px 0 24px;
+  }
+  .spinner {
+    width: 22px;
+    height: 22px;
+    border-radius: 50%;
+    border: 2px solid rgba(255, 255, 255, 0.15);
+    border-top-color: rgba(255, 255, 255, 0.7);
+    animation: spin 0.8s linear infinite;
+    animation-delay: 0.25s;
+    opacity: 0;
+    animation-fill-mode: forwards;
+  }
+  @keyframes spin {
+    from {
+      opacity: 1;
+      transform: translate(-50%, -50%) rotate(0);
+    }
+    to {
+      opacity: 1;
+      transform: translate(-50%, -50%) rotate(360deg);
+    }
+  }
+
+  /* Toolbar and page line: solid glass, no gradient over the art. */
+  .toolbar,
+  .bottom {
+    position: absolute;
+    left: 0;
+    right: 0;
+    z-index: 3;
+    background: rgba(14, 14, 14, 0.86);
+    backdrop-filter: blur(24px) saturate(1.2);
+    opacity: 0;
+    pointer-events: none;
+    transition:
+      opacity 0.35s,
+      transform 0.45s var(--ease);
+  }
+  .toolbar.shown,
+  .bottom.shown {
+    opacity: 1;
+    transform: none;
+    pointer-events: auto;
+  }
+  .toolbar {
+    top: 0;
+    height: 48px;
+    display: flex;
+    align-items: center;
+    gap: 14px;
+    padding-left: 10px;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+    transform: translateY(-8px);
+  }
+  .bottom {
+    bottom: 0;
+    height: 36px;
+    display: flex;
+    align-items: center;
+    padding: 0 24px;
+    border-top: 1px solid rgba(255, 255, 255, 0.06);
+    transform: translateY(8px);
+  }
+  .title {
+    flex: 0 1 auto;
+    min-width: 0;
+    max-width: 20%;
+    display: flex;
+    align-items: baseline;
+    gap: 10px;
+    white-space: nowrap;
+    overflow: hidden;
+    color: #d8d8d8;
+    font-size: 13px;
+  }
+  .title > span:first-child {
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  .dim {
+    color: var(--muted);
+  }
+  .rtl {
+    font-size: 11px;
+  }
+  .tools {
+    flex: 1;
+    min-width: 0;
+    display: flex;
+    /* Never spill over the title: overflow goes right and is clipped. */
+    justify-content: safe center;
+    align-items: center;
+    gap: 10px;
+    overflow: hidden;
+  }
+  .group {
+    display: flex;
+    gap: 2px;
+  }
+  .tool {
+    width: 30px;
+    height: 32px;
+    flex: none;
+    display: grid;
+    place-items: center;
+    border-radius: 6px;
+    color: #9a9a9a;
+    transition:
+      background 0.15s,
+      color 0.15s;
+  }
+  .tool:hover:not(:disabled) {
+    background: rgba(255, 255, 255, 0.07);
+    color: #fff;
+  }
+  .tool.on {
+    background: rgba(255, 255, 255, 0.13);
+    color: #fff;
+  }
+  .tool:disabled {
+    opacity: 0.3;
+    cursor: default;
+  }
+  .back {
+    color: #cfcfcf;
+  }
+  .txt {
+    font-size: 11px;
+    letter-spacing: -0.02em;
+  }
+  .status {
+    display: flex;
+    gap: 12px;
+    white-space: nowrap;
+    color: #d0d0d0;
+  }
+  .win {
+    align-self: stretch;
+    display: flex;
+  }
+  /* Narrow windows keep the essentials; everything stays in the ⋯ menu. */
+  @media (max-width: 1500px) {
+    .g-rotate {
+      display: none;
+    }
+  }
+  @media (max-width: 1250px) {
+    .g-zoom,
+    .g-marks {
+      display: none;
+    }
+  }
+  @media (max-width: 1100px) {
+    .g-pages {
+      display: none;
+    }
+  }
+  .panel {
+    margin-left: 20px;
+    color: #9a9a9a;
+    white-space: nowrap;
+  }
+  .track {
+    position: relative;
+    flex: 1;
+    display: flex;
+    align-items: center;
+  }
+  .mark {
+    position: absolute;
+    top: -7px;
+    width: 1px;
+    height: 6px;
+    background: var(--text);
+    pointer-events: none;
+  }
+  /* Readable over white margins as well as black ones. */
+  .pin {
+    position: absolute;
+    top: 12px;
+    right: 14px;
+    z-index: 2;
+    padding: 4px 9px;
+    border-radius: 5px;
+    background: rgba(10, 10, 10, 0.72);
+    backdrop-filter: blur(12px);
+    color: rgba(255, 255, 255, 0.78);
+    pointer-events: none;
+  }
+  input[type="range"] {
+    flex: 1;
+    appearance: none;
+    height: 2px;
+    background: linear-gradient(to right, #e6e6e6 var(--p), #262626 var(--p));
+    outline: none;
+    cursor: pointer;
+  }
+  input[type="range"][style*="rtl"] {
+    background: linear-gradient(to left, #e6e6e6 var(--p), #262626 var(--p));
+  }
+  input[type="range"]::-webkit-slider-thumb {
+    appearance: none;
+    width: 9px;
+    height: 9px;
+    border-radius: 50%;
+    background: #e6e6e6;
+    opacity: 0;
+    transition: opacity 0.2s;
+  }
+  input[type="range"]:hover::-webkit-slider-thumb {
+    opacity: 1;
+  }
+
+  .note {
+    position: absolute;
+    left: 50%;
+    bottom: 56px;
+    z-index: 7;
+    transform: translate(-50%, 6px);
+    padding: 8px 14px;
+    border-radius: 6px;
+    background: rgba(20, 20, 20, 0.92);
+    color: var(--text);
+    font-size: 13px;
+    opacity: 0;
+    pointer-events: none;
+    transition:
+      opacity 0.3s,
+      transform 0.3s var(--ease);
+  }
+  .note.on {
+    opacity: 1;
+    transform: translate(-50%, 0);
+  }
+
+  .end {
+    position: absolute;
+    inset: 0;
+    z-index: 4;
+    display: grid;
+    place-items: center;
+    background: rgba(0, 0, 0, 0.86);
+    backdrop-filter: blur(12px);
+    animation: dim 0.4s ease-out;
+  }
+  .end-card {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    text-align: center;
+  }
+  .done {
+    color: var(--text-2);
+    margin-bottom: 40px;
+  }
+  .next {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+  }
+  .next img {
+    width: 180px;
+    aspect-ratio: 2 / 3;
+    object-fit: cover;
+    border-radius: 2px;
+    transition: transform 0.5s var(--ease);
+  }
+  .next:hover img {
+    transform: translateY(-4px);
+  }
+  .nl {
+    margin-top: 20px;
+    font-weight: 300;
+    font-size: 28px;
+    letter-spacing: -0.03em;
+  }
+  .nt {
+    margin-top: 4px;
+    color: var(--text-2);
+  }
+  .end-actions {
+    display: flex;
+    align-items: center;
+    gap: 20px;
+    margin-top: 36px;
+  }
+  .icon-btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 9px;
+  }
+</style>

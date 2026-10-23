@@ -1,0 +1,647 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>AionComics</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Geist:wght@300;400;500&family=Geist+Mono:wght@400&display=swap" rel="stylesheet">
+<style>
+:root {
+  --bg: #0a0a0a;
+  --text: #ececec;
+  --t2: #8f8f8f;
+  --t3: #555;
+  --line: #222;
+  --track: #2a2a2a;
+  --font: "Geist", system-ui, sans-serif;
+  --mono: "Geist Mono", ui-monospace, monospace;
+  --ease: cubic-bezier(.2, .7, 0, 1);
+  --pad: 56px;
+}
+* { box-sizing: border-box; margin: 0; padding: 0; }
+html { background: var(--bg); color: var(--text); font: 400 14px/1.45 var(--font); -webkit-font-smoothing: antialiased; }
+body { min-height: 100vh; overflow-x: hidden; }
+button { font: inherit; color: inherit; background: none; border: 0; cursor: pointer; }
+a { color: inherit; text-decoration: none; }
+img { display: block; }
+:focus-visible { outline: 1px solid var(--text); outline-offset: 4px; }
+::selection { background: #ececec; color: #0a0a0a; }
+.mono { font-family: var(--mono); font-size: 12px; letter-spacing: 0; }
+
+/* ---- Bar ---- */
+.bar {
+  position: fixed; inset: 0 0 auto 0; z-index: 20; height: 64px;
+  display: flex; align-items: center; gap: 40px; padding: 0 var(--pad);
+  transition: background .4s, border-color .4s;
+  border-bottom: 1px solid transparent;
+}
+.bar.solid { background: rgba(10, 10, 10, .86); backdrop-filter: blur(24px); border-color: var(--line); }
+.mark { font-weight: 500; font-size: 15px; letter-spacing: -.01em; }
+.nav { display: flex; gap: 28px; }
+.nav a { color: var(--t2); transition: color .2s; }
+.nav a:hover, .nav a.on { color: var(--text); }
+.find { margin-left: auto; display: flex; align-items: center; gap: 12px; color: var(--t2); transition: color .2s; }
+.find:hover { color: var(--text); }
+.find .mono { color: var(--t3); }
+
+#view { transition: opacity .14s; }
+#view.out { opacity: 0; }
+#view.in { animation: rise .5s var(--ease); }
+@keyframes rise { from { opacity: 0; transform: translateY(8px); } }
+
+/* ---- Covers ---- */
+.cover { position: relative; background: #161616; border-radius: 2px; overflow: hidden; }
+.cover img { width: 100%; height: 100%; object-fit: cover; opacity: 0; transition: opacity .5s; }
+.cover img.ok { opacity: 1; }
+.book { display: block; cursor: pointer; }
+.book .cover { transition: transform .5s var(--ease), box-shadow .5s var(--ease); }
+.book:hover .cover { transform: translateY(-4px); box-shadow: 0 18px 40px -12px rgba(0, 0, 0, .9); }
+.cap { margin-top: 14px; }
+.cap b { display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; font-weight: 400; font-size: 13px; line-height: 1.35; color: #cfcfcf; transition: color .2s; }
+.book:hover .cap b { color: var(--text); }
+.cap span { display: block; margin-top: 3px; font-size: 12px; color: var(--t3); }
+.prog { height: 1px; background: var(--track); margin-top: 10px; }
+.prog i { display: block; height: 100%; background: var(--text); }
+.book.done .cover { opacity: .32; }
+.book.done:hover .cover { opacity: .7; }
+
+/* ---- Home ---- */
+.hero {
+  height: min(92vh, 980px); min-height: 640px;
+  display: grid; grid-template-columns: minmax(380px, 5fr) 7fr; gap: 48px;
+  padding: 64px var(--pad) 0; align-items: center;
+}
+.hero-text { padding-bottom: 32px; }
+.hero-text .ctx { color: var(--t2); font-size: 13px; }
+.hero-text h1 { margin-top: 18px; font-weight: 300; font-size: clamp(48px, 5.6vw, 84px); line-height: .98; letter-spacing: -.045em; }
+.hero-text .vol { margin-top: 10px; font-weight: 300; font-size: 24px; color: var(--t2); letter-spacing: -.02em; }
+.hero-text .where { margin-top: 44px; display: flex; align-items: center; gap: 16px; color: var(--t2); }
+.hero-text .where .prog { width: 200px; margin: 0; }
+.actions { margin-top: 36px; display: flex; align-items: center; gap: 28px; }
+.btn { background: var(--text); color: var(--bg); font-weight: 500; padding: 12px 24px; border-radius: 999px; transition: transform .3s var(--ease), background .2s; }
+.btn:hover { background: #fff; transform: translateY(-1px); }
+.link { color: var(--t2); transition: color .2s; }
+.link:hover { color: var(--text); }
+.hero-page { height: 100%; display: flex; align-items: center; justify-content: center; padding: 24px 0 40px; min-height: 0; }
+.hero-page button { height: 100%; display: block; }
+.hero-page img { height: 100%; width: auto; max-width: 100%; object-fit: contain; transition: transform .7s var(--ease); }
+.hero-page button:hover img { transform: scale(1.012); }
+
+section.shelf { padding: 0 var(--pad); margin-top: 112px; }
+.head { display: flex; align-items: baseline; gap: 12px; margin-bottom: 28px; }
+.head h2 { font-weight: 400; font-size: 15px; }
+.head .mono { color: var(--t3); }
+.head a { margin-left: auto; }
+.row { display: flex; gap: 32px; align-items: flex-end; overflow-x: auto; margin: 0 calc(var(--pad) * -1); padding: 8px var(--pad) 4px; scrollbar-width: none; }
+.row::-webkit-scrollbar { display: none; }
+.row .book { flex: none; }
+
+.cols { display: grid; grid-template-columns: repeat(4, 1fr); gap: 32px; }
+.col { display: block; padding: 28px 0 0; cursor: pointer; }
+.fan { position: relative; height: 270px; }
+.fan .cover { position: absolute; bottom: 0; left: 50%; box-shadow: 0 20px 50px -16px rgba(0, 0, 0, .95); transition: transform .7s var(--ease), filter .7s var(--ease); transform-origin: bottom center; }
+.fan .cover:nth-child(1) { transform: translateX(-80%) rotate(-6deg) scale(.88); filter: brightness(.55); }
+.fan .cover:nth-child(2) { transform: translateX(-20%) rotate(6deg) scale(.88); filter: brightness(.55); }
+.fan .cover:nth-child(3) { transform: translateX(-50%); z-index: 1; }
+.col:hover .fan .cover:nth-child(1) { transform: translateX(-96%) rotate(-10deg) scale(.88); filter: brightness(.8); }
+.col:hover .fan .cover:nth-child(2) { transform: translateX(-4%) rotate(10deg) scale(.88); filter: brightness(.8); }
+.col:hover .fan .cover:nth-child(3) { transform: translateX(-50%) translateY(-6px); }
+.col .name { margin-top: 36px; text-align: center; font-weight: 300; font-size: 26px; letter-spacing: -.03em; }
+.col .mono { display: block; text-align: center; color: var(--t3); margin-top: 4px; }
+.foot { height: 140px; }
+
+/* ---- Library + series ---- */
+.page-head { padding: 160px var(--pad) 0; display: flex; align-items: flex-end; gap: 40px; }
+.page-head h1 { font-weight: 300; font-size: clamp(64px, 8vw, 120px); line-height: .9; letter-spacing: -.055em; }
+.page-head .meta { color: var(--t3); margin-top: 20px; }
+.tools { margin-left: auto; display: flex; align-items: center; gap: 28px; padding-bottom: 10px; }
+.sorts { display: flex; gap: 20px; }
+.sorts button { color: var(--t3); transition: color .2s; }
+.sorts button:hover { color: var(--t2); }
+.sorts button.on { color: var(--text); }
+.filter { width: 180px; background: none; border: 0; border-bottom: 1px solid var(--line); color: var(--text); font: inherit; padding: 6px 0; outline: none; transition: border-color .2s; }
+.filter:focus { border-color: var(--t2); }
+.filter::placeholder { color: var(--t3); }
+.grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(156px, 1fr)); gap: 64px 36px; align-items: end; padding: 72px var(--pad) 0; }
+.grid .cap { height: 43px; }
+.prog.blank { background: none; }
+.empty { padding: 72px var(--pad); color: var(--t3); }
+
+.s-head { padding: 140px var(--pad) 0; display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 72px; align-items: end; }
+.s-head .crumb { color: var(--t2); font-size: 13px; }
+.s-head h1 { margin-top: 16px; font-weight: 300; font-size: clamp(48px, 5.4vw, 80px); line-height: .98; letter-spacing: -.045em; }
+.s-head .by { margin-top: 18px; color: var(--t2); font-size: 15px; }
+.s-head .syn { margin-top: 28px; max-width: 64ch; color: var(--t2); font-size: 15px; line-height: 1.65; display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; }
+.s-head .syn.open { -webkit-line-clamp: unset; }
+.s-head .more { margin-top: 8px; font-size: 13px; }
+.s-head .stats { color: var(--t3); margin-left: 4px; }
+.sec { padding: 96px var(--pad) 0; }
+.sec + .sec { padding-top: 72px; }
+.sec h3 { font-weight: 400; font-size: 15px; display: flex; gap: 12px; align-items: baseline; }
+.sec h3 .mono { color: var(--t3); }
+.sec .grid { padding: 36px 0 0; }
+
+/* ---- Reader ---- */
+#reader { position: fixed; inset: 0; z-index: 50; background: #000; display: none; cursor: none; }
+#reader.on { display: block; }
+#reader.chrome { cursor: default; }
+#reader .stage { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; }
+#reader .stage img { max-width: 100vw; max-height: 100vh; object-fit: contain; }
+#reader .top, #reader .bottom { position: absolute; left: 0; right: 0; padding: 22px 28px; display: flex; align-items: center; gap: 16px; opacity: 0; transition: opacity .5s; pointer-events: none; }
+#reader.chrome .top, #reader.chrome .bottom { opacity: 1; pointer-events: auto; }
+#reader .top { top: 0; background: linear-gradient(rgba(0,0,0,.7), transparent); }
+#reader .bottom { bottom: 0; background: linear-gradient(transparent, rgba(0,0,0,.7)); }
+#reader .back { color: #bdbdbd; display: flex; gap: 10px; align-items: center; }
+#reader .back:hover { color: #fff; }
+#reader .dir { margin-left: auto; color: #6a6a6a; }
+#reader .bar2 { flex: 1; height: 2px; background: #262626; position: relative; }
+#reader .bar2 i { position: absolute; inset: 0 auto 0 0; background: #e6e6e6; transition: width .3s var(--ease); }
+#reader.rtl .bar2 i { inset: 0 0 0 auto; }
+#reader .count { color: #8a8a8a; min-width: 80px; text-align: right; }
+#reader .note { position: absolute; left: 50%; bottom: 72px; transform: translateX(-50%); color: #6a6a6a; font-size: 13px; opacity: 0; transition: opacity .4s; }
+#reader .note.on { opacity: 1; }
+
+.fly { position: fixed; z-index: 60; object-fit: cover; pointer-events: none; border-radius: 2px; }
+
+/* ---- Search ---- */
+#search { position: fixed; inset: 0; z-index: 40; background: rgba(6, 6, 6, .78); backdrop-filter: blur(28px); display: none; padding: 18vh var(--pad) 0; }
+#search.on { display: block; animation: fade .25s var(--ease); }
+@keyframes fade { from { opacity: 0; } }
+#search .box { max-width: 680px; margin: 0 auto; }
+#search input { width: 100%; background: none; border: 0; border-bottom: 1px solid #333; color: var(--text); font: 300 34px/1.2 var(--font); letter-spacing: -.03em; padding: 0 0 16px; outline: none; }
+#search input::placeholder { color: #3e3e3e; }
+#search ul { list-style: none; margin-top: 18px; }
+#search li { display: flex; align-items: center; gap: 18px; padding: 10px 12px; margin: 0 -12px; border-radius: 6px; cursor: pointer; }
+#search li.on { background: #1a1a1a; }
+#search li .cover { width: 34px; flex: none; }
+#search li b { font-weight: 400; }
+#search li span { color: var(--t3); margin-left: auto; }
+#search .hint { margin-top: 20px; color: #3e3e3e; }
+</style>
+</head>
+<body>
+<header class="bar" id="bar">
+  <a class="mark" href="#/">AionComics</a>
+  <nav class="nav" id="nav"></nav>
+  <button class="find" id="findBtn">Search <span class="mono">Ctrl K</span></button>
+</header>
+<main id="view"></main>
+
+<div id="reader">
+  <div class="stage" id="stage"><img id="pageImg" alt=""></div>
+  <div class="top"><button class="back" id="rBack">&larr; <span id="rTitle"></span></button><span class="dir mono" id="rDir"></span></div>
+  <div class="bottom"><div class="bar2"><i id="rBar"></i></div><span class="count mono" id="rCount"></span></div>
+  <div class="note" id="rNote"></div>
+</div>
+
+<div id="search">
+  <div class="box">
+    <input id="q" placeholder="Series, writer" autocomplete="off" spellcheck="false">
+    <ul id="results"></ul>
+    <p class="hint mono">&uarr;&darr; to move &middot; Enter to open &middot; Esc to close</p>
+  </div>
+</div>
+
+<script src="library.js"></script>
+<script>
+const L = window.LIB;
+const DAY = 86400;
+const $ = (s, el = document) => el.querySelector(s);
+const esc = s => String(s ?? "").replace(/[&<>"]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
+const fmt = n => n.toLocaleString("en-US");
+
+// Index: every series and book by id.
+const seriesById = {}, colById = {}, bookById = {};
+for (const c of L.cols) {
+  colById[c.id] = c;
+  for (const s of c.series) { s.col = c; seriesById[s.id] = s; }
+}
+for (const [sid, d] of Object.entries(L.detail)) {
+  seriesById[sid].d = d;
+  for (const b of d.books) bookById[b.id] = b;
+}
+
+// Served by serve.py, covers come from /covers/; opened straight from disk, they load from H: directly.
+const COV = location.protocol === "file:" ? L.cov : "covers/";
+const src = h => h ? COV + h + ".jpg" : "";
+const ratio = r => (r > .9 && r < 2.1) ? r : 1.5;
+const subtitle = b => {
+  const t = (b.t || "").trim();
+  return t && !t.toLowerCase().startsWith(b.l.toLowerCase()) && t !== b.l ? t : "";
+};
+const when = t => {
+  const d = Math.floor((L.now - t) / DAY);
+  return d < 1 ? "Today" : d < 2 ? "Yesterday" : d < 7 ? `${d} days ago` : d < 30 ? `${Math.round(d / 7)} weeks ago` : `${Math.round(d / 30)} months ago`;
+};
+
+function cover(h, r, w, key) {
+  return `<div class="cover" style="width:${w ? w + "px" : "100%"};aspect-ratio:1/${ratio(r)}"${key ? ` data-flip="${key}"` : ""}><img src="${src(h)}" alt="" loading="lazy" decoding="async" onload="this.classList.add('ok')"></div>`;
+}
+
+// ---------- Views ----------
+function home() {
+  const recent = L.reading.filter(b => L.now - b.last < 30 * DAY);
+  const hero = recent[0];
+  const pages = L.pages[hero.id] || [];
+  const rest = recent.slice(1);
+  const sub = subtitle(hero);
+  const fans = L.cols.map(c => {
+    const picks = [...c.series].sort((a, b) => b.last - a.last).slice(0, 3);
+    const books = c.series.reduce((n, s) => n + s.n, 0);
+    return `<a class="col" href="#/c/${c.id}">
+      <div class="fan">${picks.map(s => cover(s.img, 1.5, 150)).join("")}</div>
+      <div class="name">${esc(c.name)}</div>
+      <span class="mono">${fmt(c.series.length)} series &middot; ${fmt(books)}</span>
+    </a>`;
+  }).join("");
+  return `
+  <div class="hero">
+    <div class="hero-text">
+      <div class="ctx">${esc(hero.manga ? "Manga" : seriesById[hero.sid].col.name)} &middot; ${when(hero.last)}</div>
+      <h1>${esc(hero.s)}</h1>
+      <div class="vol">${esc(hero.l)}${sub ? " &mdash; " + esc(sub) : ""}</div>
+      <div class="where"><div class="prog"><i style="width:${(hero.p + 1) / hero.n * 100}%"></i></div><span class="mono">${hero.p + 1} / ${hero.n}</span></div>
+      <div class="actions">
+        <button class="btn" data-read="${hero.id}">Resume</button>
+        <a class="link" href="#/s/${hero.sid}">All volumes</a>
+      </div>
+    </div>
+    <div class="hero-page">${pages[hero.p] ? `<button data-read="${hero.id}" aria-label="Resume on this page"><img src="${pages[hero.p]}" alt="" data-flip="hero-page"></button>` : ""}</div>
+  </div>
+  ${rest.length ? `<section class="shelf">
+    <div class="head"><h2>Also reading</h2></div>
+    <div class="row">${rest.map(b => bookTile(b, 168, "progress")).join("")}</div>
+  </section>` : ""}
+  <section class="shelf">
+    <div class="head"><h2>Next</h2><span class="mono">${L.upnext.length}</span></div>
+    <div class="row">${L.upnext.map(b => bookTile(b, 140, "next")).join("")}</div>
+  </section>
+  <section class="shelf">
+    <div class="head"><h2>Library</h2></div>
+    <div class="cols">${fans}</div>
+  </section>
+  <div class="foot"></div>`;
+}
+
+// Grid cells always reserve the progress line, so captions sit on one baseline across a row.
+const BLANK = `<div class="prog blank"></div>`;
+
+function bookTile(b, w, mode) {
+  const p = mode === "progress" || (mode === "series" && b.p > 0 && !b.read) ? `<div class="prog"><i style="width:${(b.p + 1) / b.n * 100}%"></i></div>` : mode === "series" ? BLANK : "";
+  const line2 = mode === "series" ? (b.read ? "Read" : b.p > 0 ? `${b.p + 1} / ${b.n}` : subtitle(b)) : b.l;
+  const name = mode === "series" ? b.l : b.s;
+  return `<a class="book${mode === "series" && b.read ? " done" : ""}" ${w ? `style="width:${w}px"` : ""} data-book="${b.id}" data-mode="${mode}">
+    ${cover(b.img, b.r, null, "b" + b.id)}${p}
+    <div class="cap"><b>${esc(name)}</b><span>${esc(line2 || "")}</span></div>
+  </a>`;
+}
+
+const SORTS = { name: "Name", read: "Recently read", added: "Recently added" };
+let sortBy = localStorage.getItem("aion.sort") || "name";
+let filterText = "";
+
+function collection(id) {
+  const c = colById[id];
+  const books = c.series.reduce((n, s) => n + s.n, 0);
+  return `
+  <div class="page-head">
+    <div><h1>${esc(c.name)}</h1><div class="meta mono">${fmt(c.series.length)} series &middot; ${fmt(books)} ${c.manga ? "volumes" : "books"}</div></div>
+    <div class="tools">
+      <input class="filter" id="filter" placeholder="Filter" value="${esc(filterText)}" spellcheck="false">
+      <div class="sorts">${Object.entries(SORTS).map(([k, v]) => `<button data-sort="${k}" class="${k === sortBy ? "on" : ""}">${v}</button>`).join("")}</div>
+    </div>
+  </div>
+  <div id="seriesGrid">${seriesGrid(c)}</div>
+  <div class="foot"></div>`;
+}
+
+function seriesGrid(c) {
+  const f = filterText.trim().toLowerCase();
+  let list = c.series.filter(s => !f || s.name.toLowerCase().includes(f) || (s.d.writer || "").toLowerCase().includes(f));
+  if (sortBy === "read") list = [...list].sort((a, b) => b.last - a.last);
+  if (sortBy === "added") list = [...list].sort((a, b) => b.added - a.added);
+  if (!list.length) return `<p class="empty">Nothing matches &ldquo;${esc(filterText)}&rdquo;.</p>`;
+  return `<div class="grid">${list.map(s => {
+    const unit = c.manga ? (s.n === 1 ? "volume" : "volumes") : (s.n === 1 ? "book" : "books");
+    const state = s.read === s.n ? "Read" : s.reading ? "Reading" : `${s.n} ${unit}`;
+    const p = s.read > 0 && s.read < s.n ? `<div class="prog"><i style="width:${s.read / s.n * 100}%"></i></div>` : BLANK;
+    return `<a class="book" href="#/s/${s.id}" data-series="${s.id}">
+      ${cover(s.img, s.r, null, "s" + s.id)}${p}
+      <div class="cap"><b>${esc(s.name)}</b><span>${state}</span></div>
+    </a>`;
+  }).join("")}</div>`;
+}
+
+function series(id) {
+  const s = seriesById[id], d = s.d;
+  const current = d.books.find(b => !b.read && b.p > 0) || d.books.find(b => !b.read) || d.books[0];
+  const read = d.books.filter(b => b.read).length;
+  const verb = current.p > 0 ? "Continue" : read === d.books.length ? "Read again" : "Start";
+  const by = [d.writer, d.pub, d.year].filter(Boolean).map(esc).join(" &middot; ");
+  const sections = {};
+  for (const b of d.books) (sections[b.sec || ""] ||= []).push(b);
+  const unit = s.col.manga ? "volumes" : "books";
+  const big = Math.min(440, Math.max(340, 300 * ratio(s.r)));
+  return `
+  <div class="s-head">
+    ${cover(s.img, s.r, Math.round(big / ratio(s.r)), "s" + s.id)}
+    <div>
+      <a class="crumb link" href="#/c/${s.col.id}">${esc(s.col.name)}</a>
+      <h1>${esc(s.name)}</h1>
+      ${by ? `<div class="by">${by}</div>` : ""}
+      ${d.syn ? `<p class="syn" id="syn">${esc(d.syn)}</p><button class="more link" id="more" hidden>More</button>` : ""}
+      <div class="actions">
+        <button class="btn" data-read="${current.id}">${verb} ${esc(current.l)}</button>
+        <span class="stats mono">${current.p > 0 ? `${current.p + 1} / ${current.n} &middot; ` : ""}${read} of ${d.books.length} ${unit} read</span>
+      </div>
+    </div>
+  </div>
+  ${Object.entries(sections).map(([name, books]) => `
+  <div class="sec">
+    ${Object.keys(sections).length > 1 || name ? `<h3>${esc(name || "Main")} <span class="mono">${books.length}</span></h3>` : ""}
+    <div class="grid">${books.map(b => bookTile(b, null, "series")).join("")}</div>
+  </div>`).join("")}
+  <div class="foot"></div>`;
+}
+
+// ---------- Routing ----------
+history.scrollRestoration = "manual";
+const view = $("#view");
+const scrolls = {};
+let flight = null;
+let lastHash = location.hash;
+
+function route() {
+  const h = location.hash || "#/";
+  const [, kind, id] = h.split("/");
+  scrolls[lastHash] = scrollY;
+  lastHash = h;
+  if (kind === "c" && colById[id]) return { html: collection(id), nav: id };
+  if (kind === "s" && seriesById[id]) return { html: series(id), nav: seriesById[id].col.id };
+  return { html: home(), nav: "home" };
+}
+
+function render(animate = true) {
+  const r = route();
+  $("#nav").innerHTML = `<a href="#/" class="${r.nav === "home" ? "on" : ""}">Home</a>` +
+    L.cols.map(c => `<a href="#/c/${c.id}" class="${String(r.nav) === String(c.id) ? "on" : ""}">${esc(c.name)}</a>`).join("");
+  view.classList.remove("in");
+  view.innerHTML = r.html;
+  scrollTo(0, flight ? 0 : (scrolls[location.hash] || 0));
+  if (animate) { void view.offsetWidth; view.classList.add("in"); }
+  wire();
+  onScroll();
+  if (flight) { land(flight); flight = null; }
+}
+
+addEventListener("hashchange", () => render());
+
+function wire() {
+  const syn = $("#syn"), more = $("#more");
+  if (syn && more && syn.scrollHeight > syn.clientHeight + 2) {
+    more.hidden = false;
+    more.onclick = () => { syn.classList.toggle("open"); more.textContent = syn.classList.contains("open") ? "Less" : "More"; };
+  }
+  const filter = $("#filter");
+  if (filter) filter.oninput = () => {
+    filterText = filter.value;
+    $("#seriesGrid").innerHTML = seriesGrid(colById[location.hash.split("/")[2]]);
+  };
+}
+
+// ---------- Shared-element flights ----------
+function launch(img, key) {
+  const r = img.getBoundingClientRect();
+  return { src: img.currentSrc || img.src, rect: r, key };
+}
+
+function land({ src, rect, key }) {
+  const target = document.querySelector(`[data-flip="${key}"]`);
+  if (!target) return;
+  const to = target.getBoundingClientRect();
+  if (to.bottom < 0 || to.top > innerHeight) return;
+  fly(src, rect, to, target);
+}
+
+function fly(src, from, to, target, done) {
+  const clone = document.createElement("img");
+  clone.className = "fly";
+  clone.src = src;
+  Object.assign(clone.style, { left: from.left + "px", top: from.top + "px", width: from.width + "px", height: from.height + "px" });
+  document.body.appendChild(clone);
+  if (target) target.style.visibility = "hidden";
+  const anim = clone.animate([
+    { left: from.left + "px", top: from.top + "px", width: from.width + "px", height: from.height + "px" },
+    { left: to.left + "px", top: to.top + "px", width: to.width + "px", height: to.height + "px" },
+  ], { duration: 620, easing: "cubic-bezier(.2,.7,0,1)", fill: "forwards" });
+  anim.onfinish = () => { if (target) target.style.visibility = ""; clone.remove(); done && done(); };
+}
+
+document.addEventListener("click", e => {
+  const read = e.target.closest("[data-read]");
+  if (read) {
+    e.preventDefault();
+    // Fly from the page itself if it's on screen, else from this book's cover, else the series cover.
+    const img = read.querySelector("img") || $('img[data-flip="hero-page"]') ||
+      $(`[data-flip="b${read.dataset.read}"] img`) || $(".s-head [data-flip] img");
+    openReader(+read.dataset.read, img);
+    return;
+  }
+  const book = e.target.closest("[data-book]");
+  if (book) {
+    e.preventDefault();
+    const b = bookById[book.dataset.book];
+    const img = book.querySelector(".cover img");
+    if (book.dataset.mode === "series") return openReader(b.id, img);
+    flight = launch(img, "s" + b.sid);
+    location.hash = `#/s/${b.sid}`;
+    return;
+  }
+  const s = e.target.closest("[data-series]");
+  if (s) {
+    e.preventDefault();
+    flight = launch(s.querySelector(".cover img"), "s" + s.dataset.series);
+    location.hash = `#/s/${s.dataset.series}`;
+    return;
+  }
+  const sort = e.target.closest("[data-sort]");
+  if (sort) {
+    sortBy = sort.dataset.sort;
+    try { localStorage.setItem("aion.sort", sortBy); } catch {}
+    document.querySelectorAll("[data-sort]").forEach(b => b.classList.toggle("on", b === sort));
+    $("#seriesGrid").innerHTML = seriesGrid(colById[location.hash.split("/")[2]]);
+  }
+});
+
+const bar = $("#bar");
+function onScroll() { bar.classList.toggle("solid", scrollY > 24); }
+addEventListener("scroll", onScroll, { passive: true });
+
+// ---------- Reader ----------
+const R = { el: $("#reader"), img: $("#pageImg"), book: null, page: 0, pages: [], rtl: false, from: null, idle: 0 };
+
+function fitRect(r) {
+  let h = innerHeight, w = h / r;
+  if (w > innerWidth) { w = innerWidth; h = w * r; }
+  return { left: (innerWidth - w) / 2, top: (innerHeight - h) / 2, width: w, height: h };
+}
+
+function openReader(id, fromImg) {
+  const b = bookById[id];
+  const real = L.pages[id];
+  R.book = b;
+  R.rtl = b.manga;
+  R.pages = real ? real : [src(b.img)];
+  R.page = real ? Math.min(b.p, real.length - 1) : 0;
+  R.real = !!real;
+  R.from = fromImg;
+  R.el.classList.toggle("rtl", R.rtl);
+  $("#rTitle").textContent = `${b.s} ${b.l}`;
+  $("#rDir").textContent = R.rtl ? "Right to left" : "";
+  const start = R.pages[R.page];
+  const ar = fromImg && fromImg.naturalWidth && (fromImg.currentSrc || fromImg.src).endsWith(start.split("/").pop()) ? fromImg.naturalHeight / fromImg.naturalWidth : real ? 1.364 : ratio(b.r);
+  R.img.src = start;
+  showPage(true);
+  note(real ? "" : "Only The Darwin Incident Vol. 1 has pages in this prototype");
+  const fr = fromImg && fromImg.getBoundingClientRect();
+  if (fr && fr.bottom > 0 && fr.top < innerHeight) {
+    R.el.style.background = "transparent";
+    R.img.style.visibility = "hidden";
+    R.el.classList.add("on");
+    fromImg.style.visibility = "hidden";
+    R.el.animate([{ background: "rgba(0,0,0,0)" }, { background: "rgba(0,0,0,1)" }], { duration: 520, easing: "ease-out", fill: "forwards" });
+    fly(fromImg.currentSrc || fromImg.src, fromImg.getBoundingClientRect(), fitRect(ar), null, () => {
+      R.img.style.visibility = ""; R.el.style.background = "";
+    });
+  } else {
+    R.el.classList.add("on");
+  }
+  document.body.style.overflow = "hidden";
+  wake();
+}
+
+function closeReader() {
+  const target = R.from && R.from.isConnected ? R.from : null;
+  const r = target && target.getBoundingClientRect();
+  const visible = r && r.bottom > 0 && r.top < innerHeight && r.width > 0;
+  document.body.style.overflow = "";
+  if (visible && R.img.complete) {
+    const from = R.img.getBoundingClientRect();
+    const s = R.img.currentSrc || R.img.src;
+    R.img.style.visibility = "hidden";
+    R.el.animate([{ background: "rgba(0,0,0,1)" }, { background: "rgba(0,0,0,0)" }], { duration: 480, easing: "ease-in", fill: "forwards" })
+      .onfinish = () => { R.el.classList.remove("on"); R.img.style.visibility = ""; R.el.getAnimations().forEach(a => a.cancel()); };
+    // Fly back as whatever page is showing; land on the tile it came from.
+    fly(s, from, r, target);
+  } else {
+    R.el.classList.remove("on");
+    if (R.from) R.from.style.visibility = "";
+  }
+}
+
+const preload = {};
+function showPage(first) {
+  R.img.src = R.pages[R.page];
+  for (const i of [R.page + 1, R.page + 2, R.page - 1]) {
+    const p = R.pages[i];
+    if (p && !preload[p]) { preload[p] = new Image(); preload[p].src = p; }
+  }
+  const shown = R.real ? R.page + 1 : 1;
+  $("#rCount").textContent = `${shown} / ${R.book.n || R.pages.length}`;
+  $("#rBar").style.width = `${shown / (R.book.n || R.pages.length) * 100}%`;
+  if (!first) wake();
+}
+
+function turn(dir) {
+  const next = R.page + dir;
+  if (next < 0) return;
+  if (next >= R.pages.length) { note(R.real ? "The prototype only has the first pages of this volume" : "Only The Darwin Incident Vol. 1 has pages in this prototype"); return; }
+  R.page = next;
+  showPage();
+}
+
+let noteTimer;
+function note(text) {
+  const n = $("#rNote");
+  clearTimeout(noteTimer);
+  n.textContent = text;
+  n.classList.toggle("on", !!text);
+  if (text) noteTimer = setTimeout(() => n.classList.remove("on"), 2600);
+}
+
+let idleTimer;
+function wake() {
+  R.el.classList.add("chrome");
+  clearTimeout(idleTimer);
+  idleTimer = setTimeout(() => R.el.classList.remove("chrome"), 1800);
+}
+
+R.el.addEventListener("mousemove", wake);
+$("#rBack").onclick = e => { e.stopPropagation(); closeReader(); };
+$("#stage").addEventListener("click", e => {
+  const left = e.clientX < innerWidth / 2;
+  // Manga reads right to left, so the left half moves forward.
+  turn(left === R.rtl ? 1 : -1);
+});
+
+// ---------- Search ----------
+const S = { el: $("#search"), q: $("#q"), list: $("#results"), hits: [], sel: 0 };
+const allSeries = Object.values(seriesById);
+
+function openSearch() { S.el.classList.add("on"); S.q.value = ""; search(); S.q.focus(); }
+function closeSearch() { S.el.classList.remove("on"); }
+function search() {
+  const q = S.q.value.trim().toLowerCase();
+  // Word starts beat substrings, and names beat writers.
+  const rank = (text, base) => {
+    const t = (text || "").toLowerCase();
+    return new RegExp("(^|[^a-z0-9])" + q.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")).test(t) ? base : t.includes(q) ? base + 1 : 9;
+  };
+  S.hits = !q ? [] : allSeries
+    .map(s => ({ s, score: Math.min(rank(s.name, 0), rank(s.d.writer, 2)) }))
+    .filter(x => x.score < 9).sort((a, b) => a.score - b.score || b.s.last - a.s.last).slice(0, 8).map(x => x.s);
+  S.sel = 0;
+  S.list.innerHTML = S.hits.map((s, i) => `<li data-i="${i}" class="${i === 0 ? "on" : ""}">${cover(s.img, s.r, 34)}<b>${esc(s.name)}</b><span class="mono">${esc(s.col.name)} &middot; ${s.n}</span></li>`).join("");
+}
+function pick(i) {
+  const s = S.hits[i];
+  if (!s) return;
+  closeSearch();
+  location.hash = `#/s/${s.id}`;
+}
+S.q.oninput = search;
+S.list.onclick = e => { const li = e.target.closest("li"); if (li) pick(+li.dataset.i); };
+S.el.onclick = e => { if (e.target === S.el) closeSearch(); };
+$("#findBtn").onclick = openSearch;
+
+// ---------- Keys ----------
+addEventListener("keydown", e => {
+  if (R.el.classList.contains("on")) {
+    const fwd = R.rtl ? "ArrowLeft" : "ArrowRight", back = R.rtl ? "ArrowRight" : "ArrowLeft";
+    if (e.key === "Escape") closeReader();
+    else if (e.key === fwd || e.key === " ") { e.preventDefault(); turn(1); }
+    else if (e.key === back) turn(-1);
+    return;
+  }
+  if (S.el.classList.contains("on")) {
+    if (e.key === "Escape") closeSearch();
+    else if (e.key === "Enter") pick(S.sel);
+    else if (e.key === "ArrowDown" || e.key === "ArrowUp") {
+      e.preventDefault();
+      S.sel = Math.max(0, Math.min(S.hits.length - 1, S.sel + (e.key === "ArrowDown" ? 1 : -1)));
+      S.list.querySelectorAll("li").forEach((li, i) => li.classList.toggle("on", i === S.sel));
+    }
+    return;
+  }
+  if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "k") { e.preventDefault(); openSearch(); }
+  else if (e.key === "Enter" && !location.hash.startsWith("#/c") && !location.hash.startsWith("#/s") && document.activeElement === document.body) {
+    const b = $(".hero [data-read]"); if (b) b.click();
+  }
+});
+
+render(false);
+</script>
+</body>
+</html>

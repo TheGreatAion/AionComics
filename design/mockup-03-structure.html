@@ -1,0 +1,270 @@
+<!doctype html>
+<html><head><meta charset="utf-8">
+<style>
+  :root{
+    --black:#050505; --white:#f2f2f0; --grey:rgba(242,242,240,.44); --faint:rgba(242,242,240,.2); --line:rgba(242,242,240,.1);
+    --type:"Jost","Futura","Century Gothic","Avenir Next","Segoe UI",system-ui,sans-serif;
+    --ease:cubic-bezier(.65,0,.35,1);
+  }
+  *{box-sizing:border-box}
+  .wrap{font-family:var(--type)}
+  /* ---- mockup controls (outside the app) ---- */
+  .ctl{display:flex;align-items:center;gap:12px;margin:0 0 12px 2px;font-size:11px;color:var(--muted-foreground)}
+  .seg{display:flex;border-radius:calc(var(--radius) - 2px);box-shadow:inset 0 0 0 1px var(--border);overflow:hidden}
+  .seg button{all:unset;cursor:pointer;padding:6px 12px;font:12px var(--font-sans);color:var(--muted-foreground)}
+  .seg button.on{background:var(--primary);color:var(--primary-foreground)}
+  .hint{margin-left:auto;font-size:11px}
+
+  /* ---- app ---- */
+  .app{position:relative;height:660px;border-radius:var(--radius);overflow:hidden;background:var(--black);color:var(--white);user-select:none}
+  .top{position:absolute;inset:0 0 auto 0;height:58px;display:flex;align-items:center;padding:0 28px;z-index:2}
+  .mark{font-size:12px;letter-spacing:.5em}
+  .crumbs{display:flex;align-items:center;gap:10px;font-size:12px;letter-spacing:.04em;color:var(--grey)}
+  .crumbs .back{cursor:pointer;font-size:16px;line-height:1;margin-right:6px;color:var(--white);opacity:.8}
+  .crumbs a{cursor:pointer}
+  .crumbs a:hover{color:var(--white)}
+  .crumbs b{font-weight:400;color:var(--white)}
+  .crumbs i{font-style:normal;color:var(--faint)}
+  .search{margin-left:auto;font-size:12px;color:var(--grey);display:flex;align-items:center;gap:8px}
+  .search:before{content:"";width:8px;height:8px;border:1px solid var(--grey);border-radius:50%}
+  .view{position:absolute;inset:58px 0 0 0;overflow-y:auto;padding:6px 28px 36px;scrollbar-width:none;transition:opacity .25s}
+  .view::-webkit-scrollbar,.row::-webkit-scrollbar{display:none}
+  .h{font-size:10px;letter-spacing:.22em;text-transform:uppercase;color:var(--grey);margin:14px 0 16px}
+  .h.sp{margin-top:40px}
+
+  .cover{position:relative;aspect-ratio:2/3;border-radius:2px;cursor:pointer;transition:transform .35s var(--ease)}
+  .cover:hover{transform:translateY(-3px)}
+  .pl{height:1px;margin-top:9px;position:relative;background:transparent}
+  .pl span{position:absolute;inset:0 auto 0 0;background:var(--white)}
+  .pl.done span{opacity:.25}
+  .t1{font-size:11px;margin-top:8px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .t2{font-size:10px;color:var(--grey);margin-top:3px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+
+  .row{display:flex;gap:16px;overflow-x:auto;margin-right:-28px;padding-right:28px;scrollbar-width:none}
+  .row .it{flex:none;width:94px}
+
+  .cols{display:grid;grid-template-columns:repeat(auto-fill,minmax(118px,1fr));gap:30px 24px}
+  .stack{position:relative;aspect-ratio:2/3;margin-top:14px;cursor:pointer}
+  .stack .c{position:absolute;inset:0;border-radius:2px;transform-origin:50% 0;transition:transform .45s var(--ease),opacity .45s}
+  .stack .c2{transform:translateY(-14px) scale(.86);opacity:.28}
+  .stack .c1{transform:translateY(-7px) scale(.93);opacity:.55}
+  .stack:hover .c2{transform:translateY(-20px) scale(.86)}
+  .stack:hover .c1{transform:translateY(-10px) scale(.93)}
+  .stack:hover .c0{transform:translateY(-2px)}
+
+  .grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(94px,1fr));gap:28px 18px}
+  .shead{margin:10px 0 30px}
+  .shead .t{font-size:26px;font-weight:300;letter-spacing:.02em}
+  .shead .m{font-size:11px;color:var(--grey);margin-top:6px;letter-spacing:.04em}
+
+  /* ---- transitions / reader ---- */
+  .backdrop{position:absolute;inset:0;background:var(--black);opacity:0;pointer-events:none;transition:opacity .5s var(--ease);z-index:10}
+  .flip{position:absolute;z-index:12;border-radius:2px;transition:all .6s var(--ease)}
+  .reader{position:absolute;inset:0;background:var(--black);z-index:11;opacity:0;transition:opacity .3s}
+  .reader.in{opacity:1}
+  .stage{position:absolute;inset:0;overflow:hidden;cursor:pointer}
+  .page{position:absolute;left:0;top:0;width:300px;height:450px;background:#eeece6;transform-origin:0 0;transition:transform 1000ms var(--ease)}
+  .p{position:absolute;overflow:hidden;outline:1.2px solid #111;transition:opacity 700ms ease}
+  .page.guided .p{opacity:.06}
+  .page.guided .p.on{opacity:1}
+  .rt{position:absolute;top:18px;left:24px;right:24px;display:flex;font-size:11px;color:var(--grey);letter-spacing:.04em;pointer-events:none}
+  .rt .x{margin-left:auto;pointer-events:auto;cursor:pointer}
+  .rt .x:hover{color:var(--white)}
+  .rb{position:absolute;left:24px;right:24px;bottom:18px;display:flex;font-size:10px;letter-spacing:.14em;color:var(--grey);pointer-events:none}
+  .rb .n{position:absolute;left:50%;transform:translateX(-50%);color:var(--white);opacity:.6}
+  .rb .d{margin-left:auto}
+
+  /* ---- separate window ---- */
+  .win{position:absolute;left:14%;top:8%;width:72%;height:86%;z-index:20;background:var(--black);border-radius:8px;overflow:hidden;
+       box-shadow:0 0 0 1px rgba(255,255,255,.1),0 40px 90px rgba(0,0,0,.75);opacity:0;transform:scale(.96) translateY(8px);
+       transition:opacity .35s var(--ease),transform .45s var(--ease)}
+  .win.in{opacity:1;transform:none}
+  .tb{position:absolute;inset:0 0 auto 0;height:32px;display:flex;align-items:center;padding:0 0 0 14px;font-size:11px;color:var(--grey);cursor:grab;z-index:3}
+  .tb .ctrls{margin-left:auto;display:flex}
+  .tb .ctrls span{width:40px;text-align:center;line-height:32px;cursor:pointer;color:var(--grey)}
+  .tb .ctrls span:hover{color:var(--white);background:rgba(255,255,255,.06)}
+  .win .body{position:absolute;inset:32px 0 0 0}
+  .win .reader{opacity:1}
+</style></head>
+<body>
+<div class="wrap">
+  <div class="ctl">
+    <span>Open comics in</span>
+    <div class="seg"><button id="mSame" class="on">Same window</button><button id="mNew">New window</button></div>
+    <span class="hint">Click a cover · click the page to advance · Esc to close</span>
+  </div>
+  <div class="app" id="app">
+    <div class="top"><div class="crumbs" id="crumbs"></div><div class="search">Search</div></div>
+    <div class="view" id="view"></div>
+    <div class="backdrop" id="bd"></div>
+  </div>
+</div>
+<script>
+/* ---------------- placeholder covers (greyscale; real art brings colour) ---------------- */
+function hash(s){let h=2166136261;for(const c of s)h=Math.imul(h^c.charCodeAt(0),16777619);return h>>>0}
+function cover(seed){
+  const h=hash(seed),v=h%8,r=(h>>4)%100,q=(h>>11)%100;
+  const D=`hsl(0 0% ${4+(h>>7)%14}%)`,M=`hsl(0 0% ${30+(h>>9)%30}%)`,L=`hsl(40 8% ${86+(h>>13)%8}%)`;
+  const a=20+r*.6,b=20+q*.5,R=8+q%22;
+  return [
+    `radial-gradient(circle at ${a}% ${b}%,${L} 0 ${R/2}%,transparent ${R/2+.5}%),linear-gradient(180deg,${D},${M})`,
+    `linear-gradient(180deg,${L} 0 ${a}%,${D} ${a}%)`,
+    `radial-gradient(circle at 50% ${b+10}%,${D} 0 ${R+10}%,${L} ${R+10.5}%)`,
+    `linear-gradient(${120+r}deg,${L} 0 ${a+10}%,${D} ${a+10}% ${a+12}%,${L} ${a+12}%)`,
+    `repeating-linear-gradient(0deg,${D} 0 2px,${L} 2px ${6+q%8}px)`,
+    `linear-gradient(${180+r}deg,${M},${D})`,
+    `radial-gradient(circle at 50% ${b+10}%,transparent 0 ${R+8}%,${L} ${R+8}% ${R+10}%,transparent ${R+10.5}%),${D}`,
+    `linear-gradient(90deg,${D} 0 ${a+15}%,${M} ${a+15}%)`,
+  ][v];
+}
+
+/* ---------------- library data ---------------- */
+const COLS=[
+  {name:'DC',series:[['Flashpoint',5],['Watchmen',12],['Batman: Year One',4],['The Sandman',75]]},
+  {name:'Indie',series:[['Saga',66],['Black Hole',12],['Monstress',50],['20th Century Men',6],['The Black Beetle',4]]},
+  {name:'Manga',series:[['Vinland Saga',14],['Kagurabachi',6],['One-Punch Man',30],['20th Century Boys',22],['Berserk',42]]},
+  {name:'Marvel',series:[['Daredevil',30],['Ultimate Spider-Man',22],['Age of Ultron',10],['Fantastic Four',48]]},
+];
+const MANGA=new Set(COLS[2].series.map(s=>s[0]));
+const unit=s=>MANGA.has(s)?'Vol. ':'#';
+const CONT=[['Vinland Saga',12,.4],['The Black Beetle',1,.7],['Kagurabachi',1,.2],['One-Punch Man',8,.55],['Ultimate Spider-Man',20,.3],['Daredevil',1,.85],['Flashpoint',3,.1],['Saga',54,.6]];
+const progress=(s,i)=>{const c=CONT.find(x=>x[0]===s);if(!c)return hash(s)%3===0&&i<3?1:0;return i<c[1]?1:i===c[1]?c[2]:0};
+
+/* ---------------- library views ---------------- */
+let path=[], mode='same';
+const view=document.getElementById('view'), crumbs=document.getElementById('crumbs'), app=document.getElementById('app');
+const pl=p=>`<div class="pl ${p>=1?'done':''}">${p>0?`<span style="width:${Math.min(p,1)*100}%"></span>`:''}</div>`;
+
+function render(){
+  // breadcrumbs
+  if(!path.length) crumbs.innerHTML='<span class="mark" style="color:var(--white)">AION</span>';
+  else{
+    const c=COLS[path[0]], parts=[`<a data-go="">Library</a>`];
+    parts.push(path.length===1?`<b>${c.name}</b>`:`<a data-go="${path[0]}">${c.name}</a>`);
+    if(path.length===2) parts.push(`<b>${c.series[path[1]][0]}</b>`);
+    crumbs.innerHTML=`<span class="back" data-back>‹</span>`+parts.join('<i>/</i>');
+  }
+  // body
+  let html='';
+  if(!path.length){
+    html+=`<div class="h">Continue reading</div><div class="row">`+CONT.map(([s,i,p])=>`
+      <div class="it"><div class="cover" data-read="${s}|${i}" style="background:${cover(s+i)}"></div>${pl(p)}
+      <div class="t1">${s}</div><div class="t2">${unit(s)}${i}</div></div>`).join('')+`</div>`;
+    html+=`<div class="h sp">Collections</div><div class="cols">`+COLS.map((c,ci)=>{
+      const s=c.series, n=s.reduce((a,x)=>a+x[1],0);
+      return `<div><div class="stack" data-col="${ci}">
+        <div class="c c2" style="background:${cover(s[2][0]+1)}"></div>
+        <div class="c c1" style="background:${cover(s[1][0]+1)}"></div>
+        <div class="c c0" style="background:${cover(s[0][0]+1)}"></div></div>
+        <div class="t1" style="margin-top:12px">${c.name}</div><div class="t2">${s.length} series · ${n} ${c.name==='Manga'?'volumes':'issues'}</div></div>`}).join('')+`</div>`;
+  } else if(path.length===1){
+    const c=COLS[path[0]];
+    html+=`<div class="shead"><div class="t">${c.name}</div><div class="m">${c.series.length} series</div></div><div class="grid">`+
+      c.series.map(([s,n],si)=>{const read=[...Array(n)].reduce((a,_,i)=>a+(progress(s,i+1)>=1),0);
+        return `<div><div class="cover" data-ser="${si}" style="background:${cover(s+1)}"></div>${pl(read/n)}
+        <div class="t1">${s}</div><div class="t2">${n} ${MANGA.has(s)?'volumes':'issues'}</div></div>`}).join('')+`</div>`;
+  } else {
+    const [s,n]=COLS[path[0]].series[path[1]], m=MANGA.has(s);
+    html+=`<div class="shead"><div class="t">${s}</div><div class="m">${n} ${m?'volumes · Right to left':'issues · Left to right'}</div></div><div class="grid">`+
+      [...Array(n)].map((_,i)=>`<div><div class="cover" data-read="${s}|${i+1}" style="background:${cover(s+(i+1))}"></div>${pl(progress(s,i+1))}
+        <div class="t2" style="margin-top:8px">${unit(s)}${i+1}</div></div>`).join('')+`</div>`;
+  }
+  view.innerHTML=html; view.scrollTop=0;
+}
+app.addEventListener('click',e=>{
+  const t=e.target.closest('[data-col],[data-ser],[data-read],[data-go],[data-back]'); if(!t||reader) return;
+  if(t.dataset.col!==undefined){path=[+t.dataset.col];fade()}
+  else if(t.dataset.ser!==undefined){path=[path[0],+t.dataset.ser];fade()}
+  else if(t.dataset.go!==undefined){path=t.dataset.go===''?[]:[+t.dataset.go];fade()}
+  else if(t.dataset.back!==undefined){path=path.slice(0,-1);fade()}
+  else if(t.dataset.read){const [s,i]=t.dataset.read.split('|');open(t,s,+i)}
+});
+function fade(){view.style.opacity=0;setTimeout(()=>{render();view.style.opacity=1},200)}
+
+/* ---------------- reader ---------------- */
+const P=[[12,12,276,130],[12,150,134,140],[154,150,134,140],[12,298,88,140],[108,298,88,140],[204,298,84,140]];
+const ART=[
+  "radial-gradient(140% 120% at 50% 160%,#161616 0 58%,#eeece6 58.5% 59.5%,transparent 60%),radial-gradient(circle at 50% 40%,#fff 0 4%,transparent 5%),linear-gradient(180deg,#000,#0c0c0c)",
+  "linear-gradient(90deg,transparent 42%,#050505 42% 58%,transparent 58%) 0 30%/100% 50% no-repeat,linear-gradient(180deg,#ecebe6 0 76%,#c9c8c3 76%)",
+  "radial-gradient(circle at 50% 50%,#eeece6 0 16%,#000 17%)",
+  "repeating-linear-gradient(0deg,#111 0 2px,#eeece6 2px 9px)",
+  "radial-gradient(circle at 50% 60%,#111 0 18%,transparent 19%),linear-gradient(180deg,#e4e3de,#eeece6)",
+  "linear-gradient(180deg,#eeece6,#eeece6) 50% 100%/2px 62% no-repeat,radial-gradient(circle at 50% 20%,#fff 0 6%,#000 7%)",
+];
+let reader=null;
+const HUD=44;
+function pageRect(W,H){const s=Math.min(W*.9/300,(H-HUD)*.9/450);return {s,w:300*s,h:450*s,x:(W-300*s)/2,y:(H-HUD-450*s)/2+HUD/2}}
+
+function mountReader(host,s,i,closeLabel){
+  const rtl=MANGA.has(s);
+  host.insertAdjacentHTML('beforeend',`<div class="reader"><div class="stage"><div class="page"></div></div>
+    <div class="rt"><span>${s} · ${unit(s)}${i}</span>${closeLabel?`<span class="x">${closeLabel}</span>`:''}</div>
+    <div class="rb"><span>Guided view</span><span class="n"></span><span class="d">${rtl?'Right to left':'Left to right'}</span></div></div>`);
+  const el=host.lastElementChild, stage=el.querySelector('.stage'), page=el.querySelector('.page'), n=el.querySelector('.n');
+  page.innerHTML=P.map(([x,y,w,h],k)=>`<div class="p" style="left:${x}px;top:${y}px;width:${w}px;height:${h}px;background:${ART[k]}"></div>`).join('');
+  const els=[...page.children], order=rtl?[0,2,1,5,4,3]:[0,1,2,3,4,5];
+  let step=0;
+  function draw(){
+    const W=stage.clientWidth,H=stage.clientHeight;
+    els.forEach(e=>e.classList.remove('on'));
+    if(step===0){const r=pageRect(W,H);page.classList.remove('guided');page.style.transform=`translate(${r.x}px,${r.y}px) scale(${r.s})`;n.textContent='';return}
+    const k=order[step-1],[x,y,w,h]=P[k]; els[k].classList.add('on');page.classList.add('guided');
+    const sc=Math.min(W*.84/w,(H-HUD)*.84/h);
+    page.style.transform=`translate(${W/2-(x+w/2)*sc}px,${(H-HUD)/2+HUD/2-(y+h/2)*sc}px) scale(${sc})`;
+    n.textContent=`${step} / 6`;
+  }
+  const go=d=>{step=(step+d+7)%7;draw()};
+  stage.onclick=()=>go(1);
+  page.style.transition='none';draw();page.offsetWidth;page.style.transition='';
+  return {el,go,draw};
+}
+
+function flip(bg,from,to,cb){
+  const f=document.createElement('div');f.className='flip';f.style.background=bg;
+  Object.assign(f.style,{left:from.x+'px',top:from.y+'px',width:from.w+'px',height:from.h+'px'});
+  app.appendChild(f);f.offsetWidth;
+  Object.assign(f.style,{left:to.x+'px',top:to.y+'px',width:to.w+'px',height:to.h+'px'});
+  setTimeout(()=>cb(f),620);
+}
+const rel=el=>{const a=app.getBoundingClientRect(),r=el.getBoundingClientRect();return {x:r.left-a.left,y:r.top-a.top,w:r.width,h:r.height}};
+
+function open(src,s,i){
+  if(mode==='same'){
+    const bd=document.getElementById('bd'), from=rel(src), to=pageRect(app.clientWidth,app.clientHeight), bg=src.style.background;
+    bd.style.opacity=1;
+    flip(bg,from,to,f=>{
+      const r=mountReader(app,s,i,'Back to library  ·  Esc');
+      setTimeout(()=>r.el.classList.add('in'),20);
+      setTimeout(()=>f.remove(),300);
+      reader={...r,close(){
+        r.el.classList.remove('in');
+        flip(bg,pageRect(app.clientWidth,app.clientHeight),rel(src),f3=>{f3.remove()});
+        bd.style.opacity=0; setTimeout(()=>r.el.remove(),300); reader=null;
+      }};
+      r.el.querySelector('.x').onclick=()=>reader&&reader.close();
+    });
+  } else {
+    app.insertAdjacentHTML('beforeend',`<div class="win"><div class="tb">${s} · ${unit(s)}${i}<div class="ctrls"><span>–</span><span>□</span><span class="cl">✕</span></div></div><div class="body"></div></div>`);
+    const w=app.lastElementChild, r=mountReader(w.querySelector('.body'),s,i,null);
+    setTimeout(()=>{w.classList.add('in');r.draw()},20);
+    reader={...r,close(){w.classList.remove('in');setTimeout(()=>w.remove(),400);reader=null}};
+    w.querySelector('.cl').onclick=()=>reader&&reader.close();
+    // drag the window by its title bar
+    const tb=w.querySelector('.tb');
+    tb.onmousedown=e=>{if(e.target.closest('.ctrls'))return;const sx=e.clientX-w.offsetLeft,sy=e.clientY-w.offsetTop;tb.style.cursor='grabbing';
+      const mv=ev=>{w.style.left=Math.max(-w.offsetWidth+80,Math.min(app.clientWidth-80,ev.clientX-sx))+'px';w.style.top=Math.max(0,Math.min(app.clientHeight-32,ev.clientY-sy))+'px'};
+      const up=()=>{tb.style.cursor='';removeEventListener('mousemove',mv);removeEventListener('mouseup',up)};
+      addEventListener('mousemove',mv);addEventListener('mouseup',up)};
+  }
+}
+addEventListener('keydown',e=>{
+  if(!reader)return;
+  if(e.key==='Escape')reader.close();
+  else if(['ArrowRight','ArrowDown',' '].includes(e.key)){e.preventDefault();reader.go(1)}
+  else if(['ArrowLeft','ArrowUp'].includes(e.key)){e.preventDefault();reader.go(-1)}
+});
+const setMode=m=>{mode=m;mSame.classList.toggle('on',m==='same');mNew.classList.toggle('on',m==='new');if(reader)reader.close()};
+mSame.onclick=()=>setMode('same'); mNew.onclick=()=>setMode('new');
+render();
+</script>
+</body></html>

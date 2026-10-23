@@ -1,0 +1,801 @@
+mod archive;
+mod cv;
+mod db;
+mod panels;
+mod scan;
+
+/// Bump when panel detection changes so cached results are recomputed.
+const PANELS_VERSION: i64 = 4;
+
+use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::{Arc, Mutex};
+
+use rusqlite::Connection;
+use serde::Serialize;
+use tauri::http::{header, Request, Response, StatusCode};
+use tauri::{AppHandle, Emitter, Manager, State};
+
+pub struct AppState {
+    db_path: PathBuf,
+    conn: Mutex<Connection>,
+    thumbs_dir: PathBuf,
+    archives: archive::Archives,
+    scanning: AtomicBool,
+    /// Files and folders opened from outside the library this session. Book id `-(i + 1)` is entry `i`.
+    external: Mutex<Vec<PathBuf>>,
+    comicvine: cv::Client,
+}
+
+type Shared = Arc<AppState>;
+type CmdResult<T> = Result<T, String>;
+
+fn err(e: impl std::fmt::Display) -> String {
+    e.to_string()
+}
+
+impl AppState {
+    fn root(&self) -> Option<PathBuf> {
+        let conn = self.conn.lock().unwrap();
+        db::get_setting(&conn, "library_root").ok().flatten().map(PathBuf::from)
+    }
+
+    fn comic_path(&self, id: i64) -> anyhow::Result<(PathBuf, db::ComicFile)> {
+        if id < 0 {
+            let ext = self.external.lock().unwrap();
+            let path = ext.get((-id - 1) as usize).ok_or_else(|| anyhow::anyhow!("Unknown book"))?;
+            return Ok((path.clone(), db::ComicFile { rel_path: String::new(), yac_hash: None }));
+        }
+        let root = self.root().ok_or_else(|| anyhow::anyhow!("No library folder set"))?;
+        let f = db::comic_file(&self.conn.lock().unwrap(), id)?;
+        Ok((root.join(&f.rel_path), f))
+    }
+
+    /// Where `path` sits inside the library folder, as stored in `comics.rel_path` (forward slashes).
+    fn library_rel(&self, path: &Path) -> Option<String> {
+        let root = self.root()?;
+        let norm = |p: &Path| p.to_string_lossy().replace('\\', "/").trim_end_matches('/').to_lowercase();
+        let (root_s, path_s) = (norm(&root), norm(path));
+        let rest = path_s.strip_prefix(&root_s)?.strip_prefix('/')?;
+        // Keep the original casing of the remainder.
+        let full = path.to_string_lossy().replace('\\', "/");
+        Some(full[full.len() - rest.len()..].to_string())
+    }
+
+    /// AionComics never writes into the library folder, even when asked to save there.
+    fn guard_outside_library(&self, dest: &Path) -> anyhow::Result<()> {
+        let probe = if dest.exists() { dest.to_path_buf() } else { dest.parent().unwrap_or(dest).to_path_buf() };
+        let real = std::fs::canonicalize(&probe).unwrap_or(probe);
+        if let Some(root) = self.root() {
+            let root = std::fs::canonicalize(&root).unwrap_or(root);
+            let low = |p: &Path| p.to_string_lossy().to_lowercase();
+            if low(&real).starts_with(&low(&root)) {
+                anyhow::bail!("AionComics doesn't write into your comics folder. Pick somewhere else, like Downloads.");
+            }
+        }
+        Ok(())
+    }
+}
+
+// ---------- scanning ----------
+
+fn start_scan(app: &AppHandle, state: &Shared) {
+    if state.scanning.swap(true, Ordering::SeqCst) {
+        return;
+    }
+    let Some(root) = state.root() else {
+        state.scanning.store(false, Ordering::SeqCst);
+        return;
+    };
+    let (app, state) = (app.clone(), state.clone());
+    let _ = app.emit("scan-started", ());
+    std::thread::spawn(move || {
+        // Separate connection so browsing stays responsive during a scan.
+        let result = db::open(&state.db_path).and_then(|mut c| {
+            let stats = scan::scan(&mut c, &root)?;
+            db::set_setting(&c, "last_scan", &serde_json::to_string(&stats)?)?;
+            Ok((stats, c))
+        });
+        state.scanning.store(false, Ordering::SeqCst);
+        match result {
+            Ok((stats, mut c)) => {
+                let _ = app.emit("library-changed", stats);
+                // Learn the page lists of the books you're likely to open next, so even a big CBR opens at once.
+                // Wait a little first: on a spinning drive this shouldn't compete with the first book you open.
+                std::thread::sleep(std::time::Duration::from_secs(10));
+                let now = scan::now();
+                let likely = [
+                    db::continue_reading(&c, now, 30),
+                    db::up_next(&c, 30),
+                    db::pick_up_again(&c, now, 30),
+                ];
+                for card in likely.into_iter().flatten().flatten() {
+                    if let Ok((path, _)) = state.comic_path(card.id) {
+                        let _ = state.archives.listing(card.id, &path);
+                    }
+                }
+                // Cover shapes are a slower second pass over the drive.
+                if let Ok(n) = scan::cover_ratios(&mut c, &root) {
+                    if n > 0 {
+                        let _ = app.emit("library-changed", ());
+                    }
+                }
+            }
+            Err(e) => {
+                let _ = app.emit("scan-failed", e.to_string());
+            }
+        }
+    });
+}
+
+// ---------- commands ----------
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct Settings {
+    library_root: Option<String>,
+    last_scan: Option<serde_json::Value>,
+    scanning: bool,
+}
+
+#[tauri::command]
+fn get_settings(state: State<Shared>) -> CmdResult<Settings> {
+    let conn = state.conn.lock().unwrap();
+    Ok(Settings {
+        library_root: db::get_setting(&conn, "library_root").map_err(err)?,
+        last_scan: db::get_setting(&conn, "last_scan")
+            .map_err(err)?
+            .and_then(|s| serde_json::from_str(&s).ok()),
+        scanning: state.scanning.load(Ordering::SeqCst),
+    })
+}
+
+#[tauri::command]
+fn set_library_root(app: AppHandle, state: State<Shared>, path: String) -> CmdResult<()> {
+    if !Path::new(&path).is_dir() {
+        return Err(format!("{path} isn't a folder"));
+    }
+    db::set_setting(&state.conn.lock().unwrap(), "library_root", &path).map_err(err)?;
+    start_scan(&app, &state);
+    Ok(())
+}
+
+#[tauri::command]
+fn rescan(app: AppHandle, state: State<Shared>) {
+    start_scan(&app, &state);
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct Home {
+    continue_reading: Vec<db::ComicCard>,
+    up_next: Vec<db::ComicCard>,
+    pick_up_again: Vec<db::ComicCard>,
+    recently_added: Vec<db::RecentGroup>,
+}
+
+#[tauri::command]
+fn home(state: State<Shared>) -> CmdResult<Home> {
+    let conn = state.conn.lock().unwrap();
+    let now = scan::now();
+    (|| -> anyhow::Result<Home> {
+        Ok(Home {
+            continue_reading: db::continue_reading(&conn, now, 24)?,
+            up_next: db::up_next(&conn, 24)?,
+            pick_up_again: db::pick_up_again(&conn, now, 24)?,
+            recently_added: db::recent_groups(&conn, 18)?,
+        })
+    })()
+    .map_err(err)
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct Nav {
+    collections: Vec<db::CollectionSummary>,
+    continue_count: usize,
+    up_next_count: usize,
+}
+
+/// Everything the sidebar needs.
+#[tauri::command]
+fn nav(state: State<Shared>) -> CmdResult<Nav> {
+    let conn = state.conn.lock().unwrap();
+    (|| -> anyhow::Result<Nav> {
+        Ok(Nav {
+            collections: db::collections(&conn)?,
+            continue_count: db::continue_reading(&conn, scan::now(), 1000)?.len(),
+            up_next_count: db::up_next(&conn, 1000)?.len(),
+        })
+    })()
+    .map_err(err)
+}
+
+#[tauri::command]
+fn comic_list(state: State<Shared>, kind: String) -> CmdResult<Vec<db::ComicCard>> {
+    let conn = state.conn.lock().unwrap();
+    let now = scan::now();
+    match kind.as_str() {
+        "continue" => db::continue_reading(&conn, now, 1000),
+        "upnext" => db::up_next(&conn, 1000),
+        "pickup" => db::pick_up_again(&conn, now, 1000),
+        "finished" => db::finished(&conn, 1000),
+        _ => db::recently_added(&conn, 300),
+    }
+    .map_err(err)
+}
+
+#[tauri::command]
+fn search(state: State<Shared>, q: String) -> CmdResult<Vec<db::SeriesSummary>> {
+    if q.trim().is_empty() {
+        return Ok(vec![]);
+    }
+    db::search(&state.conn.lock().unwrap(), &q).map_err(err)
+}
+
+#[tauri::command]
+fn mark_read_before(state: State<Shared>, id: i64) -> CmdResult<()> {
+    db::mark_read_before(&state.conn.lock().unwrap(), id, scan::now()).map_err(err)
+}
+
+#[tauri::command]
+fn dismiss_backfill(state: State<Shared>, series_id: i64) -> CmdResult<()> {
+    db::set_setting(&state.conn.lock().unwrap(), &format!("backfill_dismissed:{series_id}"), "1").map_err(err)
+}
+
+/// Show a comic's file selected in Explorer.
+#[tauri::command]
+fn reveal(state: State<Shared>, id: i64) -> CmdResult<()> {
+    let (path, _) = state.comic_path(id).map_err(err)?;
+    #[cfg(windows)]
+    {
+        use std::os::windows::process::CommandExt;
+        std::process::Command::new("explorer")
+            .raw_arg(format!("/select,\"{}\"", path.display()))
+            .spawn()
+            .map_err(err)?;
+    }
+    #[cfg(not(windows))]
+    let _ = path;
+    Ok(())
+}
+
+#[tauri::command]
+fn set_series_read(state: State<Shared>, series_id: i64, read: bool) -> CmdResult<()> {
+    db::set_series_read(&state.conn.lock().unwrap(), series_id, read, scan::now()).map_err(err)
+}
+
+#[tauri::command]
+fn collection(state: State<Shared>, id: i64) -> CmdResult<db::CollectionView> {
+    db::collection_view(&state.conn.lock().unwrap(), id).map_err(err)
+}
+
+#[tauri::command]
+fn series(state: State<Shared>, id: i64) -> CmdResult<db::SeriesView> {
+    db::series_view(&state.conn.lock().unwrap(), id).map_err(err)
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct ReaderInfo {
+    comic: db::ComicCard,
+    page_count: usize,
+    start_page: usize,
+    prev_id: Option<i64>,
+    next: Option<db::ComicCard>,
+    bookmarks: Vec<i64>,
+    /// Opened from outside the library: progress, bookmarks and panel edits aren't kept.
+    external: bool,
+}
+
+/// Open a file or folder picked from disk. Books inside the library open as themselves.
+#[tauri::command]
+fn open_path(state: State<Shared>, path: String) -> CmdResult<i64> {
+    let path = PathBuf::from(path);
+    if let Some(rel) = state.library_rel(&path) {
+        if let Some(id) = db::comic_id_by_path(&state.conn.lock().unwrap(), &rel).map_err(err)? {
+            return Ok(id);
+        }
+    }
+    archive::list(&path).map_err(err)?;
+    let mut ext = state.external.lock().unwrap();
+    ext.push(path);
+    Ok(-(ext.len() as i64))
+}
+
+fn page_ext(mime: &str) -> &'static str {
+    match mime {
+        "image/png" => "png",
+        "image/webp" => "webp",
+        "image/gif" => "gif",
+        _ => "jpg",
+    }
+}
+
+/// Save one page to a file the user picked.
+#[tauri::command]
+async fn save_page(state: State<'_, Shared>, id: i64, page: usize, dest: String) -> CmdResult<()> {
+    let state = state.inner().clone();
+    tauri::async_runtime::spawn_blocking(move || -> anyhow::Result<()> {
+        let dest = PathBuf::from(dest);
+        state.guard_outside_library(&dest)?;
+        let (path, _) = state.comic_path(id)?;
+        let (bytes, _) = state.archives.page(id, &path, page)?;
+        std::fs::write(&dest, bytes)?;
+        Ok(())
+    })
+    .await
+    .map_err(err)?
+    .map_err(err)
+}
+
+/// Save pages `from..=to` (0-based) into a folder. Returns how many were written.
+#[tauri::command]
+async fn extract_pages(state: State<'_, Shared>, id: i64, from: usize, to: usize, dir: String) -> CmdResult<usize> {
+    let state = state.inner().clone();
+    tauri::async_runtime::spawn_blocking(move || -> anyhow::Result<usize> {
+        let dir = PathBuf::from(dir);
+        state.guard_outside_library(&dir.join("page"))?;
+        let (path, _) = state.comic_path(id)?;
+        let stem = path.file_stem().map(|s| s.to_string_lossy().into_owned()).unwrap_or_else(|| "page".into());
+        let mut n = 0;
+        for i in from..=to {
+            let (bytes, mime) = state.archives.page(id, &path, i)?;
+            std::fs::write(dir.join(format!("{stem} - {:03}.{}", i + 1, page_ext(mime))), bytes)?;
+            n += 1;
+        }
+        Ok(n)
+    })
+    .await
+    .map_err(err)?
+    .map_err(err)
+}
+
+// ---------- metadata ----------
+
+/// Everything known about one book, and which fields were edited by hand or came from Comic Vine.
+#[tauri::command]
+fn comic_meta(state: State<Shared>, id: i64) -> CmdResult<db::ComicMeta> {
+    db::comic_meta(&state.conn.lock().unwrap(), id).map_err(err)
+}
+
+/// Hand edits: each field given is saved; `null` drops your edit for that field.
+#[tauri::command]
+fn edit_comic_meta(state: State<Shared>, id: i64, changes: db::Meta) -> CmdResult<db::ComicMeta> {
+    if id < 0 {
+        return Err("Details are kept for books in your library.".into());
+    }
+    let conn = state.conn.lock().unwrap();
+    db::edit_meta(&conn, id, &changes, scan::now()).map_err(err)?;
+    db::comic_meta(&conn, id).map_err(err)
+}
+
+#[tauri::command]
+fn cv_status(state: State<Shared>) -> CmdResult<cv::Status> {
+    cv::status(&state.comicvine, &state.conn.lock().unwrap()).map_err(err)
+}
+
+/// Save a Comic Vine API key after checking Comic Vine accepts it. An empty key removes it.
+#[tauri::command]
+async fn cv_set_key(state: State<'_, Shared>, key: String) -> CmdResult<()> {
+    let state = state.inner().clone();
+    tauri::async_runtime::spawn_blocking(move || -> anyhow::Result<()> {
+        let key = key.trim().to_string();
+        if !key.is_empty() {
+            let probe = cv::Client::new(&std::env::temp_dir(), Some(key.clone()));
+            probe.get("search", &[("resources", "volume".into()), ("query", "batman".into()), ("limit", "1".into())], 0, false)?;
+        }
+        db::set_setting(&state.conn.lock().unwrap(), "cv_api_key", &key)?;
+        state.comicvine.set_key(Some(key));
+        Ok(())
+    })
+    .await
+    .map_err(err)?
+    .map_err(err)
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct CvSearch {
+    query: String,
+    volumes: Vec<cv::Volume>,
+}
+
+/// Comic Vine series that could be this one, best first. Without a query, searches by the series name.
+#[tauri::command]
+async fn cv_search(state: State<'_, Shared>, series_id: i64, query: Option<String>) -> CmdResult<CvSearch> {
+    let state = state.inner().clone();
+    tauri::async_runtime::spawn_blocking(move || -> anyhow::Result<CvSearch> {
+        // Its own connection: the library stays usable while Comic Vine answers.
+        let conn = db::open(&state.db_path)?;
+        let query = match query.filter(|q| !q.trim().is_empty()) {
+            Some(q) => q.trim().to_string(),
+            None => cv::default_query(&conn, series_id)?,
+        };
+        let volumes = cv::search(&state.comicvine, &conn, series_id, &query)?;
+        Ok(CvSearch { query, volumes })
+    })
+    .await
+    .map_err(err)?
+    .map_err(err)
+}
+
+/// A Comic Vine series' issues and the issue proposed for each of this series' books.
+#[tauri::command]
+async fn cv_plan(state: State<'_, Shared>, series_id: i64, volume_id: String) -> CmdResult<cv::IssuePlan> {
+    let state = state.inner().clone();
+    tauri::async_runtime::spawn_blocking(move || {
+        let conn = db::open(&state.db_path)?;
+        cv::plan(&state.comicvine, &conn, series_id, &volume_id)
+    })
+    .await
+    .map_err(err)?
+    .map_err(err)
+}
+
+/// Save the matches. Credits and characters follow in the background.
+#[tauri::command]
+async fn cv_apply(state: State<'_, Shared>, series_id: i64, volume_id: String, pairs: Vec<cv::Pair>) -> CmdResult<usize> {
+    let state = state.inner().clone();
+    tauri::async_runtime::spawn_blocking(move || {
+        let conn = db::open(&state.db_path)?;
+        cv::apply(&state.comicvine, &conn, series_id, &volume_id, &pairs, scan::now())
+    })
+    .await
+    .map_err(err)?
+    .map_err(err)
+}
+
+#[tauri::command]
+fn toggle_bookmark(state: State<Shared>, id: i64, page: i64) -> CmdResult<bool> {
+    if id < 0 {
+        return Err("Bookmarks are kept for books in your library.".into());
+    }
+    db::toggle_bookmark(&state.conn.lock().unwrap(), id, page, scan::now()).map_err(err)
+}
+
+/// Replace a page's panels with hand-edited ones; `None` goes back to automatic detection.
+#[tauri::command]
+fn set_user_panels(state: State<Shared>, id: i64, page: i64, panels: Option<Vec<panels::Panel>>) -> CmdResult<()> {
+    if id < 0 {
+        return Err("Panel edits are kept for books in your library.".into());
+    }
+    let json = panels.map(|p| serde_json::to_string(&p)).transpose().map_err(err)?;
+    db::set_user_panels(&state.conn.lock().unwrap(), id, page, json.as_deref()).map_err(err)
+}
+
+/// A book opened from disk: named after its file, no series, no progress.
+fn external_card(path: &Path, id: i64, pages: usize) -> db::ComicCard {
+    db::ComicCard {
+        id,
+        label: String::new(),
+        title: None,
+        year: None,
+        series_id: 0,
+        series_name: path
+            .file_stem()
+            .or(path.file_name())
+            .map(|s| s.to_string_lossy().into_owned())
+            .unwrap_or_default(),
+        current_page: 0,
+        num_pages: Some(pages as i64),
+        read: false,
+        is_manga: false,
+        cover_ratio: None,
+        last_read_at: None,
+    }
+}
+
+#[tauri::command]
+async fn open_comic(state: State<'_, Shared>, id: i64) -> CmdResult<ReaderInfo> {
+    let state = state.inner().clone();
+    tauri::async_runtime::spawn_blocking(move || -> anyhow::Result<ReaderInfo> {
+        let (path, _) = state.comic_path(id)?;
+        let listing = state.archives.listing(id, &path)?;
+        let n = listing.pages.len();
+        if id < 0 {
+            let comic = external_card(&path, id, n);
+            return Ok(ReaderInfo {
+                comic,
+                page_count: n,
+                start_page: 0,
+                prev_id: None,
+                next: None,
+                bookmarks: vec![],
+                external: true,
+            });
+        }
+        let conn = state.conn.lock().unwrap();
+        let comic = db::card_by_id(&conn, id)?;
+        let (prev_id, next_id) = db::neighbours(&conn, id)?;
+        let next = next_id.map(|n| db::card_by_id(&conn, n)).transpose()?;
+        let start = if comic.read { 0 } else { (comic.current_page.max(0) as usize).min(n - 1) };
+        let bookmarks = db::bookmarks(&conn, id)?;
+        Ok(ReaderInfo { comic, page_count: n, start_page: start, prev_id, next, bookmarks, external: false })
+    })
+    .await
+    .map_err(err)?
+    .map_err(err)
+}
+
+#[tauri::command]
+async fn page_panels(state: State<'_, Shared>, id: i64, page: i64, rtl: bool) -> CmdResult<Vec<panels::Panel>> {
+    let state = state.inner().clone();
+    tauri::async_runtime::spawn_blocking(move || -> anyhow::Result<Vec<panels::Panel>> {
+        // Covers are splash pages; guided view just shows them whole.
+        if id > 0 {
+            if let Some(json) = db::user_panels(&state.conn.lock().unwrap(), id, page)? {
+                return Ok(serde_json::from_str(&json)?);
+            }
+        }
+        if page == 0 {
+            return Ok(vec![]);
+        }
+        if id < 0 {
+            let (path, _) = state.comic_path(id)?;
+            let (bytes, _) = state.archives.page(id, &path, page as usize)?;
+            return panels::detect(&bytes, rtl);
+        }
+        let cached = db::cached_panels(&state.conn.lock().unwrap(), id, page, rtl, PANELS_VERSION)?;
+        if let Some(json) = cached {
+            return Ok(serde_json::from_str(&json)?);
+        }
+        let (path, _) = state.comic_path(id)?;
+        let (bytes, _) = state.archives.page(id, &path, page as usize)?;
+        let found = panels::detect(&bytes, rtl)?;
+        let json = serde_json::to_string(&found)?;
+        db::store_panels(&state.conn.lock().unwrap(), id, page, rtl, PANELS_VERSION, &json)?;
+        Ok(found)
+    })
+    .await
+    .map_err(err)?
+    .map_err(err)
+}
+
+#[tauri::command]
+fn save_progress(state: State<Shared>, id: i64, page: i64, page_count: i64) -> CmdResult<()> {
+    if id < 0 {
+        return Ok(());
+    }
+    db::set_progress(&state.conn.lock().unwrap(), id, page, page_count, scan::now()).map_err(err)
+}
+
+#[tauri::command]
+fn set_read(state: State<Shared>, id: i64, read: bool) -> CmdResult<()> {
+    db::set_read(&state.conn.lock().unwrap(), id, read, scan::now()).map_err(err)
+}
+
+// ---------- image protocol: aion://localhost/cover/{id}, /page/{id}/{n} ----------
+
+fn respond(status: StatusCode, mime: &str, body: Vec<u8>, cache: bool) -> Response<Vec<u8>> {
+    let mut b = Response::builder()
+        .status(status)
+        .header(header::CONTENT_TYPE, mime)
+        .header(header::ACCESS_CONTROL_ALLOW_ORIGIN, "*");
+    if cache {
+        b = b.header(header::CACHE_CONTROL, "max-age=31536000, immutable");
+    }
+    b.body(body).unwrap()
+}
+
+fn cover(state: &AppState, id: i64) -> anyhow::Result<Vec<u8>> {
+    if id < 0 {
+        // Outside books get fresh ids each session, so their covers aren't cached.
+        let (path, _) = state.comic_path(id)?;
+        return Ok(archive::make_thumbnail(&state.archives.first_page(id, &path)?)?.0);
+    }
+    let cached = state.thumbs_dir.join(format!("{id}.jpg"));
+    if let Ok(b) = std::fs::read(&cached) {
+        return Ok(b);
+    }
+    let (path, file) = state.comic_path(id)?;
+    // Reuse YACReader's cover cache when it has one.
+    if let (Some(hash), Some(root)) = (file.yac_hash.as_ref(), state.root()) {
+        let yac = root.join(".yacreaderlibrary").join("covers").join(format!("{hash}.jpg"));
+        if let Ok(b) = std::fs::read(yac) {
+            return Ok(b);
+        }
+    }
+    let (thumb, ratio) = archive::make_thumbnail(&state.archives.first_page(id, &path)?)?;
+    let _ = std::fs::write(&cached, &thumb);
+    let _ = db::set_cover_ratio(&state.conn.lock().unwrap(), id, ratio);
+    Ok(thumb)
+}
+
+fn handle_image(state: &AppState, req: &Request<Vec<u8>>) -> Response<Vec<u8>> {
+    let parts: Vec<&str> = req.uri().path().trim_matches('/').split('/').collect();
+    let result = match parts.as_slice() {
+        ["cover", id] => id
+            .parse()
+            .map_err(anyhow::Error::from)
+            .and_then(|id| cover(state, id))
+            .map(|b| (b, "image/jpeg")),
+        ["thumb", id, n] => (|| {
+            let id: i64 = id.parse()?;
+            let n: usize = n.parse()?;
+            let cached = state.thumbs_dir.join("pages").join(format!("{id}-{n}.jpg"));
+            if id > 0 {
+                if let Ok(b) = std::fs::read(&cached) {
+                    return Ok((b, "image/jpeg"));
+                }
+            }
+            let (path, _) = state.comic_path(id)?;
+            let thumb = archive::make_page_thumb(&state.archives.page(id, &path, n)?.0)?;
+            if id > 0 {
+                let _ = std::fs::create_dir_all(cached.parent().unwrap());
+                let _ = std::fs::write(&cached, &thumb);
+            }
+            Ok((thumb, "image/jpeg"))
+        })(),
+        ["page", id, n] => (|| {
+            let id: i64 = id.parse()?;
+            let n: usize = n.parse()?;
+            let (path, _) = state.comic_path(id)?;
+            state.archives.page(id, &path, n)
+        })(),
+        _ => Err(anyhow::anyhow!("not found")),
+    };
+    match result {
+        Ok((body, mime)) => respond(StatusCode::OK, mime, body, true),
+        Err(e) => respond(StatusCode::NOT_FOUND, "text/plain", e.to_string().into_bytes(), false),
+    }
+}
+
+#[cfg_attr(mobile, tauri::mobile_entry_point)]
+pub fn run() {
+    tauri::Builder::default()
+        .plugin(tauri_plugin_dialog::init())
+        .register_asynchronous_uri_scheme_protocol("aion", |ctx, request, responder| {
+            let state = ctx.app_handle().state::<Shared>().inner().clone();
+            tauri::async_runtime::spawn_blocking(move || {
+                responder.respond(handle_image(&state, &request));
+            });
+        })
+        .setup(|app| {
+            let data_dir = app.path().app_data_dir()?;
+            let cache_dir = app.path().app_cache_dir()?;
+            let thumbs_dir = cache_dir.join("thumbs");
+            std::fs::create_dir_all(&data_dir)?;
+            std::fs::create_dir_all(&thumbs_dir)?;
+            let db_path = data_dir.join("library.db");
+            let conn = db::open(&db_path)?;
+            let cv_key = db::get_setting(&conn, "cv_api_key")?;
+            let state: Shared = Arc::new(AppState {
+                db_path,
+                conn: Mutex::new(conn),
+                thumbs_dir,
+                archives: archive::Archives::new(&cache_dir),
+                scanning: AtomicBool::new(false),
+                external: Mutex::new(Vec::new()),
+                comicvine: cv::Client::new(&cache_dir, cv_key),
+            });
+            app.manage(state.clone());
+            // Comic Vine details (credits, characters, story arcs) trickle in on their own thread.
+            {
+                let (state, app) = (state.clone(), app.handle().clone());
+                std::thread::spawn(move || {
+                    cv::run_queue(&state.comicvine, &state.db_path, |comic_id, left| {
+                        let _ = app.emit("metadata-changed", serde_json::json!({ "comicId": comic_id, "left": left }));
+                    });
+                });
+            }
+            // Pick up anything added or moved since last launch.
+            start_scan(app.handle(), &state);
+            Ok(())
+        })
+        .invoke_handler(tauri::generate_handler![
+            get_settings,
+            set_library_root,
+            rescan,
+            home,
+            nav,
+            comic_list,
+            search,
+            mark_read_before,
+            dismiss_backfill,
+            set_series_read,
+            reveal,
+            collection,
+            series,
+            open_comic,
+            page_panels,
+            save_progress,
+            set_read,
+            open_path,
+            save_page,
+            extract_pages,
+            toggle_bookmark,
+            set_user_panels,
+            comic_meta,
+            edit_comic_meta,
+            cv_status,
+            cv_set_key,
+            cv_search,
+            cv_plan,
+            cv_apply
+        ])
+        .run(tauri::generate_context!())
+        .expect("error while running AionComics");
+}
+
+#[cfg(test)]
+mod real_library {
+    //! Run against a real library: `AION_TEST_ROOT=H:\Comics cargo test --lib real -- --ignored --nocapture`
+    use super::*;
+
+    #[test]
+    #[ignore]
+    fn real_scan_and_read() {
+        let root = PathBuf::from(std::env::var("AION_TEST_ROOT").expect("AION_TEST_ROOT"));
+        let tmp = std::env::temp_dir().join("aion-test");
+        let _ = std::fs::remove_dir_all(&tmp);
+        std::fs::create_dir_all(&tmp).unwrap();
+        let mut conn = db::open(&tmp.join("t.db")).unwrap();
+        let stats = scan::scan(&mut conn, &root).unwrap();
+        println!("{}", serde_json::to_string_pretty(&stats).unwrap());
+        let again = scan::scan(&mut conn, &root).unwrap();
+        println!("rescan: {:.1}s, added {}", again.seconds, again.added);
+
+        let cont = db::continue_reading(&conn, scan::now(), 5).unwrap();
+        for c in &cont {
+            println!("continue: {} {} p{}/{:?}", c.series_name, c.label, c.current_page, c.num_pages);
+        }
+        for col in db::collections(&conn).unwrap() {
+            println!("collection {}: {} series, {} comics", col.name, col.series_count, col.comic_count);
+        }
+        let mut st = conn
+            .prepare("SELECT s.name, c.label, c.section FROM comics c JOIN series s ON s.id=c.series_id ORDER BY random() LIMIT 25")
+            .unwrap();
+        for r in st.query_map([], |r| Ok((r.get::<_, String>(0)?, r.get::<_, String>(1)?, r.get::<_, String>(2)?))).unwrap() {
+            let (s, l, sec) = r.unwrap();
+            println!("  {s} | {l} | {sec}");
+        }
+
+        let archives = archive::Archives::new(&tmp);
+        for ext in ["cbr", "cbz"] {
+            let (id, rel): (i64, String) = conn
+                .query_row(&format!("SELECT id, rel_path FROM comics WHERE rel_path LIKE '%.{ext}' ORDER BY random() LIMIT 1"), [], |r| Ok((r.get(0)?, r.get(1)?)))
+                .unwrap();
+            let path = root.join(&rel);
+            let t = std::time::Instant::now();
+            let listing = archives.listing(id, &path).unwrap();
+            let (p0, mime) = archives.page(id, &path, 0).unwrap();
+            let t0 = t.elapsed();
+            let last = listing.pages.len() - 1;
+            let (pl, _) = archives.page(id, &path, last).unwrap();
+            println!("{ext} {rel}: {:?} {} pages, first {} bytes {mime} in {:?}, last {} bytes in {:?}",
+                listing.kind, listing.pages.len(), p0.len(), t0, pl.len(), t.elapsed());
+            let (thumb, ratio) = archive::make_thumbnail(&p0).unwrap();
+            println!("  thumbnail {} bytes, ratio {ratio:.2}", thumb.len());
+        }
+    }
+}
+
+#[cfg(test)]
+mod real_queries {
+    //! `AION_TEST_DB=<copy of library.db> AION_TEST_ROOT=H:\Comics cargo test --lib real_queries -- --ignored --nocapture`
+    use super::*;
+
+    #[test]
+    #[ignore]
+    fn home_rows() {
+        let mut conn = db::open(Path::new(&std::env::var("AION_TEST_DB").unwrap())).unwrap();
+        let now = scan::now();
+        let show = |name: &str, v: &[db::ComicCard]| {
+            println!("{name} ({}): {}", v.len(), v.iter().take(6).map(|c| format!("{} {}", c.series_name, c.label)).collect::<Vec<_>>().join(" | "));
+        };
+        show("continue", &db::continue_reading(&conn, now, 50).unwrap());
+        show("up next", &db::up_next(&conn, 50).unwrap());
+        show("pick up", &db::pick_up_again(&conn, now, 50).unwrap());
+        for g in db::recent_groups(&conn, 6).unwrap() {
+            println!("recent: {} x{} cover {}", g.series_name, g.count, g.cover.label);
+        }
+        let vin: i64 = conn.query_row("SELECT id FROM series WHERE name='Vinland Saga'", [], |r| r.get(0)).unwrap();
+        let v = db::series_view(&conn, vin).unwrap();
+        println!("vinland backfill: {:?}", v.backfill.map(|b| (b.before_label, b.count)));
+        println!("search yukimura: {:?}", db::search(&conn, "yukimura").unwrap().iter().map(|s| s.name.clone()).collect::<Vec<_>>());
+        let t = std::time::Instant::now();
+        let n = scan::cover_ratios(&mut conn, Path::new(&std::env::var("AION_TEST_ROOT").unwrap())).unwrap();
+        println!("cover ratios: {n} in {:?}", t.elapsed());
+    }
+}

@@ -1,0 +1,186 @@
+<!doctype html>
+<html><head><meta charset="utf-8">
+<style>
+  *{box-sizing:border-box}
+  .wrap{display:flex;flex-direction:column;gap:34px}
+  .lab{font:600 13px var(--font-sans);color:var(--foreground);margin:0 0 10px 2px}
+  .lab small{display:block;font-weight:400;font-size:12px;color:var(--muted-foreground);margin-top:3px;line-height:1.45}
+  .mock{position:relative;width:100%;border-radius:10px;overflow:hidden;box-shadow:0 0 0 1px rgba(127,127,127,.2)}
+  .vp{position:absolute;left:0;top:0;width:1280px;height:800px;transform-origin:0 0;overflow:hidden;background:var(--bg);color:var(--fg);
+      font-family:"Segoe UI Variable Text","Segoe UI",system-ui,sans-serif;font-size:13px;-webkit-font-smoothing:antialiased}
+  .vp *{margin:0}
+  .dark{--bg:#1c1c1e;--side:rgba(255,255,255,.035);--sideline:rgba(0,0,0,.45);--fg:#f5f5f7;--fg2:#d1d1d6;--mut:#8e8e93;--faint:#636366;
+        --hover:rgba(255,255,255,.1);--field:rgba(255,255,255,.08);--track:rgba(255,255,255,.16);--btn:#f5f5f7;--btnfg:#111;--ghost:rgba(255,255,255,.1);
+        --sh:0 1px 0 rgba(255,255,255,.07) inset,0 2px 4px rgba(0,0,0,.3),0 18px 30px -16px rgba(0,0,0,.9);--glow:.22;--accent:#0a84ff}
+  .light{--bg:#ffffff;--side:#f2f2f4;--sideline:rgba(0,0,0,.08);--fg:#1d1d1f;--fg2:#3a3a3c;--mut:#6e6e73;--faint:#aeaeb2;
+        --hover:rgba(0,0,0,.07);--field:rgba(0,0,0,.06);--track:rgba(0,0,0,.12);--btn:#1d1d1f;--btnfg:#fff;--ghost:rgba(0,0,0,.06);
+        --sh:0 0 0 1px rgba(0,0,0,.05),0 2px 4px rgba(0,0,0,.08),0 16px 28px -16px rgba(0,0,0,.45);--glow:.16;--accent:#007aff}
+  .disp{font-family:"Segoe UI Variable Display","Segoe UI",system-ui,sans-serif}
+  .ell{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+
+  .sb{position:absolute;left:0;top:0;bottom:0;width:228px;padding:58px 10px 14px;background:var(--side);border-right:1px solid var(--sideline);z-index:2}
+  .search{position:absolute;left:12px;right:12px;top:14px;height:30px;border-radius:8px;background:var(--field);display:flex;align-items:center;gap:8px;padding:0 10px;color:var(--mut);font-size:13px}
+  .search kbd{margin-left:auto;font:11px inherit;font-family:inherit;color:var(--faint);border:1px solid var(--sideline);border-radius:4px;padding:0 5px}
+  .it{display:flex;align-items:center;gap:11px;padding:6px 10px;border-radius:7px;color:var(--fg2);font-size:13px}
+  .it svg{width:16px;height:16px;flex:none;opacity:.75}
+  .it.on{background:var(--hover);color:var(--fg)}
+  .it .k{margin-left:auto;font-size:11.5px;color:var(--faint)}
+  .g{font-size:11px;font-weight:600;color:var(--mut);margin:18px 10px 6px}
+  .main{position:absolute;left:228px;right:0;top:0;bottom:0;overflow:hidden;padding:26px 40px}
+  .glow{position:absolute;left:-80px;right:-80px;top:-160px;height:520px;background-size:cover;background-position:center;filter:blur(80px) saturate(1.6);opacity:var(--glow);
+        -webkit-mask:linear-gradient(180deg,#000 30%,transparent);mask:linear-gradient(180deg,#000 30%,transparent);pointer-events:none}
+  .main>*:not(.glow){position:relative}
+  h1.big{font-size:34px;font-weight:700;letter-spacing:-.02em}
+  .sh{display:flex;align-items:baseline;margin:28px 0 14px}
+  .sh b{font-size:21px;font-weight:700;letter-spacing:-.01em}
+  .sh small{margin-left:10px;font-size:13px;color:var(--mut)}
+  .sh .all{margin-left:auto;font-size:13px;color:var(--mut)}
+  .row{display:flex;gap:26px;align-items:flex-end}
+  .t{flex:none;position:relative}
+  .t img{display:block;width:100%;height:auto;border-radius:4px;box-shadow:var(--sh)}
+  .t .a{font-size:13px;font-weight:600;margin-top:11px}
+  .t .b{font-size:12px;color:var(--mut);margin-top:1px;display:flex;gap:6px;align-items:center}
+  .dot{width:6px;height:6px;border-radius:50%;background:var(--accent);flex:none}
+  .bar{height:3px;border-radius:2px;background:var(--track);overflow:hidden}.bar span{display:block;height:100%;background:var(--fg)}
+
+  /* featured current book */
+  .feat{display:flex;gap:22px;align-items:flex-end;flex:none;margin-right:12px}
+  .feat .t{width:172px}
+  .feat .info{width:200px;padding-bottom:4px}
+  .feat .eye{font-size:11.5px;font-weight:600;color:var(--mut);text-transform:uppercase;letter-spacing:.05em}
+  .feat .ti{font-size:22px;font-weight:700;letter-spacing:-.015em;margin-top:4px;line-height:1.15}
+  .feat .su{color:var(--mut);margin-top:3px}
+  .feat .bar{margin-top:14px;width:180px}
+  .feat .pg{font-size:12px;color:var(--mut);margin-top:6px}
+  .resume{display:inline-flex;align-items:center;gap:7px;margin-top:16px;background:var(--btn);color:var(--btnfg);font-weight:600;border-radius:999px;padding:8px 18px 8px 14px}
+  .resume svg{width:12px;height:12px}
+
+  /* hover state demo */
+  .t.hov img{transform:translateY(-6px) scale(1.03);box-shadow:0 1px 0 rgba(255,255,255,.08) inset,0 26px 40px -14px rgba(0,0,0,.95)}
+  .t.hov .ov{position:absolute;left:8px;right:8px;display:flex;justify-content:space-between;transform:translateY(-6px)}
+  .t.hov .ov span{width:30px;height:30px;border-radius:50%;display:grid;place-items:center;background:rgba(20,20,22,.72);backdrop-filter:blur(10px);color:#fff;box-shadow:0 2px 8px rgba(0,0,0,.4)}
+  .t.hov .ov svg{width:12px;height:12px}
+
+  /* grouped recently added */
+  .grp{position:relative}
+  .grp .back{position:absolute;inset:0;border-radius:4px;background:var(--faint);opacity:.35;transform:translate(6px,-6px)}
+  .grp .back2{opacity:.2;transform:translate(12px,-12px)}
+  .badge{position:absolute;right:6px;top:6px;font-size:11px;font-weight:600;background:var(--accent);color:#fff;border-radius:999px;padding:1px 7px;z-index:2}
+
+  /* series page */
+  .hero{position:relative;margin:-26px -40px 0;padding:34px 40px 30px;display:flex;gap:34px;align-items:flex-end;overflow:hidden}
+  .hero .bgi{position:absolute;inset:-100px;background-size:cover;background-position:center;filter:blur(70px) saturate(1.5);opacity:.5}
+  .hero .fade{position:absolute;inset:0;background:linear-gradient(180deg,rgba(28,28,30,.35),var(--bg) 96%)}
+  .hero>*:not(.bgi):not(.fade){position:relative}
+  .hero .cv{width:188px;flex:none}
+  .hero .cv img{display:block;width:100%;border-radius:5px;box-shadow:0 30px 50px -18px rgba(0,0,0,.9),0 0 0 1px rgba(255,255,255,.08)}
+  .crumb{font-size:12.5px;color:var(--mut)}
+  .stitle{font-size:44px;font-weight:700;letter-spacing:-.025em;margin-top:2px}
+  .by{font-size:16px;color:var(--fg2);margin-top:2px}
+  .meta{font-size:12.5px;color:var(--mut);margin-top:8px}
+  .syn{font-size:13px;line-height:1.55;color:var(--fg2);max-width:640px;margin-top:12px;display:-webkit-box;-webkit-line-clamp:3;-webkit-box-orient:vertical;overflow:hidden}
+  .acts{display:flex;align-items:center;gap:10px;margin-top:18px}
+  .ghost{background:var(--ghost);border-radius:999px;padding:8px 16px}
+  .acts .note{font-size:12px;color:var(--mut);margin-left:6px}
+  .tool{display:flex;align-items:center;margin:8px 0 16px}
+  .tool b{font-size:19px;font-weight:700;margin-right:16px}
+  .tool .seg{margin-left:auto;display:flex;gap:2px;background:var(--field);border-radius:7px;padding:2px}
+  .tool .seg span{padding:3px 10px;border-radius:5px;font-size:12px;color:var(--mut)}.tool .seg .on{background:var(--hover);color:var(--fg)}
+  .tool .sort{font-size:12.5px;color:var(--mut);margin-right:14px}
+  .vols{display:grid;grid-template-columns:repeat(7,minmax(0,1fr));gap:24px 22px;align-items:end}
+  .vols .t{min-width:0}
+  .vols .t img{width:100% !important;aspect-ratio:auto !important}
+  .vols .t.read img{opacity:.5}
+  .vols .t .chk{position:absolute;right:6px;width:18px;height:18px;border-radius:50%;background:rgba(20,20,22,.75);display:grid;place-items:center;color:#fff}
+  .vols .t .chk svg{width:10px;height:10px}
+</style></head>
+<body>
+<div class="wrap" id="wrap"></div>
+<script>
+const D = {"cont": [{"sid": 552, "s": "The Darwin Incident", "l": "Vol. 1", "t": "Vol. 1", "p": 6, "n": 189, "img": "file:///H:/Comics/.yacreaderlibrary/covers/c48392b0f4937eb2046b908c6ebcda2ebf4081d9336706100.jpg", "r": 1.365, "last": 1792654695}, {"sid": 469, "s": "Vinland Saga", "l": "Vol. 12", "t": "Book Twelve", "p": 45, "n": 362, "img": "file:///H:/Comics/.yacreaderlibrary/covers/0cd092d8295427cf9aa02d3d6368c7193c72b6a8618824723.jpg", "r": 1.406, "last": 1792654510}, {"sid": 406, "s": "The Black Beetle", "l": "#1", "t": "The Black Beetle Omnibus", "p": 140, "n": 192, "img": "file:///H:/Comics/.yacreaderlibrary/covers/f8d3435dc941afb7e669eb3e5d67c92098e12710656326203.jpg", "r": 1.538, "last": 1791988835}, {"sid": 577, "s": "Kagurabachi", "l": "Vol. 1", "t": "Vol. 1: Mission", "p": 25, "n": 202, "img": "file:///H:/Comics/.yacreaderlibrary/covers/6bcdc481dd1716712c6ebd4b7acc4f9c39670812216002280.jpg", "r": 1.5, "last": 1791042403}, {"sid": 450, "s": "One-Punch Man", "l": "Vol. 8", "t": "That Man", "p": 112, "n": 181, "img": "file:///H:/Comics/.yacreaderlibrary/covers/5303bc1db634bb5ec6eb77d43f576f0e0cda54a0246902119.jpg", "r": 1.5, "last": 1787242077}, {"sid": 307, "s": "The Hedge Knight II - The Sworn Sword", "l": "#1", "t": "GN", "p": 35, "n": 163, "img": "file:///H:/Comics/.yacreaderlibrary/covers/e7b7cc576c9b9a1a3c90989fd7d9f49c65c069f9113595368.jpg", "r": 1.54, "last": 1787241978}, {"sid": 810, "s": "Marvel Knights Spider-Man", "l": "#1", "t": "Spider-Man by Mark Millar Ultimate Collection", "p": 117, "n": 284, "img": "file:///H:/Comics/.yacreaderlibrary/covers/82f98b1d26268dd03fdabede115edbbbd3136eeb389819394.jpg", "r": 1.538, "last": 1787241885}, {"sid": 721, "s": "Ultimate Spider-Man", "l": "Vol. 20", "t": "", "p": 6, "n": 138, "img": "file:///H:/Comics/.yacreaderlibrary/covers/b0278fb42c982ac18dcd68d85fd64d1b07a81410182925367.jpg", "r": 1.548, "last": 1786942982}, {"sid": 612, "s": "Daredevil by Frank Miller", "l": "#1", "t": "Volume One", "p": 2, "n": 321, "img": "file:///H:/Comics/.yacreaderlibrary/covers/5a7316c52220430acf4d4507adc705b89a52944b539703092.jpg", "r": 1.519, "last": 1786910944}, {"sid": 823, "s": "The Immortal Hulk", "l": "#1", "t": "Immortal Hulk Omnibus", "p": 39, "n": 1481, "img": "file:///H:/Comics/.yacreaderlibrary/covers/dbf70983641c50e9036de07ef14d05a2df23d3513164441642.jpg", "r": 1.538, "last": 1786852297}, {"sid": 758, "s": "Fantastic Four - Full Circle", "l": "#1", "t": "Fantastic Four: Full Circle", "p": 40, "n": 66, "img": "file:///H:/Comics/.yacreaderlibrary/covers/2b1cfc845d42c90481dc3e1f42ba3e3648c5cefc319241123.jpg", "r": 1.288, "last": 1786725745}, {"sid": 706, "s": "Spider-Man By Straczynski", "l": "#2", "t": "Volume 2", "p": 27, "n": 1090, "img": "file:///H:/Comics/.yacreaderlibrary/covers/71b3893c3521182aebe2e3c599f71ed0232d9b4e3150962961.jpg", "r": 1.538, "last": 1786589157}], "upnext": [{"sid": 552, "s": "The Darwin Incident", "l": "Vol. 2", "t": "", "p": 0, "n": 188, "img": "file:///H:/Comics/.yacreaderlibrary/covers/47d020d34cad18c3edf36d999eb76c13055f113d353329240.jpg", "r": 1.365, "last": null}, {"sid": 469, "s": "Vinland Saga", "l": "Vol. 13", "t": "Book Thirteen: A Dream Comes Ashore", "p": 0, "n": 379, "img": "file:///H:/Comics/.yacreaderlibrary/covers/4f7eee87a3edee5a726c258c8db1936a87fd913d717347282.jpg", "r": 1.406, "last": null}, {"sid": 577, "s": "Kagurabachi", "l": "Vol. 2", "t": "Vol. 2: Enten vs. Cloud Gouger", "p": 0, "n": 195, "img": "file:///H:/Comics/.yacreaderlibrary/covers/e62d9abb0b647a24f33786e3abd8d5edbd38d066226437141.jpg", "r": 1.5, "last": null}, {"sid": 450, "s": "One-Punch Man", "l": "Vol. 9", "t": "Don't Dis Heroes!", "p": 0, "n": 195, "img": "file:///H:/Comics/.yacreaderlibrary/covers/fb5629cca2b7a361d4c6cb3307f972ded2a1d113261330859.jpg", "r": 1.5, "last": null}, {"sid": 721, "s": "Ultimate Spider-Man", "l": "Vol. 21", "t": "", "p": 0, "n": 132, "img": "file:///H:/Comics/.yacreaderlibrary/covers/5c9d9bce445562cfa9175cd10e4cc420decb6f70177061913.jpg", "r": 1.548, "last": null}, {"sid": 612, "s": "Daredevil by Frank Miller", "l": "#2", "t": "Volume Two", "p": 0, "n": 287, "img": "file:///H:/Comics/.yacreaderlibrary/covers/4aab7db2505fdeaaab7d2bae4033bb45635841db449938680.jpg", "r": 1.54, "last": null}, {"sid": 468, "s": "Vagabond", "l": "Vol. 7", "t": "The Distant Ocean", "p": 0, "n": 598, "img": "file:///H:/Comics/.yacreaderlibrary/covers/68826c35d515d03fd5ca1a09f4bce02ea6204df3987879507.jpg", "r": 1.512, "last": null}, {"sid": 325, "s": "Ice Cream Man", "l": "#2", "t": "Ice Cream Man: Sundae Edition Vol. 2", "p": 0, "n": 458, "img": "file:///H:/Comics/.yacreaderlibrary/covers/642e0676e425efd48825bdebb3b5db63846c2806414554729.jpg", "r": 1.502, "last": null}, {"sid": 132, "s": "Absolute Batman", "l": "#18", "t": "The Seventh Kingdom - Part 2", "p": 0, "n": 29, "img": "file:///H:/Comics/.yacreaderlibrary/covers/bd99b232bffe948b741d887762e9521ab45fe2f059994796.jpg", "r": 1.538, "last": null}, {"sid": 589, "s": "Solo Leveling Ragnarok", "l": "Vol. 7", "t": "", "p": 0, "n": 11, "img": "file:///H:/Comics/.yacreaderlibrary/covers/4748ca3bd7cdb51b05393af8180d1dea6bcb4b8457791008.jpg", "r": 0.667, "last": null}], "stale": [{"sid": 450, "s": "One-Punch Man", "l": "Vol. 8", "t": "That Man", "p": 112, "n": 181, "img": "file:///H:/Comics/.yacreaderlibrary/covers/5303bc1db634bb5ec6eb77d43f576f0e0cda54a0246902119.jpg", "r": 1.5, "last": 1787242077}, {"sid": 307, "s": "The Hedge Knight II - The Sworn Sword", "l": "#1", "t": "GN", "p": 35, "n": 163, "img": "file:///H:/Comics/.yacreaderlibrary/covers/e7b7cc576c9b9a1a3c90989fd7d9f49c65c069f9113595368.jpg", "r": 1.54, "last": 1787241978}, {"sid": 810, "s": "Marvel Knights Spider-Man", "l": "#1", "t": "Spider-Man by Mark Millar Ultimate Collection", "p": 117, "n": 284, "img": "file:///H:/Comics/.yacreaderlibrary/covers/82f98b1d26268dd03fdabede115edbbbd3136eeb389819394.jpg", "r": 1.538, "last": 1787241885}, {"sid": 721, "s": "Ultimate Spider-Man", "l": "Vol. 20", "t": "", "p": 6, "n": 138, "img": "file:///H:/Comics/.yacreaderlibrary/covers/b0278fb42c982ac18dcd68d85fd64d1b07a81410182925367.jpg", "r": 1.548, "last": 1786942982}, {"sid": 612, "s": "Daredevil by Frank Miller", "l": "#1", "t": "Volume One", "p": 2, "n": 321, "img": "file:///H:/Comics/.yacreaderlibrary/covers/5a7316c52220430acf4d4507adc705b89a52944b539703092.jpg", "r": 1.519, "last": 1786910944}, {"sid": 823, "s": "The Immortal Hulk", "l": "#1", "t": "Immortal Hulk Omnibus", "p": 39, "n": 1481, "img": "file:///H:/Comics/.yacreaderlibrary/covers/dbf70983641c50e9036de07ef14d05a2df23d3513164441642.jpg", "r": 1.538, "last": 1786852297}, {"sid": 758, "s": "Fantastic Four - Full Circle", "l": "#1", "t": "Fantastic Four: Full Circle", "p": 40, "n": 66, "img": "file:///H:/Comics/.yacreaderlibrary/covers/2b1cfc845d42c90481dc3e1f42ba3e3648c5cefc319241123.jpg", "r": 1.288, "last": 1786725745}, {"sid": 706, "s": "Spider-Man By Straczynski", "l": "#2", "t": "Volume 2", "p": 27, "n": 1090, "img": "file:///H:/Comics/.yacreaderlibrary/covers/71b3893c3521182aebe2e3c599f71ed0232d9b4e3150962961.jpg", "r": 1.538, "last": 1786589157}], "recent": [{"s": "Vinland Saga", "cnt": 15, "img": "file:///H:/Comics/.yacreaderlibrary/covers/f68e7c1545b7842e6dfad310365fa0c6ec7cca211354372822.jpg", "r": 1.421}, {"s": "The Black Beetle", "cnt": 1, "img": "file:///H:/Comics/.yacreaderlibrary/covers/f8d3435dc941afb7e669eb3e5d67c92098e12710656326203.jpg", "r": 1.538}, {"s": "Absolute Green Arrow ", "cnt": 3, "img": "file:///H:/Comics/.yacreaderlibrary/covers/3ce1f34925328403182f1683863c1a4f4505d8ca59892982.jpg", "r": 1.538}, {"s": "Absolute Wonder Woman", "cnt": 25, "img": "file:///H:/Comics/.yacreaderlibrary/covers/ac37451d628eae9cad4efde33d2b65ac504849fd53211020.jpg", "r": 1.538}, {"s": "Absolute Flash", "cnt": 17, "img": "file:///H:/Comics/.yacreaderlibrary/covers/baf133fb078af5f769fe20652ad6e7e4d18c1e4053998205.jpg", "r": 1.538}, {"s": "Absolute Batman", "cnt": 25, "img": "file:///H:/Comics/.yacreaderlibrary/covers/fc48ace8e7574384b278f404c5e065db08a74d7a49581403.jpg", "r": 1.538}, {"s": "Justice League – The Darkseid War", "cnt": 1, "img": "file:///H:/Comics/.yacreaderlibrary/covers/7242a4ea6b2b9c46ffbb72a1a062215c8a57fd36808643246.jpg", "r": 1.427}, {"s": "Punisher & Fury MAX By Garth Ennis", "cnt": 1, "img": "file:///H:/Comics/.yacreaderlibrary/covers/dee7321a865ec2f373d9c570c30acc295f54cabe3247089479.jpg", "r": 1.5}, {"s": "The Invincible Iron Man by Gerry Duggan", "cnt": 1, "img": "file:///H:/Comics/.yacreaderlibrary/covers/f801886eff281013f133a684fabc20f1471b1f101007591877.jpg", "r": 1.538}, {"s": "Gotham City - Year One", "cnt": 1, "img": "file:///H:/Comics/.yacreaderlibrary/covers/b0f85ee70840b5d131a14848a310cf33dbf1d793890745094.jpg", "r": 1.54}], "vin": [{"sid": 469, "s": "Vinland Saga", "l": "Vol. 1", "t": "Book One", "p": 0, "n": 464, "img": "file:///H:/Comics/.yacreaderlibrary/covers/1cc60a2018652ca866b7e8c0aea38394e5363a5e835303596.jpg", "r": 1.408, "last": null}, {"sid": 469, "s": "Vinland Saga", "l": "Vol. 2", "t": "Book Two", "p": 0, "n": 434, "img": "file:///H:/Comics/.yacreaderlibrary/covers/dd3cc6136b92894c291bdd10e37a7e2b71d92616774485393.jpg", "r": 1.408, "last": null}, {"sid": 469, "s": "Vinland Saga", "l": "Vol. 3", "t": "Book Three", "p": 0, "n": 451, "img": "file:///H:/Comics/.yacreaderlibrary/covers/b093f7383064e23baf36359d2fcf79fda8d4a584804762242.jpg", "r": 1.408, "last": null}, {"sid": 469, "s": "Vinland Saga", "l": "Vol. 4", "t": "Book Four", "p": 0, "n": 433, "img": "file:///H:/Comics/.yacreaderlibrary/covers/f41d5ccba9f39e3ae418bdadc4da6eac4974e1c8794021967.jpg", "r": 1.408, "last": null}, {"sid": 469, "s": "Vinland Saga", "l": "Vol. 5", "t": "Book Five", "p": 0, "n": 445, "img": "file:///H:/Comics/.yacreaderlibrary/covers/f1888af38380854f8ffaa5fcaa773d94f114dbb7642819378.jpg", "r": 1.408, "last": null}, {"sid": 469, "s": "Vinland Saga", "l": "Vol. 6", "t": "Book Six", "p": 0, "n": 403, "img": "file:///H:/Comics/.yacreaderlibrary/covers/1f7d58457b69971e247730aea6806aa2e74af196629891242.jpg", "r": 1.406, "last": null}, {"sid": 469, "s": "Vinland Saga", "l": "Vol. 7", "t": "Book Seven", "p": 0, "n": 403, "img": "file:///H:/Comics/.yacreaderlibrary/covers/e298bdb32adcd9f684cb7ac949e7362d201dea53804735994.jpg", "r": 1.406, "last": null}, {"sid": 469, "s": "Vinland Saga", "l": "Vol. 8", "t": "Book Eight: Troubled Waters", "p": 0, "n": 394, "img": "file:///H:/Comics/.yacreaderlibrary/covers/b234634e400f31be815820af0530e19fc53657f8717899043.jpg", "r": 1.408, "last": null}, {"sid": 469, "s": "Vinland Saga", "l": "Vol. 9", "t": "Book Nine: Fighting for a Future", "p": 0, "n": 392, "img": "file:///H:/Comics/.yacreaderlibrary/covers/4ae84103c5e207f4879926522f3fb1cb1ae5c42f910732744.jpg", "r": 1.406, "last": null}, {"sid": 469, "s": "Vinland Saga", "l": "Vol. 10", "t": "Book Ten", "p": 0, "n": 401, "img": "file:///H:/Comics/.yacreaderlibrary/covers/06a7df1d98af3008812f08c2a473920f1da6685e879072286.jpg", "r": 1.406, "last": null}, {"sid": 469, "s": "Vinland Saga", "l": "Vol. 11", "t": "Book Eleven: The Mighty Laid Low", "p": 0, "n": 389, "img": "file:///H:/Comics/.yacreaderlibrary/covers/41e7ff69c047dc3c938503c9affe91501996fe06844817006.jpg", "r": 1.406, "last": null}, {"sid": 469, "s": "Vinland Saga", "l": "Vol. 12", "t": "Book Twelve", "p": 45, "n": 362, "img": "file:///H:/Comics/.yacreaderlibrary/covers/0cd092d8295427cf9aa02d3d6368c7193c72b6a8618824723.jpg", "r": 1.406, "last": 1792654510}, {"sid": 469, "s": "Vinland Saga", "l": "Vol. 13", "t": "Book Thirteen: A Dream Comes Ashore", "p": 0, "n": 379, "img": "file:///H:/Comics/.yacreaderlibrary/covers/4f7eee87a3edee5a726c258c8db1936a87fd913d717347282.jpg", "r": 1.406, "last": null}, {"sid": 469, "s": "Vinland Saga", "l": "Vol. 14", "t": "Book Fourteen: Cultivating Wheat and a Peaceful Heart", "p": 0, "n": 390, "img": "file:///H:/Comics/.yacreaderlibrary/covers/5f1eb4ab0a401f6473ee9d53ee0d237ffbb91ecc1569978739.jpg", "r": 1.421, "last": null}, {"sid": 469, "s": "Vinland Saga", "l": "Vol. 15", "t": "", "p": 0, "n": 297, "img": "file:///H:/Comics/.yacreaderlibrary/covers/f68e7c1545b7842e6dfad310365fa0c6ec7cca211354372822.jpg", "r": 1.421, "last": null}], "vmeta": ["Makoto Yukimura", "Kodansha Comics USA", "<p><strong><em>FOR HONOR AND VENGEANCE</em></strong></p><p><em>As a child, Thorfinn sat at the feet of the great Leif Ericson and thrilled to wild tales of a land far to the west. But his youthful fantasies were shattered by a mercenary raid. Raised by the Vikings who murdered his family, Thorfinn became a terrifying warrior, forever seeking to kill the band's leader, Askeladd, and avenge his father. Sustaining Throfinn through his ordeal are his pride in his family and his dreams of a fertile westward land, a land without war or slavery...the land Leif called <strong>Vinland</strong>.</em></p><h2>Chapter Titles</h2><ul><li>Chapter 1: Normanni</li><li>Chapter 2: Somewhere Not Here</li><li>Chapter 3: Beyond the Edge of the Sea</li><li>Chapter 4: Unbreakable Chains</li><li>Chapter 5: Troll</li><li>Bonus Material: Heroic Exploits of Viking Girl Ylva</li><li>Chapter 6: Messenger From the Battlefield</li><li>Chapter 7: Sword</li><li>Chapter 8: The Journey Begins</li><li>Chapter 9: A Trap In Distant Seas</li><li>Chapter 10: Night Wake</li><li>Chapter 11: Cage</li><li>Chapter 12: More Than A Monster</li><li>Chapter 13: Smell</li><li>Chapter 14: The Sword of Thors</li><li>Chapter 15: A True Warrior</li><li>Chapter 16: The Death of Thors</li><li>Special Report: I Went To the Land of Aurora Borealis</li><li>Bonus Story: For Our Farewell Is Near, Part 1</li></ul>"]};
+const I = {
+  home:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M3 10.5 12 3l9 7.5V20a1 1 0 0 1-1 1h-5v-6h-6v6H4a1 1 0 0 1-1-1z"/></svg>',
+  cont:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M6 4h12a1 1 0 0 1 1 1v16l-7-4-7 4V5a1 1 0 0 1 1-1z"/></svg>',
+  next:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M5 5l7 7-7 7M13 5l7 7-7 7"/></svg>',
+  rec:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 7v5l3 2M21 12a9 9 0 1 1-18 0 9 9 0 0 1 18 0z"/></svg>',
+  stack:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 7h16M6 4h12M3 10h18v10H3z"/></svg>',
+  done:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="m8 12.5 3 3 5-6"/></svg>',
+  gear:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3M4.9 4.9l2.1 2.1M17 17l2.1 2.1M4.9 19.1 7 17M17 7l2.1-2.1"/></svg>',
+  search:'<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg>',
+  play:'<svg viewBox="0 0 24 24" fill="currentColor"><path d="M7 4.5v15l13-7.5z"/></svg>',
+  more:'<svg viewBox="0 0 24 24" fill="currentColor"><circle cx="5" cy="12" r="2"/><circle cx="12" cy="12" r="2"/><circle cx="19" cy="12" r="2"/></svg>',
+  check:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12.5l4.5 4.5L19 7.5"/></svg>',
+};
+const pct = c => Math.max(1, Math.round((c.p + 1) / c.n * 100));
+const im = (c, w) => `<img src="${c.img}" style="width:${w}px;aspect-ratio:1/${c.r}" alt="">`;
+const sidebar = active => `<div class="sb"><div class="search">${I.search}Search<kbd>Ctrl K</kbd></div>
+  <div class="it ${active === 'home' ? 'on' : ''}">${I.home}Home</div>
+  <div class="it">${I.cont}Continue Reading<span class="k">${D.cont.length >= 12 ? 24 : D.cont.length}</span></div>
+  <div class="it">${I.next}Up Next<span class="k">15</span></div>
+  <div class="it">${I.rec}Recently Added</div>
+  <div class="g">Collections</div>
+  ${[['DC', 163], ['Indie', 243], ['Manga', 188], ['Marvel', 233]].map(([n, k]) => `<div class="it ${active === n ? 'on' : ''}">${I.stack}${n}<span class="k">${k}</span></div>`).join('')}
+  <div class="g">Lists</div>
+  <div class="it">${I.done}Finished</div>
+  <div class="it" style="position:absolute;left:10px;right:10px;bottom:12px">${I.gear}Settings</div></div>`;
+
+const C = D.cont, F = C[0];
+function home(theme, third) {
+  const others = C.slice(1, 6);
+  const featured = `<div class="feat"><div class="t">${im(F, 172)}</div>
+    <div class="info"><div class="eye">Continue</div><div class="ti disp">${F.s}</div><div class="su">${F.l}</div>
+      <div class="bar"><span style="width:${pct(F)}%"></span></div><div class="pg">Page ${F.p + 1} of ${F.n}</div>
+      <span class="resume">${I.play}Resume</span></div></div>`;
+  const tile = (c, i) => `<div class="t ${i === 1 ? 'hov' : ''}" style="width:112px">${im(c, 112)}
+      ${i === 1 ? `<div class="ov" style="bottom:${54}px"><span>${I.play}</span><span>${I.more}</span></div>` : ''}
+      <div class="a ell">${c.s}</div><div class="b">${pct(c)}% · ${c.l}</div></div>`;
+  const upnext = D.upnext.slice(0, 8).map(c => `<div class="t" style="width:112px">${im(c, 112)}<div class="a ell">${c.s}</div><div class="b"><span class="dot"></span>${c.l}</div></div>`).join('');
+  const stale = D.stale.slice(0, 8).map(c => `<div class="t" style="width:112px">${im(c, 112)}<div class="bar" style="margin-top:9px"><span style="width:${pct(c)}%"></span></div><div class="a ell" style="margin-top:7px">${c.s}</div><div class="b">${c.l}</div></div>`).join('');
+  const recent = D.recent.slice(0, 8).map(c => `<div class="t grp" style="width:112px"><div style="position:relative">${c.cnt > 1 ? '<div class="back back2"></div><div class="back"></div>' : ''}${im(c, 112)}${c.cnt > 1 ? `<span class="badge">${c.cnt}</span>` : ''}</div><div class="a ell">${c.s.trim()}</div><div class="b">${c.cnt > 1 ? c.cnt + ' issues' : 'New'}</div></div>`).join('');
+  return `<div class="vp ${theme}">${sidebar('home')}<div class="main"><div class="glow" style="background-image:url('${F.img}')"></div>
+    <h1 class="big disp">Home</h1>
+    <div class="sh"><b>Continue Reading</b><span class="all">See All ›</span></div>
+    <div class="row">${featured}${others.map(tile).join('')}</div>
+    <div class="sh"><b>Up Next</b><small>The next book in series you’re reading</small><span class="all">See All ›</span></div>
+    <div class="row">${upnext}</div>
+    ${third === 'stale'
+      ? `<div class="sh"><b>Pick Up Again</b><small>Started, then untouched for over a month</small></div><div class="row">${stale}</div>`
+      : `<div class="sh"><b>Recently Added</b><small>Grouped by series</small><span class="all">See All ›</span></div><div class="row">${recent}</div>`}
+  </div></div>`;
+}
+
+function series() {
+  const V = D.vin, cur = V.findIndex(v => v.p > 0), M = D.vmeta;
+  const syn = (M[2] || '').replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim();
+  return `<div class="vp dark">${sidebar('Manga')}<div class="main">
+    <div class="hero"><div class="bgi" style="background-image:url('${V[cur].img}')"></div><div class="fade"></div>
+      <div class="cv"><img src="${V[0].img}" alt=""></div>
+      <div><div class="crumb">‹ Manga</div><div class="stitle disp">Vinland Saga</div><div class="by">${M[0]}</div>
+        <div class="meta">${V.length} volumes · ${M[1]} · 2013–2026 · Read right to left</div>
+        <div class="syn">${syn}</div>
+        <div class="acts"><span class="resume">${I.play}Continue ${V[cur].l}</span><span class="ghost">${I.more.replace('<svg', '<svg width="14" height="14"')}</span><span class="note">${cur} of ${V.length} read · ${pct(V[cur])}% into ${V[cur].l}</span></div></div></div>
+    <div class="tool"><b>Volumes</b><span class="sort">Sort: Volume ▾</span><span class="seg"><span class="on">Grid</span><span>List</span></span></div>
+    <div class="vols">${V.slice(0, 14).map((v, i) => `<div class="t ${i < cur ? 'read' : ''}">${im(v, 132)}
+       ${i < cur ? `<span class="chk" style="bottom:46px">${I.check}</span>` : ''}
+       ${i === cur ? `<div class="bar" style="margin-top:8px"><span style="width:${pct(v)}%"></span></div>` : ''}
+       <div class="a ell" style="margin-top:${i === cur ? 7 : 10}px">${v.l}</div><div class="b ell">${v.t || '&nbsp;'}</div></div>`).join('')}</div>
+  </div></div>`;
+}
+
+const S = [
+  ['Home — dark', 'The current book is featured at 1.5× with Resume; one cover shows its hover state (lift, ▶ resume, ⋯ menu). Up Next is the next unread book in every series you’re reading; Pick Up Again finds books you abandoned. A faint glow from the current cover tints the top. Covers keep their real proportions and line up along the bottom.', home('dark', 'stale')],
+  ['Home — light', 'Same screen in light mode (it follows Windows’ setting). The third row here shows Recently Added grouped by series, with a stack and a count instead of 25 separate Absolute Batman issues.', home('light', 'recent')],
+  ['Series page', 'A blurred-cover header with credits, synopsis and “Continue Vol. 12”, then volumes at their real shape. Read volumes fade back with a check (Vols 1–11 are shown as read here to demonstrate; your library has them unmarked).', series()],
+];
+document.getElementById('wrap').innerHTML = S.map(([t, d, h]) =>
+  `<section><div class="lab">${t}<small>${d}</small></div><div class="mock">${h}</div></section>`).join('');
+function fit() {
+  document.querySelectorAll('.mock').forEach(m => {
+    const s = m.clientWidth / 1280;
+    m.querySelector('.vp').style.transform = `scale(${s})`;
+    m.style.height = 800 * s + 'px';
+  });
+}
+fit(); addEventListener('resize', fit);
+</script>
+</body></html>
