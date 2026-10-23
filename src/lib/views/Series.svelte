@@ -25,6 +25,11 @@
   const all = $derived(data?.sections.flatMap((s) => s.comics) ?? []);
   const first = $derived(all[0]);
   const readCount = $derived(all.filter((c) => c.read).length);
+  // The count by the Read button is the main run, so it matches the heading below it; other
+  // editions and extras ("Perfect Edition", "Annuals") count in their own headings.
+  const main = $derived(data?.sections.find((s) => !s.name) ?? data?.sections[0]);
+  const mainRead = $derived(main?.comics.filter((c) => c.read).length ?? 0);
+  const mainCount = $derived(main?.comics.length ?? 0);
   // Resume what's in progress, else the first unread, else start over.
   const target = $derived(all.find((c) => !c.read && c.currentPage > 0) ?? all.find((c) => !c.read) ?? first);
   const inProgress = $derived(!!target && !target.read && target.currentPage > 0);
@@ -105,7 +110,7 @@
         {#if target}<button class="btn play" title={actionTitle} onclick={resume}><Icon name="play" size={14} />{action}</button>{/if}
         <span class="mono stats">
           {#if inProgress && target?.numPages}<span title="Page in {target.label}">{`${target.currentPage + 1} / ${target.numPages}`}</span>{/if}
-          <span title="{readCount} of {all.length} {unitWord(data.isManga, all.length)} read"><Icon name="check" size={13} />{readCount} / {all.length}</span>
+          <span title="{mainRead} of {mainCount} {unitWord(data.isManga, mainCount)} read"><Icon name="check" size={13} />{mainRead} / {mainCount}</span>
         </span>
         <span class="tools">
           {#if !data.cvVolumeId && !synopsis}
@@ -134,7 +139,10 @@
   {#each data.sections as s (s.name)}
     <section class="sec">
       {#if titled}
-        <h2>{s.name || (data.isManga ? "Volumes" : "Issues")} <span class="mono">{s.comics.length}</span></h2>
+        <h2>
+          {s.name || (data.isManga ? "Volumes" : "Issues")}
+          <span class="mono" title="{s.comics.filter((c) => c.read).length} read">{s.comics.length}</span>
+        </h2>
       {/if}
       <div class="grid">
         {#each s.comics as c (c.id)}

@@ -6,7 +6,7 @@
   import { menu, reader, showMenu } from "$lib/state.svelte";
   import { ACTIONS, keysFor, menuItems } from "./actions";
   import Bookmarks from "./Bookmarks.svelte";
-  import { Ctl, type Step } from "./ctl.svelte";
+  import { Ctl, FIT_LABEL, type Step } from "./ctl.svelte";
   import Extract from "./Extract.svelte";
   import Flow from "./Flow.svelte";
   import GoTo from "./GoTo.svelte";
@@ -224,6 +224,7 @@
     c.mode === "guided" && c.steps?.length && c.step >= 0 ? `Panel ${c.step + 1} / ${c.steps.length}` : "",
   );
   const byId = Object.fromEntries(ACTIONS.map((a) => [a.id, a]));
+  const FIT_ICON = { page: "fitPage", height: "fitHeight", width: "fitWidth" } as const;
   const tip = (id: string) => {
     const a = byId[id];
     const k = keysFor(a, overrides)[0];
@@ -321,20 +322,23 @@
       <div class="title" data-tauri-drag-region>
         <span>{c.info.comic.seriesName.trim()}</span>
         {#if c.info.comic.label}<span class="dim">{c.info.comic.label}</span>{/if}
-        {#if c.rtl}<span class="dim mono rtl">Right to left</span>{/if}
+        {#if c.rtl}<span class="dim rtl" title="Reads right to left"><Icon name="readRtl" size={14} /></span>{/if}
       </div>
+      <!-- The handful used while reading; everything else is in ⋯ (or right-click) and on the keyboard. -->
       <div class="tools" data-tauri-drag-region>
-        <div class="group g-pages">{@render tool("flow", "strip")}{@render tool("goto", "goto")}</div>
         <div class="group">
-          {@render tool("fitHeight", "fitHeight")}{@render tool("fitWidth", "fitWidth")}{@render tool("fitPage", "fitPage")}{@render tool("fullSize", null, "1:1")}{@render tool("scroll", "scroll")}
+          {@render tool("flow", "strip")}
+          <button
+            class="tool"
+            title="{FIT_LABEL[prefs.fit]} (click to change)"
+            aria-label="Fit: {FIT_LABEL[prefs.fit]}"
+            onclick={() => (c.cycleFit(), wake())}
+          >
+            {#if prefs.fit === "full"}<span class="txt mono">1:1</span>{:else}<Icon name={FIT_ICON[prefs.fit]} />{/if}
+          </button>
+          {@render tool("double", "double")}
         </div>
-        <div class="group">{@render tool("double", "double")}{@render tool("doubleManga", "doubleRtl")}</div>
-        <div class="group g-rotate">{@render tool("rotateLeft", "rotateLeft")}{@render tool("rotateRight", "rotateRight")}</div>
-        <div class="group g-zoom">
-          {@render tool("zoomOut", "zoomOut")}{@render tool("zoomIn", "zoomIn")}{@render tool("magnifier", "magnifier")}
-        </div>
-        <div class="group g-marks">{@render tool("bookmark", "bookmark")}{@render tool("bookmarks", "bookmarks")}</div>
-        <div class="group">{@render tool("guided", "guided")}{@render tool("editPanels", "editPanels")}</div>
+        <div class="group">{@render tool("guided", "guided")}{@render tool("bookmark", "bookmark")}</div>
         <div class="group">
           {@render tool("options", "options")}
           <button class="tool" onclick={openMenu} title="All tools (or right-click the page)" aria-label="All tools">
@@ -511,7 +515,8 @@
     color: var(--muted);
   }
   .rtl {
-    font-size: 11px;
+    display: inline-grid;
+    align-self: center;
   }
   .tools {
     flex: 1;
@@ -569,22 +574,6 @@
     display: flex;
   }
   /* Narrow windows keep the essentials; everything stays in the ⋯ menu. */
-  @media (max-width: 1500px) {
-    .g-rotate {
-      display: none;
-    }
-  }
-  @media (max-width: 1250px) {
-    .g-zoom,
-    .g-marks {
-      display: none;
-    }
-  }
-  @media (max-width: 1100px) {
-    .g-pages {
-      display: none;
-    }
-  }
   .panel {
     margin-left: 20px;
     color: #9a9a9a;

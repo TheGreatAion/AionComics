@@ -112,8 +112,8 @@
     min-width: 0;
   }
   .when {
-    color: var(--text-2);
-    font-size: 13px;
+    color: var(--cap);
+    font-size: 15px;
   }
   h1 {
     margin-top: 18px;

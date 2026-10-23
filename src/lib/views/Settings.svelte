@@ -130,6 +130,11 @@
     line-height: 0.9;
     letter-spacing: -0.05em;
   }
+  /* A settings page is a few rows: a heading the size of the content, not a poster. */
+  .page h1 {
+    font-size: 40px;
+    letter-spacing: -0.035em;
+  }
   .welcome p {
     margin: 24px 0 36px;
     color: var(--text-2);
@@ -141,11 +146,11 @@
     gap: 10px;
   }
   .page {
-    padding: 160px var(--pad) 140px;
+    padding: 120px var(--pad) 140px;
     max-width: 900px;
   }
   section {
-    margin-top: 64px;
+    margin-top: 52px;
   }
   h2 {
     font-weight: 400;
