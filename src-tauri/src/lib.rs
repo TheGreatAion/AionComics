@@ -1,6 +1,8 @@
 mod archive;
+mod comicinfo;
 mod cv;
 mod db;
+mod intake;
 mod panels;
 mod scan;
 
@@ -25,6 +27,16 @@ pub struct AppState {
     /// Files and folders opened from outside the library this session. Book id `-(i + 1)` is entry `i`.
     external: Mutex<Vec<PathBuf>>,
     comicvine: cv::Client,
+    /// Changes seen in the comics folder, rescanned once they settle.
+    changes: Arc<intake::Changes>,
+    watcher: Mutex<Option<notify::RecommendedWatcher>>,
+    /// A ComicInfo.xml pass is running.
+    reading_info: AtomicBool,
+    /// When a page was last served (ms since the epoch): background passes over the drive wait
+    /// while you're reading, so they never slow a page turn.
+    last_page: std::sync::atomic::AtomicI64,
+    /// A comic Windows asked us to open at launch, until the window picks it up.
+    open_request: Mutex<Option<String>>,
 }
 
 type Shared = Arc<AppState>;
@@ -79,6 +91,39 @@ impl AppState {
 
 // ---------- scanning ----------
 
+fn now_ms() -> i64 {
+    std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_millis() as i64).unwrap_or(0)
+}
+
+/// Watch the comics folder, so books added or removed outside AionComics show up by themselves.
+fn watch_library(state: &Shared) {
+    let watcher = state.root().and_then(|root| intake::watch(&root, state.changes.clone()).ok());
+    *state.watcher.lock().unwrap() = watcher;
+}
+
+/// Read the ComicInfo.xml of books not checked yet, a few at a time, on a connection of its own.
+fn read_comic_info(app: &AppHandle, state: &Shared, conn: Connection, root: &Path) {
+    if state.reading_info.swap(true, Ordering::SeqCst) {
+        return;
+    }
+    let conn = Mutex::new(conn);
+    loop {
+        // Reading comes first: wait until no page has been asked for in a few seconds.
+        while now_ms() - state.last_page.load(Ordering::SeqCst) < 5000 {
+            std::thread::sleep(std::time::Duration::from_secs(1));
+        }
+        let Ok(Some(changed)) = comicinfo::step(&conn, root, 10) else { break };
+        if !changed.is_empty() {
+            let _ = app.emit("metadata-changed", serde_json::json!({ "comicId": null, "left": 0 }));
+        }
+        // A rescan picks up where this leaves off; don't compete with it for the drive.
+        if state.scanning.load(Ordering::SeqCst) {
+            break;
+        }
+    }
+    state.reading_info.store(false, Ordering::SeqCst);
+}
+
 fn start_scan(app: &AppHandle, state: &Shared) {
     if state.scanning.swap(true, Ordering::SeqCst) {
         return;
@@ -120,6 +165,8 @@ fn start_scan(app: &AppHandle, state: &Shared) {
                         let _ = app.emit("library-changed", ());
                     }
                 }
+                // Then the details stored inside the files themselves.
+                read_comic_info(&app, &state, c, &root);
             }
             Err(e) => {
                 let _ = app.emit("scan-failed", e.to_string());
@@ -156,8 +203,55 @@ fn set_library_root(app: AppHandle, state: State<Shared>, path: String) -> CmdRe
         return Err(format!("{path} isn't a folder"));
     }
     db::set_setting(&state.conn.lock().unwrap(), "library_root", &path).map_err(err)?;
+    watch_library(&state);
     start_scan(&app, &state);
     Ok(())
+}
+
+/// Where comic files dropped on the window would go (see `intake::plan`).
+#[tauri::command]
+fn plan_add(state: State<Shared>, paths: Vec<String>, series_id: Option<i64>, collection_id: Option<i64>) -> CmdResult<Vec<intake::Placement>> {
+    let root = state.root().ok_or("No comics folder set")?;
+    intake::plan(&state.conn.lock().unwrap(), &root, &paths, series_id, collection_id).map_err(err)
+}
+
+/// Copy dropped comic files into the comics folder, then rescan. Returns how many were added.
+#[tauri::command]
+async fn add_comics(
+    app: AppHandle,
+    state: State<'_, Shared>,
+    paths: Vec<String>,
+    series_id: Option<i64>,
+    collection_id: Option<i64>,
+) -> CmdResult<usize> {
+    let state = state.inner().clone();
+    let st = state.clone();
+    let added = tauri::async_runtime::spawn_blocking(move || -> anyhow::Result<usize> {
+        let root = st.root().ok_or_else(|| anyhow::anyhow!("No comics folder set"))?;
+        let placed = intake::plan(&st.conn.lock().unwrap(), &root, &paths, series_id, collection_id)?;
+        intake::copy_in(&root, &placed)
+    })
+    .await
+    .map_err(err)?
+    .map_err(err)?;
+    if added > 0 {
+        start_scan(&app, &state);
+    }
+    Ok(added)
+}
+
+/// The comic Windows asked AionComics to open when it started, if any (asked once by the window).
+#[tauri::command]
+fn take_open_request(state: State<Shared>) -> Option<String> {
+    state.open_request.lock().unwrap().take()
+}
+
+/// A comic file among command-line arguments (how Windows passes "Open with").
+fn comic_arg(args: impl IntoIterator<Item = String>) -> Option<String> {
+    args.into_iter().skip(1).find(|a| {
+        let p = Path::new(a);
+        p.is_file() && p.extension().is_some_and(|e| ["cbz", "cbr", "zip", "rar"].contains(&e.to_string_lossy().to_ascii_lowercase().as_str()))
+    })
 }
 
 #[tauri::command]
@@ -628,6 +722,7 @@ fn handle_image(state: &AppState, req: &Request<Vec<u8>>) -> Response<Vec<u8>> {
             Ok((thumb, "image/jpeg"))
         })(),
         ["page", id, n] => (|| {
+            state.last_page.store(now_ms(), Ordering::SeqCst);
             let id: i64 = id.parse()?;
             let n: usize = n.parse()?;
             let (path, _) = state.comic_path(id)?;
@@ -643,7 +738,21 @@ fn handle_image(state: &AppState, req: &Request<Vec<u8>>) -> Response<Vec<u8>> {
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
-    tauri::Builder::default()
+    let mut builder = tauri::Builder::default();
+    // One AionComics at a time: opening a comic from Explorer while it runs opens it in that window.
+    // (AION_MULTI_INSTANCE lets a test copy run beside it.)
+    if std::env::var_os("AION_MULTI_INSTANCE").is_none() {
+        builder = builder.plugin(tauri_plugin_single_instance::init(|app, argv, _cwd| {
+            if let Some(w) = app.get_webview_window("main") {
+                let _ = w.unminimize();
+                let _ = w.set_focus();
+            }
+            if let Some(path) = comic_arg(argv) {
+                let _ = app.emit("open-file", path);
+            }
+        }));
+    }
+    builder
         .plugin(tauri_plugin_dialog::init())
         .register_asynchronous_uri_scheme_protocol("aion", |ctx, request, responder| {
             let state = ctx.app_handle().state::<Shared>().inner().clone();
@@ -668,8 +777,29 @@ pub fn run() {
                 scanning: AtomicBool::new(false),
                 external: Mutex::new(Vec::new()),
                 comicvine: cv::Client::new(&cache_dir, cv_key),
+                changes: intake::Changes::new(),
+                watcher: Mutex::new(None),
+                reading_info: AtomicBool::new(false),
+                last_page: std::sync::atomic::AtomicI64::new(0),
+                open_request: Mutex::new(comic_arg(std::env::args())),
             });
             app.manage(state.clone());
+            // Rescan a few seconds after the comics folder stops changing (a copy in progress keeps
+            // changing it). Changes during a scan wait for the next one.
+            watch_library(&state);
+            {
+                let (state, app) = (state.clone(), app.handle().clone());
+                std::thread::spawn(move || loop {
+                    std::thread::sleep(std::time::Duration::from_secs(1));
+                    if state.changes.settled(4000) {
+                        if state.scanning.load(Ordering::SeqCst) {
+                            state.changes.touch();
+                        } else {
+                            start_scan(&app, &state);
+                        }
+                    }
+                });
+            }
             // Comic Vine details (credits, characters, story arcs) trickle in on their own thread.
             {
                 let (state, app) = (state.clone(), app.handle().clone());
@@ -712,7 +842,10 @@ pub fn run() {
             cv_set_key,
             cv_search,
             cv_plan,
-            cv_apply
+            cv_apply,
+            plan_add,
+            add_comics,
+            take_open_request
         ])
         .run(tauri::generate_context!())
         .expect("error while running AionComics");

@@ -12,7 +12,7 @@ npm run tauri dev      # development
 npm run tauri build    # installer in src-tauri/target/release/bundle
 ```
 
-On first launch, choose your comics folder. AionComics **never writes to that folder**. Its database (`library.db`) and cover thumbnails live in the app data and cache folders (`%APPDATA%\com.aion.comics`, `%LOCALAPPDATA%\com.aion.comics`).
+On first launch, choose your comics folder. AionComics **only reads that folder**, with one exception you start yourself: comics you drop on the window are copied in (never moved, never overwriting anything; see *Adding comics*). Its database (`library.db`) and cover thumbnails live in the app data and cache folders (`%APPDATA%\com.aion.comics`, `%LOCALAPPDATA%\com.aion.comics`).
 
 ## Library layout
 
@@ -25,6 +25,12 @@ On first launch, choose your comics folder. AionComics **never writes to that fo
 - Archives are detected by content, not extension, so mislabelled CBZ/CBR files still open.
 
 If `<root>/.yacreaderlibrary/library.ydb` exists, AionComics reads it (read-only) on every scan. It imports Comic Vine metadata, page counts, YACReader's cover cache, and reading progress whenever YACReader's copy is newer.
+
+## Adding comics
+
+- **Drop .cbz/.cbr files on the window.** On a series page they're copied into that series' folder. On a collection page each goes into the series of the same name ("Absolute Batman 018.cbz" → `DC/Absolute Batman`), or a new folder named after it. Elsewhere, files go to a series of the same name, if there is one. While you drag, the window shows where each file will go; nothing is copied until you let go. Files already there (same name and size) are skipped, and a different file with the same name gets " (2)" added.
+- **Or copy them in yourself.** AionComics watches the comics folder and rescans a few seconds after files stop changing, so new books (and removed ones) show up by themselves.
+- **Open a comic from Explorer**: AionComics opens a .cbz/.cbr it's started with (Open with → AionComics), in the window that's already open if it's running. An installer built with `npm run tauri build` registers both file types.
 
 ## Interface
 
@@ -40,11 +46,12 @@ Covers keep their real proportions: shapes are read from YACReader's cover cache
 
 ## Metadata
 
-A book's details come in three layers, each on top of the one before:
+A book's details come in layers, each on top of the one before:
 
-1. **YACReader's database**, imported read-only on every scan: titles, numbers, dates, writer, artists, letterer, cover artist, publisher, synopsis, characters, teams, locations, story arc, genre.
-2. **Comic Vine**, fetched by AionComics. On a series page, *Options → Find on Comic Vine* searches for the series (best guess first, ranked by name, start year, issue count and publisher), proposes an issue for each book by number and year, and lets you correct any pair before saving. Credits, characters, teams, locations and story arcs then fill in by themselves in the background. Comic Vine asks apps to stay under about 200 requests an hour per kind of request, so this is throttled (one request a second at most), cached on disk, and resumes after a restart. Add your own free API key in Settings.
-3. **Your own edits**: right-click any book → *Edit details…*. Edits always win; ↺ next to an edited field brings back the value underneath.
+1. **The file's own `ComicInfo.xml`** (written by ComicRack, ComicTagger, Mylar and most digital releases), read once per file in a background pass after each scan, and again only if the file changes. It fills whatever the YACReader import leaves empty.
+2. **YACReader's database**, imported read-only on every scan: titles, numbers, dates, writer, artists, letterer, cover artist, publisher, synopsis, characters, teams, locations, story arc, genre.
+3. **Comic Vine**, fetched by AionComics. On a series page, *Options → Find on Comic Vine* searches for the series (best guess first, ranked by name, start year, issue count and publisher), proposes an issue for each book by number and year, and lets you correct any pair before saving. Credits, characters, teams, locations and story arcs then fill in by themselves in the background. Comic Vine asks apps to stay under about 200 requests an hour per kind of request, so this is throttled (one request a second at most), cached on disk, and resumes after a restart. Add your own free API key in Settings.
+4. **Your own edits**: right-click any book → *Edit details…*. Edits always win; ↺ next to an edited field brings back the value underneath.
 
 All of this lives in AionComics' database (`meta_layer`, `cv_series`, `cv_queue`), never in your files, and is reapplied after every scan.
 

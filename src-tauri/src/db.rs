@@ -119,6 +119,11 @@ fn migrate(conn: &Connection) -> Result<()> {
            page INTEGER NOT NULL,
            data TEXT NOT NULL,
            PRIMARY KEY(comic_id, page)
+         );
+         CREATE TABLE IF NOT EXISTS comicinfo_seen(
+           comic_id INTEGER PRIMARY KEY,
+           size INTEGER NOT NULL,
+           mtime INTEGER NOT NULL
          );",
     )?;
     Ok(())
@@ -686,7 +691,7 @@ pub fn write_layer(conn: &Connection, id: i64, source: &str, data: &Meta, now: i
 }
 
 /// Recompute the metadata in effect for some books (or every book that has a layer):
-/// what the scan imported, then Comic Vine on top, then hand edits on top of that.
+/// the file's own ComicInfo.xml, what the scan imported over it, then Comic Vine, then hand edits.
 pub fn apply_meta(conn: &Connection, only: Option<&[i64]>) -> Result<usize> {
     let ids: Vec<i64> = match only {
         Some(ids) => ids.to_vec(),
@@ -724,7 +729,14 @@ pub fn apply_meta(conn: &Connection, only: Option<&[i64]>) -> Result<usize> {
                 snap
             }
         };
-        let mut m: Meta = serde_json::from_str(&base).unwrap_or_default();
+        // The details inside the file fill whatever the import left empty.
+        let mut m = read_layer(conn, id, "file")?;
+        let imported: Meta = serde_json::from_str(&base).unwrap_or_default();
+        for (k, v) in imported {
+            if v.as_str().is_none_or(|s| !s.trim().is_empty()) {
+                m.insert(k, v);
+            }
+        }
         let base_label = m.get("label").and_then(|v| v.as_str()).map(str::to_string).unwrap_or(label);
         let cv = read_layer(conn, id, "cv")?;
         let user = read_layer(conn, id, "user")?;

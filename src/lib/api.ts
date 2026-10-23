@@ -181,6 +181,15 @@ export interface Settings {
 
 export type ListKind = "continue" | "upnext" | "pickup" | "recent" | "finished";
 
+/** Where a comic file dropped on the window would be copied. */
+export type Placement = {
+  source: string;
+  fileName: string;
+  /** Folder inside the comics folder, e.g. "DC/Absolute Batman". */
+  folder: string | null;
+  status: "add" | "exists" | "new-series" | "no-place" | "not-comic";
+};
+
 export const api = {
   settings: () => invoke<Settings>("get_settings"),
   setLibraryRoot: (path: string) => invoke<void>("set_library_root", { path }),
@@ -208,6 +217,11 @@ export const api = {
     invoke<void>("set_user_panels", { id, page, panels }),
   toggleBookmark: (id: number, page: number) => invoke<boolean>("toggle_bookmark", { id, page }),
   openPath: (path: string) => invoke<number>("open_path", { path }),
+  takeOpenRequest: () => invoke<string | null>("take_open_request"),
+  planAdd: (paths: string[], seriesId: number | null, collectionId: number | null) =>
+    invoke<Placement[]>("plan_add", { paths, seriesId, collectionId }),
+  addComics: (paths: string[], seriesId: number | null, collectionId: number | null) =>
+    invoke<number>("add_comics", { paths, seriesId, collectionId }),
   savePage: (id: number, page: number, dest: string) => invoke<void>("save_page", { id, page, dest }),
   extractPages: (id: number, from: number, to: number, dir: string) =>
     invoke<number>("extract_pages", { id, from, to, dir }),

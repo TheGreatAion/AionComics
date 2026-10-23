@@ -242,7 +242,7 @@ fn iso_date(d: &str) -> Option<String> {
     }
 }
 
-fn clean_name(stem: &str) -> String {
+pub(crate) fn clean_name(stem: &str) -> String {
     let s = GROUPS.replace_all(stem, "");
     s.trim().trim_end_matches(['-', '–', '_']).trim().to_string()
 }

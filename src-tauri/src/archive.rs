@@ -87,7 +87,7 @@ type Zip = zip::ZipArchive<BufReader<File>>;
 
 /// Open a ZIP trusting it starts at byte 0. The crate's default "detect" mode
 /// scans the whole file for stray signatures, which costs seconds per 50 MB.
-fn open_zip(path: &Path) -> Result<Zip> {
+pub(crate) fn open_zip(path: &Path) -> Result<Zip> {
     let known = zip::read::Config { archive_offset: zip::read::ArchiveOffset::Known(0) };
     match zip::ZipArchive::with_config(known, BufReader::new(File::open(path)?)) {
         Ok(z) => Ok(z),
@@ -149,7 +149,7 @@ pub fn list(path: &Path) -> Result<Listing> {
 }
 
 /// Read a single named entry from a RAR by streaming until we reach it.
-fn rar_read_one(path: &Path, want: &str) -> Result<Vec<u8>> {
+pub(crate) fn rar_read_one(path: &Path, want: &str) -> Result<Vec<u8>> {
     let mut arc = unrar::Archive::new(path).open_for_processing()?;
     while let Some(h) = arc.read_header()? {
         if rar_name(h.entry()) == want {

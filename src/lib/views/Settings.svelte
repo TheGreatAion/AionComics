@@ -59,7 +59,7 @@
 {#if welcome}
   <div class="welcome">
     <h1>AionComics</h1>
-    <p>Pick the folder with your comics. It's only ever read.</p>
+    <p>Pick the folder with your comics. AionComics only reads it, and adds comics you drop in.</p>
     <button class="btn" onclick={choose}><Icon name="folder" size={16} />Choose folder</button>
     {#if error}<p class="err">{error}</p>{/if}
   </div>
@@ -70,7 +70,7 @@
       <section>
         <h2>Library</h2>
         <div class="row">
-          <span class="path mono" title="Read-only: AionComics never writes here">{s.libraryRoot ?? "Not set"}</span>
+          <span class="path mono" title="Only read, except to add comics you drop in. Nothing there is moved, changed or deleted.">{s.libraryRoot ?? "Not set"}</span>
           <button class="ico" title="Change folder" aria-label="Change folder" onclick={choose}><Icon name="folder" size={17} /></button>
           <button class="ico" title="Rescan" aria-label="Rescan" disabled={lib.scanning} onclick={rescan}>
             <span class:spin={lib.scanning}><Icon name="rescan" size={17} /></span>

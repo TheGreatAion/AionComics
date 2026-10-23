@@ -2,8 +2,9 @@
   import { listen } from "@tauri-apps/api/event";
   import { onMount } from "svelte";
   import { api, type ScanStats } from "$lib/api";
-  import { lib, nav, reader, search, sheets } from "$lib/state.svelte";
+  import { lib, nav, openReader, reader, search, sheets } from "$lib/state.svelte";
   import ContextMenu from "$lib/components/ContextMenu.svelte";
+  import DropZone from "$lib/components/DropZone.svelte";
   import Matcher from "$lib/components/Matcher.svelte";
   import MetaEditor from "$lib/components/MetaEditor.svelte";
   import SearchOverlay from "$lib/components/SearchOverlay.svelte";
@@ -24,6 +25,10 @@
       lib.hasRoot = !!s.libraryRoot;
       lib.scanning = s.scanning;
     });
+    // A comic opened from Explorer: at launch, or while AionComics is already running.
+    const openFile = (path: string) =>
+      api.openPath(path).then((id) => openReader(id)).catch((e) => ((lib.notice = String(e)), (lib.noticeLabel = "Couldn't open")));
+    api.takeOpenRequest().then((p) => p && openFile(p));
     const subs = [
       listen("scan-started", () => (lib.scanning = true)),
       listen<ScanStats | null>("library-changed", (e) => {
@@ -45,6 +50,7 @@
           lib.version++;
         }, 4000);
       }),
+      listen<string>("open-file", (e) => openFile(e.payload)),
       listen<string>("scan-failed", (e) => {
         lib.scanning = false;
         lib.notice = e.payload;
@@ -124,6 +130,7 @@
 {#if sheets.editing !== null}{#key sheets.editing}<MetaEditor id={sheets.editing} />{/key}{/if}
 {#if sheets.matching}<Matcher seriesId={sheets.matching.seriesId} isManga={sheets.matching.isManga} name={sheets.matching.name} />{/if}
 <ContextMenu />
+<DropZone />
 
 <style>
   /* First run has no top bar, but the window still needs a place to drag from and its buttons. */
