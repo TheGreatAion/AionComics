@@ -71,6 +71,7 @@
       });
       c.steps = steps;
       if (c.landOnLast) c.step = steps.length - 1;
+      else if (!prefs.guidedOverview && steps.length && c.step < 0) c.step = 0;
       c.landOnLast = false;
       for (const n of [pages[pages.length - 1] + 1, pages[pages.length - 1] + 2]) {
         if (n <= c.last) api.pagePanels(book, n, rtl).catch(() => {});

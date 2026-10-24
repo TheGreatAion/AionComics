@@ -78,9 +78,12 @@ const SIDE_TOLERANCE: f32 = 3.0; // work pixels off its line a border point may 
 const RULED: f32 = 0.75; // share of a side's outline on one straight line for a ruled border
 const MIN_RULED_AREA: f32 = 0.3; // page share in ruled panels below which a page is art, not panels
 const BAND_SLACK: f32 = 0.02; // reading order: overlap (page fraction) that still separates rows
+const BLEED_END_RUN: f32 = 0.12; // bleed layouts: most of a cut's length that may be art at one end
+const BLEED_ROW_FIRST: f32 = 0.8; // bleed layouts: a cut across wins unless one down scores this much better
+const MAX_SHARED: f32 = 0.5; // a box half inside a bigger one is a fragment of it (neighbours share slivers)
 const BLEED_CUT_PAPER: f32 = 0.6; // bleed layouts: share of a cut over paper
 const BLEED_CLEAN_FLANK: f32 = 0.25; // bleed layouts: flanking needed by a cut that's ≥95% paper
-const BLEED_LIGHT_LINE: u8 = 200; // bleed layouts: a light cut's median at least this
+const BLEED_LIGHT_LINE: u8 = 235; // bleed layouts: a light cut's median at least this
 const BLEED_DARK_LINE: u8 = 75; // bleed layouts: a dark cut's median at most this
 const BLEED_LINE_DELTA: i16 = 28; // bleed layouts: how far from the cut's median still counts as on it
 const BLEED_EDGE: i16 = 50; // bleed layouts: art beside a line is at least this far off its level
@@ -430,10 +433,13 @@ impl Splitter {
             for &i in &pixels {
                 self.mark[i as usize] = self.stamp;
             }
-            let best = [false, true]
-                .into_iter()
-                .filter_map(|v| self.best_cut(r, v))
-                .max_by(|a, b| a.0.total_cmp(&b.0));
+            let (across, down) = (self.best_cut(r, false), self.best_cut(r, true));
+            let best = match (across, down) {
+                // Pages are built in rows. Where art may cross a gutter (bleed layouts), a cut down
+                // the whole page can slice through a row; a decent cut across goes first.
+                (Some(h), Some(v)) if self.bleed && h.0 >= v.0 * BLEED_ROW_FIRST => Some(h),
+                (h, v) => [h, v].into_iter().flatten().max_by(|a, b| a.0.total_cmp(&b.0)),
+            };
             if let Some((_, cut)) = best {
                 let w = self.w;
                 let (a, b): (Vec<u32>, Vec<u32>) = pixels.iter().partition(|&&i| !cut.beyond(i, w));
@@ -620,6 +626,8 @@ impl Splitter {
                 // cut. White gaps between strokes, or beside a balloon's curve,
                 // drift instead, so only long steady runs count as flanked.
                 let (mut bad, mut run, mut flanked) = (0, 0, 0);
+                // First and last samples on the line's level (bleed layouts; see below).
+                let (mut first_on, mut last_on) = (None, 0);
                 // Distance range [lo, hi] to ink on each side over the current run.
                 let mut band: Option<[(u8, u8); 2]> = None;
                 let mut blocks: Option<(usize, usize)> = None;
@@ -660,6 +668,10 @@ impl Splitter {
                         run = 0;
                         band = None;
                     }
+                    if !blocked {
+                        first_on.get_or_insert(k);
+                        last_on = k;
+                    }
                     if blocked {
                         bad += 1;
                         if k >= END_SLACK && k + END_SLACK < samples {
@@ -674,6 +686,15 @@ impl Splitter {
                     }
                 }
                 count(run, samples, &mut flanked);
+                // A gutter runs edge to edge, interrupted at most in the middle (hair, a balloon). A
+                // line that ends in a long stretch of art is a gutter that stopped (where a row
+                // ends), carried on through the panels below it.
+                if self.bleed {
+                    let tail = (samples - 1).saturating_sub(last_on);
+                    if first_on.is_none_or(|f| f.max(tail) as f32 > samples as f32 * BLEED_END_RUN) {
+                        continue;
+                    }
+                }
                 if bad > max_bad {
                     continue;
                 }
@@ -846,7 +867,10 @@ fn judge(mut pieces: Vec<Piece>, bleed: bool, log: &mut dyn FnMut(String)) -> Re
     let mut kept: Vec<Piece> = Vec::new();
     for p in pieces {
         let b = &p.panel;
-        if !kept.iter().any(|k| k.panel.contains(b, 0.01) || k.panel.overlap(b) > 0.7 * b.area()) {
+        // Small and half inside a much bigger box: a fragment of it. (Two panels of similar size
+        // can overlap that much when one box straddles the other.)
+        let fragment = |k: &Piece| k.panel.overlap(b) > MAX_SHARED * b.area() && b.area() * 3.0 <= k.panel.area();
+        if !kept.iter().any(|k| k.panel.contains(b, 0.01) || k.panel.overlap(b) > 0.7 * b.area() || fragment(k)) {
             kept.push(p);
         }
     }
@@ -1089,9 +1113,18 @@ mod real_pages {
         // Contact sheets of 12 pages each (6 across), numbered by their position.
         let (tw, th, across) = (300u32, 461u32, 6u32);
         let mut sheet = RgbImage::from_pixel(tw * across, th * 2, Rgb([128, 128, 128]));
-        let mut page = 0;
+        // AION_PANELS_PAGES=21-44 (1-based, inclusive) limits the run.
+        let range: Option<(usize, usize)> = std::env::var("AION_PANELS_PAGES").ok().and_then(|r| {
+            let (a, b) = r.split_once('-')?;
+            Some((a.parse::<usize>().ok()? - 1, b.parse::<usize>().ok()? - 1))
+        });
+        let mut page = range.map_or(0, |r| r.0);
+        let first_page = page;
         let flush = |sheet: &RgbImage, first: usize| sheet.save(out.join(format!("sheet-{:02}.png", first + 1))).unwrap();
         while let Ok((bytes, _)) = archives.page(1, &file, page) {
+            if range.is_some_and(|r| page > r.1) {
+                break;
+            }
             let t = std::time::Instant::now();
             let mut notes = Vec::new();
             let panels = detect_with(&bytes, rtl, &mut |s| notes.push(s)).unwrap();
@@ -1105,8 +1138,8 @@ mod real_pages {
             }
             let small = image::imageops::resize(&img, 400, 400 * img.height() / img.width(), FilterType::Triangle);
             small.save(out.join(format!("p{:02}.png", page + 1))).unwrap();
-            let slot = (page % 12) as u32;
-            if slot == 0 && page > 0 {
+            let slot = ((page - first_page) % 12) as u32;
+            if slot == 0 && page > first_page {
                 flush(&sheet, page - 12);
                 sheet = RgbImage::from_pixel(tw * across, th * 2, Rgb([128, 128, 128]));
             }
@@ -1114,7 +1147,7 @@ mod real_pages {
             image::imageops::overlay(&mut sheet, &thumb, ((slot % across) * tw + 3) as i64, ((slot / across) * th + 3) as i64);
             page += 1;
         }
-        flush(&sheet, page.saturating_sub(1) / 12 * 12);
+        flush(&sheet, first_page + (page - first_page).saturating_sub(1) / 12 * 12);
     }
 
     #[test]

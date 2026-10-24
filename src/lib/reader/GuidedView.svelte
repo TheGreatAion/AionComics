@@ -85,8 +85,10 @@
     const w = Math.min(nw, (p.x + p.w) * nw + pad) - x;
     const h = Math.min(nh, (p.y + p.h) * nh + pad) - y;
     const s = Math.min((vw * 0.94) / w, (vh * 0.9) / h, fitScale * 3.2);
-    // Frame the box; dim everything outside the stop's real outline (slanted panels included).
-    const clip = dimClip(outline(p, pad / nw, pad / nh));
+    // Frame the box with some room; light just the stop's real outline (slanted panels included)
+    // and its border line, so the gutter around it stays dim instead of framing it in white.
+    const lit = 0.0025 * Math.max(nw, nh);
+    const clip = dimClip(outline(p, lit / nw, lit / nh));
     return { s, tx: vw / 2 - (x + w / 2) * s, ty: vh / 2 - (y + h / 2) * s, clip };
   });
 

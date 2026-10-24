@@ -15,6 +15,8 @@ const DEFAULTS = {
   background: "black" as "black" | "grey",
   guidedSpeed: "normal" as "slow" | "normal" | "fast",
   guidedDim: "strong" as "light" | "strong",
+  /** Guided View shows each page whole before its first panel. */
+  guidedOverview: true,
 };
 
 export type Prefs = typeof DEFAULTS;

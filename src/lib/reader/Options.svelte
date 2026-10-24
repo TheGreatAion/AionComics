@@ -40,6 +40,14 @@
   </div>
 
   <div class="row">
+    <span>Each new page</span>
+    <div class="choice">
+      <button class:on={prefs.guidedOverview} onclick={() => set("guidedOverview", true)}>Whole page first</button>
+      <button class:on={!prefs.guidedOverview} onclick={() => set("guidedOverview", false)}>Straight to panels</button>
+    </div>
+  </div>
+
+  <div class="row">
     <span>Around the panel</span>
     <div class="choice">
       <button class:on={prefs.guidedDim === "light"} onclick={() => set("guidedDim", "light")}>Dim</button>

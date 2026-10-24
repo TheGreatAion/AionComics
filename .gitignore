@@ -15,4 +15,5 @@ vite.config.ts.timestamp-*
 
 # Screenshots of real comic pages from testing (the library stays private)
 /design/*.png
+/design/*.jpg
 /src-tauri/saved-page.jpg

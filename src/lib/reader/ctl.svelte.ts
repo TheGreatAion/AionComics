@@ -203,7 +203,8 @@ export class Ctl {
       this.endCard = false;
       return;
     }
-    if (this.mode === "guided" && this.step > -1) {
+    // Without the whole-page stop, stepping back from the first panel goes to the page before.
+    if (this.mode === "guided" && this.step > (prefs.guidedOverview || !this.steps?.length ? -1 : 0)) {
       this.step--;
       return;
     }
