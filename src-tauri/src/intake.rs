@@ -2,7 +2,9 @@
 //! and copying comic files dropped onto the window into the right folder.
 //!
 //! Dropping is the one time AionComics writes to the comics folder, and only ever adds: files are
-//! copied (the originals stay where they were), nothing there is overwritten, moved or deleted.
+//! copied under their own names (the originals stay where they were), and nothing there is
+//! overwritten, renamed, moved or deleted. How a book is called in the app comes from its
+//! metadata, never from changing the file.
 
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicI64, Ordering};
@@ -75,8 +77,9 @@ pub struct Placement {
     pub file_name: String,
     /// Folder inside the comics folder ("DC/Absolute Batman"), when one could be chosen.
     pub folder: Option<String>,
-    /// "add", "exists" (already there), "new-series" (a folder will be made), "no-place" (open a
-    /// collection first), or "not-comic".
+    /// "add", "exists" (already there), "name-taken" (a different file has that name there; left
+    /// alone rather than renaming either), "new-series" (a folder will be made), "no-place" (open
+    /// a collection first), or "not-comic".
     pub status: &'static str,
 }
 
@@ -163,8 +166,8 @@ pub fn plan(conn: &Connection, root: &Path, paths: &[String], series: Option<i64
             continue;
         };
         let dest = root.join(&folder).join(&file_name);
-        let status = if dest.is_file() && dest.metadata().map(|m| m.len()).ok() == p.metadata().map(|m| m.len()).ok() {
-            "exists"
+        let status = if dest.exists() {
+            if dest.metadata().map(|m| m.len()).ok() == p.metadata().map(|m| m.len()).ok() { "exists" } else { "name-taken" }
         } else if new && !root.join(&folder).exists() {
             "new-series"
         } else {
@@ -173,18 +176,6 @@ pub fn plan(conn: &Connection, root: &Path, paths: &[String], series: Option<i64
         out.push(place(Some(folder), status));
     }
     Ok(out)
-}
-
-/// A free name in `dir`: "file.cbz", else "file (2).cbz", "file (3).cbz"…
-fn free_name(dir: &Path, file_name: &str) -> PathBuf {
-    let first = dir.join(file_name);
-    if !first.exists() {
-        return first;
-    }
-    let p = Path::new(file_name);
-    let stem = p.file_stem().map(|s| s.to_string_lossy().into_owned()).unwrap_or_default();
-    let ext = p.extension().map(|e| format!(".{}", e.to_string_lossy())).unwrap_or_default();
-    (2..).map(|n| dir.join(format!("{stem} ({n}){ext}"))).find(|c| !c.exists()).unwrap()
 }
 
 /// Copy the placed files in. Returns how many were added.
@@ -202,7 +193,12 @@ pub fn copy_in(root: &Path, placements: &[Placement]) -> Result<usize> {
         if !std::fs::canonicalize(&dir)?.starts_with(&root_real) {
             bail!("Refusing to copy outside the comics folder");
         }
-        let dest = free_name(&dir, &p.file_name);
+        let dest = dir.join(&p.file_name);
+        // Something got there since the plan was made: leave it be.
+        if dest.exists() {
+            continue;
+        }
+        // Copy under a temporary name, so a half-copied file is never scanned as a comic.
         let part = dest.with_extension("aion-part");
         std::fs::copy(&p.source, &part)?;
         std::fs::rename(&part, &dest)?;
@@ -254,18 +250,25 @@ mod tests {
         std::fs::create_dir_all(&src).unwrap();
         std::fs::write(root.join("DC/Absolute Batman/Absolute Batman 018.cbz"), b"old").unwrap();
         std::fs::write(src.join("Absolute Batman 018.cbz"), b"new one").unwrap();
-        let place = |s: &str| Placement {
-            source: src.join("Absolute Batman 018.cbz").to_string_lossy().into_owned(),
-            file_name: "Absolute Batman 018.cbz".into(),
+        std::fs::write(src.join("Absolute Batman 019.cbz"), b"nineteen").unwrap();
+        let place = |name: &str, status| Placement {
+            source: src.join(name).to_string_lossy().into_owned(),
+            file_name: name.into(),
             folder: Some("DC/Absolute Batman".into()),
-            status: if s == "add" { "add" } else { "exists" },
+            status,
         };
-        assert_eq!(copy_in(&root, &[place("add")]).unwrap(), 1);
-        assert_eq!(std::fs::read(root.join("DC/Absolute Batman/Absolute Batman 018.cbz")).unwrap(), b"old");
-        assert_eq!(std::fs::read(root.join("DC/Absolute Batman/Absolute Batman 018 (2).cbz")).unwrap(), b"new one");
-        assert!(src.join("Absolute Batman 018.cbz").exists(), "the original stays");
-        assert_eq!(copy_in(&root, &[place("exists")]).unwrap(), 0);
-        let mut bad = place("add");
+        // A different file with the same name: planned as taken, and never copied or renamed.
+        let dest = root.join("DC/Absolute Batman/Absolute Batman 018.cbz");
+        assert!(dest.exists());
+        assert_eq!(copy_in(&root, &[place("Absolute Batman 018.cbz", "add")]).unwrap(), 0, "never overwrites");
+        assert_eq!(std::fs::read(&dest).unwrap(), b"old");
+        assert_eq!(std::fs::read_dir(root.join("DC/Absolute Batman")).unwrap().count(), 1, "nothing renamed or added");
+        // A new one goes in under its own name; the original stays.
+        assert_eq!(copy_in(&root, &[place("Absolute Batman 019.cbz", "add")]).unwrap(), 1);
+        assert_eq!(std::fs::read(root.join("DC/Absolute Batman/Absolute Batman 019.cbz")).unwrap(), b"nineteen");
+        assert!(src.join("Absolute Batman 019.cbz").exists(), "the original stays");
+        assert_eq!(copy_in(&root, &[place("Absolute Batman 018.cbz", "name-taken")]).unwrap(), 0);
+        let mut bad = place("Absolute Batman 019.cbz", "add");
         bad.folder = Some("../Downloads".into());
         assert!(copy_in(&root, &[bad]).is_err());
         let _ = std::fs::remove_dir_all(&base);

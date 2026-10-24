@@ -187,7 +187,7 @@ export type Placement = {
   fileName: string;
   /** Folder inside the comics folder, e.g. "DC/Absolute Batman". */
   folder: string | null;
-  status: "add" | "exists" | "new-series" | "no-place" | "not-comic";
+  status: "add" | "exists" | "name-taken" | "new-series" | "no-place" | "not-comic";
 };
 
 export const api = {

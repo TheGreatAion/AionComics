@@ -12,7 +12,7 @@ npm run tauri dev      # development
 npm run tauri build    # installer in src-tauri/target/release/bundle
 ```
 
-On first launch, choose your comics folder. AionComics **only reads that folder**, with one exception you start yourself: comics you drop on the window are copied in (never moved, never overwriting anything; see *Adding comics*). Its database (`library.db`) and cover thumbnails live in the app data and cache folders (`%APPDATA%\com.aion.comics`, `%LOCALAPPDATA%\com.aion.comics`).
+On first launch, choose your comics folder. AionComics **only reads that folder**, with one exception you start yourself: comics you drop on the window are copied in (under their own names; nothing is ever renamed, overwritten, moved or deleted; see *Adding comics*). Its database (`library.db`) and cover thumbnails live in the app data and cache folders (`%APPDATA%\com.aion.comics`, `%LOCALAPPDATA%\com.aion.comics`).
 
 ## Library layout
 
@@ -28,7 +28,7 @@ If `<root>/.yacreaderlibrary/library.ydb` exists, AionComics reads it (read-only
 
 ## Adding comics
 
-- **Drop .cbz/.cbr files on the window.** On a series page they're copied into that series' folder. On a collection page each goes into the series of the same name ("Absolute Batman 018.cbz" → `DC/Absolute Batman`), or a new folder named after it. Elsewhere, files go to a series of the same name, if there is one. While you drag, the window shows where each file will go; nothing is copied until you let go. Files already there (same name and size) are skipped, and a different file with the same name gets " (2)" added.
+- **Drop .cbz/.cbr files on the window.** On a series page they're copied into that series' folder. On a collection page each goes into the series of the same name ("Absolute Batman 018.cbz" → `DC/Absolute Batman`), or a new folder named after it. Elsewhere, files go to a series of the same name, if there is one. While you drag, the window shows where each file will go; nothing is copied until you let go. Files keep their own names: AionComics never renames, overwrites, moves or deletes anything in the folder (what a book is called in the app comes from its metadata). A file that's already there is skipped, and so is one whose name is taken by a different file.
 - **Or copy them in yourself.** AionComics watches the comics folder and rescans a few seconds after files stop changing, so new books (and removed ones) show up by themselves.
 - **Open a comic from Explorer**: AionComics opens a .cbz/.cbr it's started with (Open with → AionComics), in the window that's already open if it's running. An installer built with `npm run tauri build` registers both file types.
 

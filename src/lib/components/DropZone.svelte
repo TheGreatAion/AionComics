@@ -80,9 +80,10 @@
         </p>
       {/each}
       {#if count("exists")}<p class="aside">{count("exists")} already there</p>{/if}
+      {#if count("name-taken")}<p class="aside">{count("name-taken")} skipped: a different file has that name there</p>{/if}
       {#if count("no-place")}<p class="aside">Open a collection to add new series</p>{/if}
       {#if count("not-comic")}<p class="aside">{count("not-comic")} not .cbz or .cbr</p>{/if}
-      {#if groups.length}<p class="hint mono">copied, never moved</p>{/if}
+      {#if groups.length}<p class="hint mono">copied as they are, never moved or renamed</p>{/if}
     </div>
   </div>
 {/if}
