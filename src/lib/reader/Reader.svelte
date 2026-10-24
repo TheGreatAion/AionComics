@@ -221,9 +221,16 @@
     return `${pages} / ${c.count}`;
   });
   const time = $derived(clock.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }));
-  const panel = $derived(
-    c.mode === "guided" && c.steps?.length && c.step >= 0 ? `Panel ${c.step + 1} / ${c.steps.length}` : "",
-  );
+  // Where Guided View is. On a page it found no panels on (past the cover), say how to draw them.
+  const panel = $derived.by(() => {
+    if (c.mode !== "guided" || !c.steps) return "";
+    if (c.steps.length && c.step >= 0) return `Panel ${c.step + 1} / ${c.steps.length}`;
+    if (!c.steps.length && c.page > 0 && c.info?.external === false) {
+      const k = keysFor(byId.editPanels, overrides)[0];
+      return k ? `No panels found · ${pretty(k)} to draw them` : "No panels found";
+    }
+    return "";
+  });
   const byId = Object.fromEntries(ACTIONS.map((a) => [a.id, a]));
   const FIT_ICON = { page: "fitPage", height: "fitHeight", width: "fitWidth" } as const;
   const tip = (id: string) => {
