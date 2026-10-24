@@ -14,7 +14,8 @@ const DEFAULTS = {
   info: false,
   background: "black" as "black" | "grey",
   guidedSpeed: "normal" as "slow" | "normal" | "fast",
-  guidedDim: "strong" as "light" | "strong",
+  /** Around the current panel: dimmed, darkened, or hidden altogether. */
+  guidedDim: "strong" as "light" | "strong" | "hidden",
   /** Guided View shows each page whole before its first panel. */
   guidedOverview: true,
 };
@@ -41,4 +42,6 @@ export function savePrefs() {
 }
 
 export const GUIDED_MS = { slow: 900, normal: 650, fast: 400 } as const;
-export const GUIDED_DIM = { light: 0.75, strong: 0.94 } as const;
+export const GUIDED_DIM = { light: 0.75, strong: 0.94, hidden: 1 } as const;
+/** How long a click waits to see whether it's a double-click (zoom into a panel). */
+export const DOUBLE_CLICK_MS = 230;

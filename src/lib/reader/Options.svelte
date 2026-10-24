@@ -52,6 +52,7 @@
     <div class="choice">
       <button class:on={prefs.guidedDim === "light"} onclick={() => set("guidedDim", "light")}>Dim</button>
       <button class:on={prefs.guidedDim === "strong"} onclick={() => set("guidedDim", "strong")}>Dark</button>
+      <button class:on={prefs.guidedDim === "hidden"} onclick={() => set("guidedDim", "hidden")}>Hide</button>
     </div>
   </div>
 

@@ -91,6 +91,15 @@ Clicking the left or right third of the screen turns pages; clicking the middle 
 
 A splitting pass then cuts blobs that are really several panels along straight or slanted gutters (ones with paper running between ruled borders, so hair or speed lines don't count). Slanted panels also get their real outline (`poly`), and Guided View dims everything outside it, so a neighbour sharing a diagonal gutter stays dark. Covers, title pages and full-page art (where little of the page is ruled panels) are shown whole.
 
+When the page's art runs off its edges (no gutter around the panels to flood from), a second pass cuts the whole page along straight light or dark lines instead: white gutters, dark gutters, and the black rules modern pages butt panels against.
+
+Reading in Guided View:
+
+- **V** turns it on; arrows, Space and clicks step panel by panel. Options choose whether each new page starts whole or goes straight to its first panel, and whether the art around the panel is dimmed, darkened or hidden.
+- **Double-click a panel** to go straight to it (from page view too, which turns Guided View on); double-click it again for the whole page. Because of this, a click to turn waits a fifth of a second to see whether a second click follows; the keyboard doesn't wait.
+- **Drag** to pan and **scroll** to zoom when a panel is framed badly; the next step glides back to the panels.
+- On a page where no panels were found, the bottom bar says so.
+
 When detection gets a page wrong, press **E** in the reader to fix it: drag boxes to move or resize them, drag on the art to add one, right-click or Delete to remove one, and use *Reading order* to renumber. Edits are saved per page (`user_panels`) and always win over detection; *Reset to detected* drops them.
 
 ## Tests

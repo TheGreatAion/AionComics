@@ -2,7 +2,7 @@
   import { pageUrl } from "$lib/api";
   import type { Ctl } from "./ctl.svelte";
   import PageStatus from "./PageStatus.svelte";
-  import { prefs } from "./prefs.svelte";
+  import { DOUBLE_CLICK_MS, prefs } from "./prefs.svelte";
 
   let {
     c,
@@ -112,13 +112,27 @@
     stage.scrollTop = drag.sy - dy;
   }
 
+  // A click waits a moment in case it's the first of a double-click, which zooms into the panel
+  // under the pointer (Guided View from there on).
+  let clickTimer: ReturnType<typeof setTimeout> | undefined;
   function click(e: MouseEvent) {
     const dragged = drag?.moved;
     drag = null;
-    if (dragged) return;
+    clearTimeout(clickTimer);
+    if (dragged || e.detail > 1) return;
     const x = e.clientX / window.innerWidth;
-    onzone(x < 0.33 ? "left" : x > 0.67 ? "right" : "middle");
+    const z = x < 0.33 ? "left" : x > 0.67 ? "right" : "middle";
+    clickTimer = setTimeout(() => onzone(z), DOUBLE_CLICK_MS);
   }
+
+  function dblclick(e: MouseEvent) {
+    clearTimeout(clickTimer);
+    const el = (e.target as HTMLElement).closest("img[data-page]") as HTMLImageElement | null;
+    if (!el || c.rotation || c.magnifier) return;
+    const r = el.getBoundingClientRect();
+    c.zoomInto(+el.dataset.page!, (e.clientX - r.left) / r.width, (e.clientY - r.top) / r.height);
+  }
+  $effect(() => () => clearTimeout(clickTimer));
 
   // Wheel: zoom with Ctrl, magnifier strength over the lens, otherwise scroll and turn at the edges.
   let wheelAt = 0;
@@ -161,6 +175,7 @@
   onpointermove={move}
   onpointerleave={() => (lens = null)}
   onclick={click}
+  ondblclick={dblclick}
   onwheel={wheel}
   role="presentation"
 >
@@ -179,9 +194,9 @@
     >
       {#each order as i, k (i)}
         {#if k === 0}
-          <img bind:this={img} src={src(i)} alt="Page {i + 1}" draggable="false" decoding="async" onload={(e) => loaded(i, e)} onerror={() => (failed = i)} />
+          <img bind:this={img} src={src(i)} data-page={i} alt="Page {i + 1}" draggable="false" decoding="async" onload={(e) => loaded(i, e)} onerror={() => (failed = i)} />
         {:else}
-          <img src={src(i)} alt="Page {i + 1}" draggable="false" decoding="async" onload={(e) => loaded(i, e)} onerror={() => (failed = i)} />
+          <img src={src(i)} data-page={i} alt="Page {i + 1}" draggable="false" decoding="async" onload={(e) => loaded(i, e)} onerror={() => (failed = i)} />
         {/if}
       {/each}
     </div>

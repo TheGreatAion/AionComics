@@ -70,8 +70,11 @@
         else if (pages.length > 1) steps.push({ page: pages[k], panel: null });
       });
       c.steps = steps;
-      if (c.landOnLast) c.step = steps.length - 1;
+      const at = c.zoomAt;
+      if (at && pages.includes(at.page)) c.step = c.stopAt(at.page, at.x, at.y);
+      else if (c.landOnLast) c.step = steps.length - 1;
       else if (!prefs.guidedOverview && steps.length && c.step < 0) c.step = 0;
+      c.zoomAt = null;
       c.landOnLast = false;
       for (const n of [pages[pages.length - 1] + 1, pages[pages.length - 1] + 2]) {
         if (n <= c.last) api.pagePanels(book, n, rtl).catch(() => {});

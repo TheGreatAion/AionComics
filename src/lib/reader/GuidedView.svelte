@@ -4,7 +4,7 @@
   import type { Ctl } from "./ctl.svelte";
   import { dimClip, outline } from "./outline";
   import PageStatus from "./PageStatus.svelte";
-  import { GUIDED_DIM, GUIDED_MS, prefs } from "./prefs.svelte";
+  import { DOUBLE_CLICK_MS, GUIDED_DIM, GUIDED_MS, prefs } from "./prefs.svelte";
 
   let {
     c,
@@ -172,14 +172,88 @@
     if (!c.dims[i]) c.dims[i] = { w: el.naturalWidth, h: el.naturalHeight };
   }
 
-  function click(e: MouseEvent) {
-    const x = e.clientX / window.innerWidth;
-    onzone(x < 0.33 ? "left" : x > 0.67 ? "right" : "middle");
+  // ---------- pointer: tap zones, double-click a panel, drag and wheel to look around ----------
+  // Detection isn't always right, so the camera can be moved by hand: drag to pan, wheel to zoom.
+  // The next step glides back to the panels.
+  let stageEl = $state<HTMLDivElement>();
+  let clickTimer: ReturnType<typeof setTimeout> | undefined;
+  let drag: { x: number; y: number; tx: number; ty: number; moved: boolean } | null = null;
+  let panning = $state(false);
+
+  /** The page under the pointer, and where on it (0–1 across and down). */
+  function pointAt(e: MouseEvent) {
+    const L = layout;
+    if (!L || !camera) return null;
+    const r = camera.getBoundingClientRect();
+    const sx = ((e.clientX - r.left) / r.width) * L.W;
+    const y = (e.clientY - r.top) / r.height;
+    for (const [p, g] of Object.entries(L.pages)) {
+      if (sx >= g.x && sx <= g.x + g.w) return { page: +p, x: (sx - g.x) / g.w, y };
+    }
+    return null;
   }
+
+  function down(e: PointerEvent) {
+    if (e.button === 0 && view) drag = { x: e.clientX, y: e.clientY, tx: view.tx, ty: view.ty, moved: false };
+  }
+
+  function move(e: PointerEvent) {
+    if (!drag || !(e.buttons & 1) || !view) return;
+    const [dx, dy] = [e.clientX - drag.x, e.clientY - drag.y];
+    if (!drag.moved && Math.hypot(dx, dy) < 5) return;
+    drag.moved = true;
+    panning = true;
+    moving = false;
+    view = { ...view, tx: drag.tx + dx, ty: drag.ty + dy };
+  }
+
+  function wheel(e: WheelEvent) {
+    const L = layout;
+    if (!view || !L || !stageEl) return;
+    e.preventDefault();
+    const fit = Math.min(vw / L.W, vh / L.H) * 0.98;
+    const s = Math.max(fit * 0.6, Math.min(fit * 8, view.s * (e.deltaY < 0 ? 1.15 : 1 / 1.15)));
+    const f = s / view.s;
+    const r = stageEl.getBoundingClientRect();
+    const [mx, my] = [e.clientX - r.left, e.clientY - r.top];
+    moving = false;
+    view = { ...view, s, tx: mx - (mx - view.tx) * f, ty: my - (my - view.ty) * f };
+  }
+
+  // A click waits a moment in case it's the first of a double-click.
+  function click(e: MouseEvent) {
+    const dragged = drag?.moved;
+    drag = null;
+    panning = false;
+    clearTimeout(clickTimer);
+    if (dragged || e.detail > 1) return;
+    const x = e.clientX / window.innerWidth;
+    const z = x < 0.33 ? "left" : x > 0.67 ? "right" : "middle";
+    clickTimer = setTimeout(() => onzone(z), DOUBLE_CLICK_MS);
+  }
+
+  function dblclick(e: MouseEvent) {
+    clearTimeout(clickTimer);
+    const p = pointAt(e);
+    if (p) c.zoomInto(p.page, p.x, p.y);
+  }
+  $effect(() => () => clearTimeout(clickTimer));
 </script>
 
 <!-- svelte-ignore a11y_click_events_have_key_events -->
-<div class="stage" bind:clientWidth={vw} bind:clientHeight={vh} onclick={click} role="presentation">
+<div
+  class="stage"
+  class:panning
+  bind:this={stageEl}
+  bind:clientWidth={vw}
+  bind:clientHeight={vh}
+  onclick={click}
+  ondblclick={dblclick}
+  onpointerdown={down}
+  onpointermove={move}
+  onwheel={wheel}
+  role="presentation"
+>
   {#key key}
     <div
       class="camera"
@@ -220,6 +294,9 @@
     position: absolute;
     inset: 0;
     overflow: hidden;
+  }
+  .stage.panning {
+    cursor: grabbing;
   }
   .camera {
     position: absolute;

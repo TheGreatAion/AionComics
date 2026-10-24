@@ -42,6 +42,8 @@ export class Ctl {
   step = $state(-1); // -1 = the whole page or spread, then each stop
   fullscreen = $state(false);
   landOnLast = false; // stepping back into a page lands on its last panel
+  /** A double-clicked point (page, and 0–1 across and down it) to zoom into once its panels load. */
+  zoomAt: { page: number; x: number; y: number } | null = null;
   overlay = $state<Overlay>(null);
   bookmarks = $state<number[]>([]);
   endCard = $state(false);
@@ -290,6 +292,34 @@ export class Ctl {
     }
     savePrefs();
     this.goTo(this.page);
+  }
+
+  /** The stop for a point on a page: the smallest panel holding it, else the nearest; -1 if none. */
+  stopAt(page: number, x: number, y: number) {
+    const steps = this.steps ?? [];
+    let best = -1;
+    let bestScore = Infinity;
+    steps.forEach((s, i) => {
+      if (s.page !== page || !s.panel) return;
+      const p = s.panel;
+      const inside = x >= p.x && x <= p.x + p.w && y >= p.y && y <= p.y + p.h;
+      const dist = Math.hypot(x - (p.x + p.w / 2), y - (p.y + p.h / 2));
+      const score = inside ? p.w * p.h : 10 + dist;
+      if (score < bestScore) [best, bestScore] = [i, score];
+    });
+    return best;
+  }
+
+  /** Double-click on the page: Guided View, at the panel under the pointer. */
+  zoomInto(page: number, x: number, y: number) {
+    if (this.mode === "guided" && this.steps) {
+      const i = this.stopAt(page, x, y);
+      // On the stop already shown, a double-click goes back out to the whole page.
+      this.step = i === this.step ? -1 : i;
+      return;
+    }
+    this.zoomAt = { page, x, y };
+    if (!this.guided) this.toggleGuided();
   }
 
   toggleGuided() {
