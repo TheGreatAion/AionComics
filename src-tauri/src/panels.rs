@@ -78,6 +78,9 @@ const SIDE_TOLERANCE: f32 = 3.0; // work pixels off its line a border point may 
 const RULED: f32 = 0.75; // share of a side's outline on one straight line for a ruled border
 const MIN_RULED_AREA: f32 = 0.3; // page share in ruled panels below which a page is art, not panels
 const BAND_SLACK: f32 = 0.02; // reading order: overlap (page fraction) that still separates rows
+const BLEED_MARGIN: f32 = 0.15; // bleed layouts: most of a cut's length that may be page margin at one end
+
+const MARGIN_FLAT: i16 = 14; // bleed layouts: how much a page margin's level may vary
 const BLEED_END_RUN: f32 = 0.12; // bleed layouts: most of a cut's length that may be art at one end
 const BLEED_ROW_FIRST: f32 = 0.8; // bleed layouts: a cut across wins unless one down scores this much better
 const MAX_SHARED: f32 = 0.5; // a box half inside a bigger one is a fragment of it (neighbours share slivers)
@@ -639,7 +642,25 @@ impl Splitter {
                         span = Some((span.map_or(end - run, |s| s.0), end));
                     }
                 };
+                // Bleed layouts: a dark rule ending at the page margin (plain paper, of whatever
+                // colour) runs out of the art there, so leave the margin off the line and count that
+                // end as open.
+                let (lead, trail) = match line {
+                    Some(m) if m <= BLEED_DARK_LINE => {
+                        let cap = (samples as f32 * BLEED_MARGIN) as usize;
+                        let v = |k: usize| self.px[at(a, lean, t0 + k * STEP)] as i16;
+                        let margin = |from: usize, k: usize| (v(k) - v(from)).abs() <= MARGIN_FLAT && v(k) > m as i16 + 2 * BLEED_LINE_DELTA;
+                        let lead = (0..samples).take(cap).take_while(|&k| margin(0, k)).count();
+                        let trail = (0..samples).rev().take(cap).take_while(|&k| margin(samples - 1, k)).count();
+                        (lead, trail)
+                    }
+                    _ => (0, 0),
+                };
+                open = [lead > 0, trail > 0];
                 for (k, t) in (t0..=t1).step_by(STEP).enumerate() {
+                    if k < lead || k + trail >= samples {
+                        continue;
+                    }
                     let i = at(a, lean, t);
                     let near = match line {
                         Some(m) => &self.edges[edge_band(m)],
@@ -690,8 +711,8 @@ impl Splitter {
                 // line that ends in a long stretch of art is a gutter that stopped (where a row
                 // ends), carried on through the panels below it.
                 if self.bleed {
-                    let tail = (samples - 1).saturating_sub(last_on);
-                    if first_on.is_none_or(|f| f.max(tail) as f32 > samples as f32 * BLEED_END_RUN) {
+                    let tail = (samples - 1 - trail).saturating_sub(last_on);
+                    if first_on.is_none_or(|f| (f - lead).max(tail) as f32 > samples as f32 * BLEED_END_RUN) {
                         continue;
                     }
                 }
