@@ -65,9 +65,18 @@ pub fn read(path: &Path) -> Result<Option<String>> {
     Ok(Some(String::from_utf8_lossy(&bytes).trim_start_matches('\u{feff}').to_string()))
 }
 
-/// Titles that only restate the number ("v03", "Book 01", "#5") aren't titles.
-static NUMBER_TITLE: LazyLock<Regex> =
-    LazyLock::new(|| Regex::new(r"(?i)^(?:v|vol\.?|volume|book|issue|no\.?|#|chapter|ch\.?)?\s*\d+(?:\.\d+)?$").unwrap());
+/// Titles that only restate the number ("v03", "Book 01", "#5", "Volume One") or the format
+/// ("TPB", "One-Shot") aren't titles. Comic Vine names most collected editions this way too.
+static PLACEHOLDER_TITLE: LazyLock<Regex> = LazyLock::new(|| {
+    Regex::new(
+        r"(?i)^(?:(?:v|vol\.?|volume|book|issue|no\.?|#|chapter|ch\.?|part)?\s*(?:\d+(?:\.\d+)?|one|two|three|four|five|six|seven|eight|nine|ten)|tpb|hc|hardcover|trade paperback|one[- ]shot|omnibus|o?gn)$",
+    )
+    .unwrap()
+});
+
+pub(crate) fn placeholder_title(t: &str) -> bool {
+    PLACEHOLDER_TITLE.is_match(t.trim())
+}
 static TAG: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"(?s)<(\w+)>(.*?)</(\w+)>").unwrap());
 static CV_ISSUE: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"comicvine\.gamespot\.com/[^\s]*?4000-(\d+)").unwrap());
 
@@ -162,7 +171,7 @@ pub fn parse(xml: &str) -> Meta {
     if let Some(id) = get("web").and_then(|w| CV_ISSUE.captures(&w).map(|c| c[1].to_string())) {
         put("cv_id", id);
     }
-    if m.get("title").and_then(|t| t.as_str()).is_some_and(|t| NUMBER_TITLE.is_match(t.trim())) {
+    if m.get("title").and_then(|t| t.as_str()).is_some_and(placeholder_title) {
         m.remove("title");
     }
     m
@@ -249,7 +258,7 @@ mod tests {
         assert_eq!(s("characters"), "Batman\nPoison Ivy");
         assert_eq!(s("cv_id"), "1123456");
         assert!(!m.contains_key("notes"));
-        for junk in ["v03", "Book 01", "#5", "Vol. 12"] {
+        for junk in ["v03", "Book 01", "#5", "Vol. 12", "TPB", "Volume One", "One-Shot", "Book One"] {
             let m = parse(&format!("<ComicInfo><Title>{junk}</Title><Number>3</Number></ComicInfo>"));
             assert!(!m.contains_key("title"), "{junk}");
         }

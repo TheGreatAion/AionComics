@@ -772,9 +772,11 @@ pub fn apply_meta(conn: &Connection, only: Option<&[i64]>) -> Result<usize> {
             }
         }
         let text = |k: &str| m.get(k).and_then(|v| v.as_str()).map(str::trim).filter(|s| !s.is_empty()).map(str::to_string);
-        // A number from Comic Vine or a hand edit relabels the book ("#5", "Vol. 5").
+        // A number from Comic Vine or a hand edit relabels the book ("#5", "Vol. 5"). A book already
+        // called a volume (a collected edition, say) stays one.
         let label = match (numbered, text("number")) {
-            (true, Some(n)) => if manga { format!("Vol. {n}") } else { format!("#{n}") },
+            (true, Some(n)) if manga || base_label.starts_with("Vol.") => format!("Vol. {n}"),
+            (true, Some(n)) => format!("#{n}"),
             _ => base_label,
         };
         let values: Vec<Option<String>> = META_FIELDS.iter().map(|f| text(f)).collect();

@@ -613,7 +613,7 @@ pub fn apply(client: &Client, conn: &Connection, series_id: i64, volume_id: &str
                 m.insert(k.into(), Value::String(v));
             }
         };
-        put("title", issue.name.clone());
+        put("title", issue.name.clone().filter(|t| !crate::comicinfo::placeholder_title(t)));
         put("number", issue.number.clone());
         put("date", issue.cover_date.clone());
         put("year", issue.cover_date.as_deref().and_then(|d| d.get(..4)).map(str::to_string));
@@ -665,7 +665,7 @@ fn details(client: &Client, issue_id: &str) -> Result<Meta> {
             m.insert(k.into(), Value::String(v));
         }
     };
-    put("title", s(&r, "name"));
+    put("title", s(&r, "name").filter(|t| !crate::comicinfo::placeholder_title(t)));
     put("number", s(&r, "issue_number"));
     put("date", s(&r, "cover_date"));
     put("year", s(&r, "cover_date").and_then(|d| d.get(..4).map(str::to_string)));
@@ -848,7 +848,7 @@ mod tests {
             ],
             json!({ "number_of_total_results": 2, "results": [
                 { "id": 1001, "issue_number": "1", "cover_date": "2024-12-01", "name": "The Zoo" },
-                { "id": 1002, "issue_number": "2", "cover_date": "2024-12-20", "name": "Part Two" },
+                { "id": 1002, "issue_number": "2", "cover_date": "2024-12-20", "name": "The Zoo, Part Two" },
             ]}),
         );
         put(
@@ -874,12 +874,24 @@ mod tests {
         assert_eq!(n, 2);
         let (label, title): (String, Option<String>) =
             conn.query_row("SELECT label, title FROM comics WHERE id=2", [], |r| Ok((r.get(0)?, r.get(1)?))).unwrap();
-        assert_eq!((label.as_str(), title.as_deref()), ("#2", Some("Part Two")));
+        assert_eq!((label.as_str(), title.as_deref()), ("#2", Some("The Zoo, Part Two")));
         // Nothing twice; #9 waits a day before looking again.
         assert_eq!(auto_match(&client, &conn, 1_000_100).unwrap(), 0);
         let tried: i64 = conn.query_row("SELECT COUNT(*) FROM cv_auto WHERE comic_id=3 AND settled=0", [], |r| r.get(0)).unwrap();
         assert_eq!(tried, 1);
         assert_eq!(queued(&conn).len(), 2);
+    }
+
+    #[test]
+    fn collected_editions_keep_their_style() {
+        let (conn, _) = library("trades");
+        conn.execute("UPDATE comics SET label='Vol. 1' WHERE id=5", []).unwrap();
+        let mut m = Meta::new();
+        m.insert("number".into(), json!("1"));
+        db::merge_cv(&conn, 5, &m, 0).unwrap();
+        db::merge_cv(&conn, 2, &m, 0).unwrap();
+        let label = |id: i64| conn.query_row("SELECT label FROM comics WHERE id=?1", [id], |r| r.get::<_, String>(0)).unwrap();
+        assert_eq!((label(5).as_str(), label(2).as_str()), ("Vol. 1", "#1"));
     }
 
     #[test]

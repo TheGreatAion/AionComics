@@ -247,9 +247,14 @@ export const progressOf = (c: ComicCard) =>
   c.read ? 1 : c.numPages && c.currentPage > 0 ? (c.currentPage + 1) / c.numPages : 0;
 
 /** The story title, unless it just repeats the label ("Vol. 1" / "Vol. 1"). */
+/** Titles that only restate the number or the format ("Book 1", "Volume One", "TPB"); the same rule
+ *  the library uses when it reads ComicInfo.xml and Comic Vine. */
+const PLACEHOLDER_TITLE =
+  /^(?:(?:v|vol\.?|volume|book|issue|no\.?|#|chapter|ch\.?|part)?\s*(?:\d+(?:\.\d+)?|one|two|three|four|five|six|seven|eight|nine|ten)|tpb|hc|hardcover|trade paperback|one[- ]shot|omnibus|o?gn)$/i;
+
 export function storyTitle(c: ComicCard): string | null {
   const t = c.title?.trim();
-  if (!t) return null;
+  if (!t || PLACEHOLDER_TITLE.test(t)) return null;
   const norm = (x: string) => x.toLowerCase().replace(/[^a-z0-9]/g, "").replace(/^(vol|volume|issue|no)/, "");
   return norm(t) === norm(c.label) ? null : t;
 }
