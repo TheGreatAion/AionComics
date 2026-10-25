@@ -65,9 +65,21 @@
     api.nav().then((n) => (lib.collections = n.collections));
   });
 
-  // The library stays mounted under the reader; stop it scrolling (and showing its scrollbar) meanwhile.
+  // The library stays mounted under the reader; stop it scrolling meanwhile. Its scrollbar gutter goes
+  // too, since nothing can paint over a gutter and the reader should reach the window's edge; padding
+  // the same width keeps the covers where they were, for the flight back.
   $effect(() => {
-    document.documentElement.style.overflow = reader.id !== null ? "hidden" : "";
+    if (reader.id === null) return;
+    const html = document.documentElement;
+    const gutter = innerWidth - html.clientWidth;
+    html.style.overflow = "hidden";
+    html.style.scrollbarGutter = "auto";
+    document.body.style.paddingRight = `${gutter}px`;
+    return () => {
+      html.style.overflow = "";
+      html.style.scrollbarGutter = "";
+      document.body.style.paddingRight = "";
+    };
   });
 
   // New page starts at the top; views restore the old position on Back once they've loaded.

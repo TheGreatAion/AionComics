@@ -112,8 +112,8 @@
     return () => clearInterval(t);
   });
 
-  // The library keeps its scrollbar gutter while hidden (so covers don't shift under the flight back),
-  // and nothing can paint over it but the page background: make that the reader's too.
+  // Wherever the reader doesn't quite reach (a window edge mid-resize), the page background shows:
+  // make that the reader's too.
   const readerBg = $derived(prefs.background === "grey" ? "#1b1b1b" : "#000");
   $effect(() => {
     document.documentElement.style.background = readerBg;
