@@ -10,7 +10,6 @@
   let synEl = $state<HTMLParagraphElement>();
   let expanded = $state(false);
   let clamped = $state(false);
-  let aboutOpen = $state(false);
 
   $effect(() => {
     void lib.version;
@@ -334,17 +333,6 @@
     </nav>
   </div>
 
-  <!-- The series as a whole, under the first screen. -->
-  {#if seriesAbout}
-    <section class="series-about">
-      <h2>About {data.name}</h2>
-      <p class:open={aboutOpen}>{seriesAbout}</p>
-      {#if seriesAbout.length > 420}
-        <button class="more link" onclick={() => (aboutOpen = !aboutOpen)}>{aboutOpen ? "Less" : "More"}</button>
-      {/if}
-    </section>
-  {/if}
-  <div class="foot"></div>
 {/if}
 
 <style>
@@ -593,30 +581,4 @@
     background: #e6e6e6;
   }
 
-  .series-about {
-    padding: 64px var(--pad) 0;
-    max-width: calc(76ch + 2 * var(--pad));
-  }
-  .series-about h2 {
-    font-weight: 400;
-    font-size: 15px;
-    margin-bottom: 16px;
-  }
-  .series-about p {
-    color: var(--text-2);
-    font-size: 15px;
-    line-height: 1.7;
-    display: -webkit-box;
-    -webkit-line-clamp: 6;
-    line-clamp: 6;
-    -webkit-box-orient: vertical;
-    overflow: hidden;
-    user-select: text;
-  }
-  .series-about p.open {
-    display: block;
-  }
-  .foot {
-    height: 120px;
-  }
 </style>
