@@ -6,7 +6,7 @@
 //! books are paired with issues by number and year. Credits, characters and story arcs need one
 //! request per issue, so a background queue fills those in slowly and survives restarts.
 
-use std::collections::{HashMap, VecDeque};
+use std::collections::{HashMap, HashSet, VecDeque};
 use std::hash::{Hash, Hasher};
 use std::path::{Path, PathBuf};
 use std::sync::{Condvar, Mutex};
@@ -382,8 +382,8 @@ pub fn search(client: &Client, conn: &Connection, series_id: i64, query: &str) -
     Ok(out)
 }
 
-/// Every issue of a Comic Vine series, in order.
-fn issues(client: &Client, volume_id: &str) -> Result<Vec<Issue>> {
+/// Every issue of a Comic Vine series, in order, from a cached listing up to `ttl_days` old.
+fn issues(client: &Client, volume_id: &str, ttl_days: u64) -> Result<Vec<Issue>> {
     let mut out = Vec::new();
     let mut offset = 0;
     loop {
@@ -396,7 +396,7 @@ fn issues(client: &Client, volume_id: &str) -> Result<Vec<Issue>> {
                 ("offset", offset.to_string()),
                 ("sort", "cover_date:asc".into()),
             ],
-            7,
+            ttl_days,
             false,
         )?;
         let page: Vec<Issue> = body
@@ -434,49 +434,150 @@ fn issues(client: &Client, volume_id: &str) -> Result<Vec<Issue>> {
 /// A series' issues on Comic Vine, and a proposed issue for each book.
 /// Books in sections ("Annuals", "Compendium") start unmatched: their numbers mean something else.
 pub fn plan(client: &Client, conn: &Connection, series_id: i64, volume_id: &str) -> Result<IssuePlan> {
-    let issues = issues(client, volume_id)?;
-    let mut st = conn.prepare(
-        "SELECT id, label, section, number, year FROM comics WHERE series_id=?1 ORDER BY section!='', sort_key",
-    )?;
-    let books = st
-        .query_map([series_id], |r| {
-            Ok((r.get::<_, i64>(0)?, r.get::<_, String>(1)?, r.get::<_, String>(2)?, r.get::<_, Option<String>>(3)?, r.get::<_, Option<String>>(4)?))
-        })?
-        .collect::<rusqlite::Result<Vec<_>>>()?;
-    let mut taken = std::collections::HashSet::new();
+    let issues = issues(client, volume_id, 7)?;
+    let books = series_books(conn, series_id, "")?;
+    let mut taken = HashSet::new();
     let proposals = books
         .into_iter()
-        .map(|(comic_id, label, section, number, year)| {
-            let mut issue_id = None;
-            let mut confidence = "none";
-            if section.is_empty() {
-                if let Some(n) = book_number(number, &label) {
-                    let year = year.and_then(|y| y.get(..4).and_then(|y| y.parse::<i64>().ok()));
-                    let same: Vec<&Issue> = issues
-                        .iter()
-                        .filter(|i| i.number.as_deref().map(norm_number).as_deref() == Some(n.as_str()) && !taken.contains(&i.id))
-                        .collect();
-                    let issue_year = |i: &Issue| i.cover_date.as_deref().and_then(|d| d.get(..4)).and_then(|y| y.parse::<i64>().ok());
-                    // Several issues with this number (reprints, a relaunch in the same series): take the nearest year.
-                    let best = same.iter().min_by_key(|i| match (issue_year(i), year) {
-                        (Some(a), Some(b)) => (a - b).abs(),
-                        _ => 0,
-                    });
-                    if let Some(i) = best {
-                        let close = match (issue_year(i), year) {
-                            (Some(a), Some(b)) => (a - b).abs() <= 1,
-                            _ => true,
-                        };
-                        confidence = if close && same.len() == 1 { "sure" } else { "check" };
-                        taken.insert(i.id.clone());
-                        issue_id = Some(i.id.clone());
-                    }
-                }
-            }
-            Proposal { comic_id, label, section, issue_id, confidence }
+        .map(|b| {
+            let (issue_id, confidence) = pair(&b, &issues, &mut taken);
+            Proposal { comic_id: b.id, label: b.label, section: b.section, issue_id, confidence }
         })
         .collect();
     Ok(IssuePlan { issues, proposals })
+}
+
+struct Book {
+    id: i64,
+    label: String,
+    section: String,
+    number: Option<String>,
+    year: Option<String>,
+}
+
+/// A series' books in order (sections last), optionally narrowed by a condition on `c`.
+fn series_books(conn: &Connection, series_id: i64, and: &str) -> Result<Vec<Book>> {
+    let mut st = conn.prepare(&format!(
+        "SELECT c.id, c.label, c.section, c.number, c.year FROM comics c WHERE c.series_id=?1 {and}
+         ORDER BY c.section!='', c.sort_key"
+    ))?;
+    let books = st
+        .query_map([series_id], |r| Ok(Book { id: r.get(0)?, label: r.get(1)?, section: r.get(2)?, number: r.get(3)?, year: r.get(4)? }))?
+        .collect::<rusqlite::Result<Vec<_>>>()?;
+    Ok(books)
+}
+
+/// The issue a book most likely is, by number (and by year when a number repeats), with how sure
+/// that is: "sure" (number and year agree), "check" (number only), or "none". Each issue goes to
+/// one book. Books in sections ("Annuals", "Compendium") stay unmatched: their numbers mean something else.
+fn pair(b: &Book, issues: &[Issue], taken: &mut HashSet<String>) -> (Option<String>, &'static str) {
+    if !b.section.is_empty() {
+        return (None, "none");
+    }
+    let Some(n) = book_number(b.number.clone(), &b.label) else { return (None, "none") };
+    let year = b.year.as_deref().and_then(|y| y.get(..4)).and_then(|y| y.parse::<i64>().ok());
+    let same: Vec<&Issue> = issues
+        .iter()
+        .filter(|i| i.number.as_deref().map(norm_number).as_deref() == Some(n.as_str()) && !taken.contains(&i.id))
+        .collect();
+    let issue_year = |i: &Issue| i.cover_date.as_deref().and_then(|d| d.get(..4)).and_then(|y| y.parse::<i64>().ok());
+    // Several issues with this number (reprints, a relaunch in the same series): take the nearest year.
+    let best = same.iter().min_by_key(|i| match (issue_year(i), year) {
+        (Some(a), Some(b)) => (a - b).abs(),
+        _ => 0,
+    });
+    let Some(i) = best else { return (None, "none") };
+    let close = match (issue_year(i), year) {
+        (Some(a), Some(b)) => (a - b).abs() <= 1,
+        _ => true,
+    };
+    taken.insert(i.id.clone());
+    (Some(i.id.clone()), if close && same.len() == 1 { "sure" } else { "check" })
+}
+
+/// After the matcher: books you left unpaired stay that way, and automatic pairing leaves them alone.
+pub fn remember_choices(conn: &Connection, pairs: &[Pair], now: i64) -> Result<()> {
+    for p in pairs {
+        if p.issue_id.is_none() {
+            conn.execute(
+                "INSERT OR REPLACE INTO cv_auto(comic_id, tried_at, settled) VALUES(?1, ?2, 1)",
+                params![p.comic_id, now],
+            )?;
+        } else {
+            conn.execute("DELETE FROM cv_auto WHERE comic_id=?1", [p.comic_id])?;
+        }
+    }
+    Ok(())
+}
+
+/// A book with Comic Vine details (an issue id in its Comic Vine layer), as a SQL condition on `c`.
+const HAS_CV: &str =
+    "EXISTS (SELECT 1 FROM meta_layer v WHERE v.comic_id=c.id AND v.source='cv' AND json_extract(v.data, '$.cv_id') IS NOT NULL)";
+
+/// How long a book that found no issue waits before trying again: Comic Vine adds new issues
+/// around their release, so a book that's newer than the listing usually turns up within a day.
+const RETRY_SECS: i64 = 86_400;
+
+/// Comic Vine without being asked. Books whose ComicInfo.xml names their Comic Vine issue go
+/// straight into the details queue; books new to a series that's already matched are paired by
+/// number against the series' issues, but only when the pairing is certain. Returns how many
+/// books were queued.
+pub fn auto_match(client: &Client, conn: &Connection, now: i64) -> Result<usize> {
+    if !client.has_key() {
+        return Ok(0);
+    }
+    // The file says which issue it is.
+    let mut n = conn.execute(
+        &format!(
+            "INSERT OR IGNORE INTO cv_queue(comic_id, issue_id, added_at)
+             SELECT c.id, json_extract(f.data, '$.cv_id'), ?1 FROM meta_layer f JOIN comics c ON c.id=f.comic_id
+             WHERE f.source='file' AND json_extract(f.data, '$.cv_id') GLOB '[0-9]*' AND NOT {HAS_CV}"
+        ),
+        [now],
+    )?;
+    // New books in matched series.
+    let mut st = conn.prepare("SELECT series_id, volume_id FROM cv_series")?;
+    let matched = st.query_map([], |r| Ok((r.get::<_, i64>(0)?, r.get::<_, String>(1)?)))?.collect::<rusqlite::Result<Vec<_>>>()?;
+    for (series_id, volume_id) in matched {
+        let fresh = series_books(
+            conn,
+            series_id,
+            &format!(
+                "AND c.section='' AND NOT {HAS_CV}
+                 AND NOT EXISTS (SELECT 1 FROM cv_queue q WHERE q.comic_id=c.id)
+                 AND NOT EXISTS (SELECT 1 FROM cv_auto a WHERE a.comic_id=c.id AND (a.settled=1 OR a.tried_at>{}))",
+                now - RETRY_SECS
+            ),
+        )?;
+        if fresh.is_empty() {
+            continue;
+        }
+        // A day-old listing at most: the books are new, so their issues may be too.
+        let issues = issues(client, &volume_id, 1)?;
+        // Issues other books in the series already have aren't on offer.
+        let mut taken: HashSet<String> = {
+            let mut st = conn.prepare(&format!(
+                "SELECT json_extract(v.data, '$.cv_id') FROM comics c JOIN meta_layer v ON v.comic_id=c.id AND v.source='cv'
+                 WHERE c.series_id=?1 AND {HAS_CV}"
+            ))?;
+            let ids = st.query_map([series_id], |r| r.get::<_, String>(0))?.collect::<rusqlite::Result<_>>()?;
+            ids
+        };
+        let pairs: Vec<Pair> = fresh
+            .iter()
+            .filter_map(|b| match pair(b, &issues, &mut taken) {
+                (Some(id), "sure") => Some(Pair { comic_id: b.id, issue_id: Some(id) }),
+                _ => None,
+            })
+            .collect();
+        if !pairs.is_empty() {
+            n += apply(client, conn, series_id, &volume_id, &pairs, now)?;
+        }
+        for b in &fresh {
+            conn.execute("INSERT OR REPLACE INTO cv_auto(comic_id, tried_at, settled) VALUES(?1, ?2, 0)", params![b.id, now])?;
+        }
+    }
+    Ok(n)
 }
 
 /// Save a series match: the series' details, each book's issue details from the issue list, and a
@@ -501,7 +602,7 @@ pub fn apply(client: &Client, conn: &Connection, series_id: i64, volume_id: &str
         "INSERT OR REPLACE INTO cv_series(series_id, volume_id, data, updated_at) VALUES(?1, ?2, ?3, ?4)",
         params![series_id, volume_id, series.to_string(), now],
     )?;
-    let by_id: HashMap<String, Issue> = issues(client, volume_id)?.into_iter().map(|i| (i.id.clone(), i)).collect();
+    let by_id: HashMap<String, Issue> = issues(client, volume_id, 7)?.into_iter().map(|i| (i.id.clone(), i)).collect();
     let single = by_id.len() < 2;
     let mut n = 0;
     for p in pairs {
@@ -544,11 +645,35 @@ fn names(v: &Value, k: &str) -> Option<String> {
 fn details(client: &Client, issue_id: &str) -> Result<Meta> {
     let body = client.get(
         &format!("issue/4000-{issue_id}"),
-        &[("field_list", "id,description,deck,person_credits,character_credits,team_credits,location_credits,story_arc_credits".into())],
+        &[(
+            "field_list",
+            "id,name,issue_number,cover_date,volume,description,deck,person_credits,character_credits,team_credits,location_credits,story_arc_credits"
+                .into(),
+        )],
         30,
         true,
     )?;
     let r = body.get("results").cloned().unwrap_or(Value::Null);
+    // The issue itself, so a book known only by its issue (a link in its ComicInfo.xml) gets the
+    // basics too. For a book matched with its series these are the same values again.
+    if s(&r, "id").is_none() {
+        bail!("Comic Vine has no issue {issue_id}");
+    }
+    let mut m = Meta::new();
+    let mut put = |k: &str, v: Option<String>| {
+        if let Some(v) = v {
+            m.insert(k.into(), Value::String(v));
+        }
+    };
+    put("title", s(&r, "name"));
+    put("number", s(&r, "issue_number"));
+    put("date", s(&r, "cover_date"));
+    put("year", s(&r, "cover_date").and_then(|d| d.get(..4).map(str::to_string)));
+    put("cv_id", Some(issue_id.to_string()));
+    if let Some(v) = r.get("volume") {
+        put("volume", s(v, "name"));
+        put("cv_volume_id", s(v, "id"));
+    }
     let mut roles: HashMap<&str, Vec<String>> = HashMap::new();
     for p in r.get("person_credits").and_then(|x| x.as_array()).into_iter().flatten() {
         let Some(name) = s(p, "name") else { continue };
@@ -568,7 +693,6 @@ fn details(client: &Client, issue_id: &str) -> Result<Meta> {
             }
         }
     }
-    let mut m = Meta::new();
     for (k, v) in roles {
         m.insert(k.into(), Value::String(v.join("\n")));
     }
@@ -632,6 +756,17 @@ pub fn run_queue(client: &Client, db_path: &Path, changed: impl Fn(i64, i64)) {
             None
         };
         let Some((comic_id, issue_id, tries)) = next else {
+            // Nothing queued: look for books that can be matched without asking.
+            if client.has_key() {
+                match auto_match(client, &conn, crate::scan::now()) {
+                    Ok(n) if n > 0 => {
+                        changed(0, n as i64);
+                        continue;
+                    }
+                    Ok(_) => {}
+                    Err(e) => eprintln!("comic vine auto match: {e}"),
+                }
+            }
             let g = client.wake_lock.lock().unwrap();
             let _ = client.wake.wait_timeout(g, Duration::from_secs(60));
             continue;
@@ -674,6 +809,94 @@ mod tests {
         assert!((score(&v, &local, "Absolute Batman") - 1.3).abs() < 1e-9);
         let full = Volume { count: 20, publisher: Some("DC Comics".into()), ..v };
         assert!((score(&full, &local, "Absolute Batman") - 1.6).abs() < 1e-9);
+    }
+
+    fn library(name: &str) -> (Connection, Client) {
+        let dir = std::env::temp_dir().join(format!("aion-cv-{name}-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let conn = db::open(&dir.join("t.db")).unwrap();
+        conn.execute_batch(
+            "INSERT INTO collections(id, name, is_manga) VALUES(1, 'DC', 0);
+             INSERT INTO series(id, collection_id, name, rel_path) VALUES(1, 1, 'Absolute Batman', 'DC/Absolute Batman'),
+                                                                     (2, 1, 'Loose', 'DC/Loose');
+             INSERT INTO cv_series(series_id, volume_id, data, updated_at) VALUES(1, '777', '{}', 0);
+             INSERT INTO comics(id, series_id, section, rel_path, file_name, label, year) VALUES
+               (1, 1, '', 'DC/Absolute Batman/1.cbz', '1.cbz', '#1', '2024'),
+               (2, 1, '', 'DC/Absolute Batman/2.cbz', '2.cbz', '#2', '2024'),
+               (3, 1, '', 'DC/Absolute Batman/9.cbz', '9.cbz', '#9', '2025'),
+               (4, 1, 'Annuals', 'DC/Absolute Batman/Annuals/1.cbz', 'a1.cbz', '#1', '2025'),
+               (5, 2, '', 'DC/Loose/x.cbz', 'x.cbz', 'x', NULL);
+             INSERT INTO meta_layer(comic_id, source, data, updated_at) VALUES
+               (1, 'cv', '{\"cv_id\":\"1001\"}', 0),
+               (5, 'file', '{\"cv_id\":\"5555\",\"title\":\"From the file\"}', 0);",
+        )
+        .unwrap();
+        let client = Client::new(&dir, Some("test".into()));
+        // What Comic Vine would answer, already in the cache: no network in tests.
+        let put = |path: &str, query: &[(&str, String)], body: Value| {
+            std::fs::write(client.cache_path(path, query), body.to_string()).unwrap();
+        };
+        put(
+            "issues",
+            &[
+                ("filter", "volume:777".into()),
+                ("field_list", "id,name,issue_number,cover_date,image,description,deck".into()),
+                ("limit", "100".into()),
+                ("offset", "0".into()),
+                ("sort", "cover_date:asc".into()),
+            ],
+            json!({ "number_of_total_results": 2, "results": [
+                { "id": 1001, "issue_number": "1", "cover_date": "2024-12-01", "name": "The Zoo" },
+                { "id": 1002, "issue_number": "2", "cover_date": "2024-12-20", "name": "Part Two" },
+            ]}),
+        );
+        put(
+            "volume/4050-777",
+            &[("field_list", "id,name,start_year,publisher,count_of_issues,image,description,deck".into())],
+            json!({ "results": { "id": 777, "name": "Absolute Batman", "publisher": { "name": "DC Comics" } } }),
+        );
+        (conn, client)
+    }
+
+    fn queued(conn: &Connection) -> Vec<(i64, String)> {
+        let mut st = conn.prepare("SELECT comic_id, issue_id FROM cv_queue ORDER BY comic_id").unwrap();
+        st.query_map([], |r| Ok((r.get(0)?, r.get(1)?))).unwrap().collect::<rusqlite::Result<_>>().unwrap()
+    }
+
+    #[test]
+    fn matches_new_books_by_itself() {
+        let (conn, client) = library("auto");
+        let n = auto_match(&client, &conn, 1_000_000).unwrap();
+        // #2 pairs with its issue; the file's own link queues book 5; #9 has no issue yet, and the
+        // annual's number means something else.
+        assert_eq!(queued(&conn), vec![(2, "1002".into()), (5, "5555".into())]);
+        assert_eq!(n, 2);
+        let (label, title): (String, Option<String>) =
+            conn.query_row("SELECT label, title FROM comics WHERE id=2", [], |r| Ok((r.get(0)?, r.get(1)?))).unwrap();
+        assert_eq!((label.as_str(), title.as_deref()), ("#2", Some("Part Two")));
+        // Nothing twice; #9 waits a day before looking again.
+        assert_eq!(auto_match(&client, &conn, 1_000_100).unwrap(), 0);
+        let tried: i64 = conn.query_row("SELECT COUNT(*) FROM cv_auto WHERE comic_id=3 AND settled=0", [], |r| r.get(0)).unwrap();
+        assert_eq!(tried, 1);
+        assert_eq!(queued(&conn).len(), 2);
+    }
+
+    #[test]
+    fn leaves_your_choices_alone() {
+        let (conn, client) = library("choices");
+        // In the matcher you left #2 unpaired.
+        remember_choices(&conn, &[Pair { comic_id: 2, issue_id: None }], 0).unwrap();
+        auto_match(&client, &conn, 1_000_000).unwrap();
+        assert_eq!(queued(&conn), vec![(5, "5555".into())]);
+        // Books already unpaired in a matched series when this arrived count as your call too.
+        conn.execute_batch("DROP TABLE cv_auto; DELETE FROM cv_queue;").unwrap();
+        crate::db::migrate_for_tests(&conn).unwrap();
+        let settled: Vec<i64> = {
+            let mut st = conn.prepare("SELECT comic_id FROM cv_auto WHERE settled=1 ORDER BY comic_id").unwrap();
+            st.query_map([], |r| r.get(0)).unwrap().collect::<rusqlite::Result<_>>().unwrap()
+        };
+        assert_eq!(settled, vec![2, 3, 4]);
     }
 
     #[test]

@@ -115,6 +115,8 @@ fn read_comic_info(app: &AppHandle, state: &Shared, conn: Connection, root: &Pat
         let Ok(Some(changed)) = comicinfo::step(&conn, root, 10) else { break };
         if !changed.is_empty() {
             let _ = app.emit("metadata-changed", serde_json::json!({ "comicId": null, "left": 0 }));
+            // A ComicInfo.xml may name the book's Comic Vine issue.
+            state.comicvine.wake.notify_all();
         }
         // A rescan picks up where this leaves off; don't compete with it for the drive.
         if state.scanning.load(Ordering::SeqCst) {
@@ -145,6 +147,8 @@ fn start_scan(app: &AppHandle, state: &Shared) {
         match result {
             Ok((stats, mut c)) => {
                 let _ = app.emit("library-changed", stats);
+                // New books in series already matched to Comic Vine can be matched straight away.
+                state.comicvine.wake.notify_all();
                 // Learn the page lists of the books you're likely to open next, so even a big CBR opens at once.
                 // Wait a little first: on a spinning drive this shouldn't compete with the first book you open.
                 std::thread::sleep(std::time::Duration::from_secs(10));
@@ -533,7 +537,9 @@ async fn cv_apply(state: State<'_, Shared>, series_id: i64, volume_id: String, p
     let state = state.inner().clone();
     tauri::async_runtime::spawn_blocking(move || {
         let conn = db::open(&state.db_path)?;
-        cv::apply(&state.comicvine, &conn, series_id, &volume_id, &pairs, scan::now())
+        let now = scan::now();
+        cv::remember_choices(&conn, &pairs, now)?;
+        cv::apply(&state.comicvine, &conn, series_id, &volume_id, &pairs, now)
     })
     .await
     .map_err(err)?

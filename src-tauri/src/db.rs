@@ -126,7 +126,32 @@ fn migrate(conn: &Connection) -> Result<()> {
            mtime INTEGER NOT NULL
          );",
     )?;
+    // Books in a matched series that were tried for an automatic Comic Vine pairing. Settled ones
+    // are left alone for good: you left them unpaired in the matcher.
+    let fresh: bool = conn.query_row("SELECT COUNT(*) FROM sqlite_master WHERE name='cv_auto'", [], |r| r.get::<_, i64>(0))? == 0;
+    conn.execute_batch(
+        "CREATE TABLE IF NOT EXISTS cv_auto(
+           comic_id INTEGER PRIMARY KEY,
+           tried_at INTEGER NOT NULL,
+           settled INTEGER NOT NULL DEFAULT 0
+         );",
+    )?;
+    if fresh {
+        // Books already sitting unpaired in a matched series were your call in the matcher.
+        conn.execute(
+            "INSERT OR IGNORE INTO cv_auto(comic_id, tried_at, settled)
+             SELECT c.id, 0, 1 FROM comics c JOIN cv_series s ON s.series_id=c.series_id
+             WHERE NOT EXISTS (SELECT 1 FROM meta_layer v WHERE v.comic_id=c.id AND v.source='cv'
+                               AND json_extract(v.data, '$.cv_id') IS NOT NULL)",
+            [],
+        )?;
+    }
     Ok(())
+}
+
+#[cfg(test)]
+pub fn migrate_for_tests(conn: &Connection) -> Result<()> {
+    migrate(conn)
 }
 
 pub fn get_setting(conn: &Connection, key: &str) -> Result<Option<String>> {
