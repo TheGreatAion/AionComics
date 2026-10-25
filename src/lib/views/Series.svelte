@@ -361,10 +361,11 @@
   }
   h1 {
     margin-top: 10px;
-    font-weight: 300;
-    font-size: clamp(30px, 3.2vw, 44px);
-    line-height: 1.02;
-    letter-spacing: -0.04em;
+    font-family: var(--display);
+    font-weight: 400;
+    font-size: clamp(40px, 4.2vw, 60px);
+    line-height: 0.92;
+    letter-spacing: 0.005em;
     overflow-wrap: anywhere;
   }
   .by {
@@ -421,22 +422,28 @@
     opacity: 0.6;
   }
   .label {
-    font-weight: 300;
-    font-size: 44px;
-    line-height: 1;
-    letter-spacing: -0.04em;
+    font-family: var(--display);
+    font-weight: 400;
+    font-size: 60px;
+    line-height: 0.9;
+    letter-spacing: 0.005em;
   }
+  /* Over a title, the number is a quiet line in the text face. */
   .label.small {
+    font-family: var(--font);
+    font-weight: 300;
     font-size: 20px;
+    line-height: 1;
     letter-spacing: -0.02em;
     color: var(--text-2);
   }
   .title {
     margin-top: 10px;
-    font-weight: 300;
-    font-size: 44px;
-    line-height: 1.04;
-    letter-spacing: -0.035em;
+    font-family: var(--display);
+    font-weight: 400;
+    font-size: 60px;
+    line-height: 0.92;
+    letter-spacing: 0.005em;
     color: var(--text);
     overflow-wrap: anywhere;
     display: -webkit-box;
@@ -446,7 +453,7 @@
     overflow: hidden;
   }
   .title.long {
-    font-size: 32px;
+    font-size: 44px;
   }
   .facts {
     margin-top: 12px;

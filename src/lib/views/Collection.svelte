@@ -109,10 +109,11 @@
     gap: 40px;
   }
   h1 {
-    font-weight: 300;
-    font-size: clamp(64px, 8vw, 120px);
-    line-height: 0.9;
-    letter-spacing: -0.055em;
+    font-family: var(--display);
+    font-weight: 400;
+    font-size: clamp(76px, 9.5vw, 150px);
+    line-height: 0.86;
+    letter-spacing: 0.005em;
   }
   .meta {
     color: var(--text-3);

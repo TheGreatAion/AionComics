@@ -11,6 +11,8 @@
   --track: #2a2a2a;
   --font: "Geist Variable", system-ui, sans-serif;
   --mono: "Geist Mono", ui-monospace, monospace;
+  /* Big titles only: series, books, collections. Tall capitals with a comic-logo heritage. */
+  --display: "Bebas Neue", "Geist Variable", system-ui, sans-serif;
   --ease: cubic-bezier(0.2, 0.7, 0, 1);
   --pad: 56px;
   color-scheme: dark;

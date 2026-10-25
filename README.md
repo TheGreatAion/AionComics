@@ -34,7 +34,7 @@ If `<root>/.yacreaderlibrary/library.ydb` exists, AionComics reads it (read-only
 
 ## Interface
 
-The art is the interface: monochrome, one typeface (Geist, bundled), no accent color. The covers and pages bring all the color.
+The art is the interface: monochrome, no accent color. The covers and pages bring all the color. Text is set in Geist; the big titles (series, books, collections) are in Bebas Neue. Both are bundled, so nothing loads from the internet.
 
 - **Home** opens on the page you stopped on, beside the book's title and a Resume button. Below it: *Also reading* (other books opened in the last 30 days), *Next* (the next untouched book in each series you're reading) and the collections as fanned stacks. If nothing was read in the last month, the most recent book you put down takes the top spot.
 - **Collections** are in the top bar. Each is one grid of series covers, filterable and sortable by name, recently read or recently added.

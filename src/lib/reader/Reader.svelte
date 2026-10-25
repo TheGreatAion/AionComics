@@ -764,9 +764,11 @@
   }
   .nl {
     margin-top: 20px;
-    font-weight: 300;
-    font-size: 28px;
-    letter-spacing: -0.03em;
+    font-family: var(--display);
+    font-weight: 400;
+    font-size: 40px;
+    line-height: 0.95;
+    letter-spacing: 0.01em;
   }
   .nt {
     margin-top: 4px;

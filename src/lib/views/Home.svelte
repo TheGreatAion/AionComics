@@ -351,10 +351,11 @@
   }
   h1 {
     margin-top: 18px;
-    font-weight: 300;
-    font-size: clamp(40px, min(5.6vw, 8.5vh), 84px);
-    line-height: 0.98;
-    letter-spacing: -0.045em;
+    font-family: var(--display);
+    font-weight: 400;
+    font-size: clamp(48px, min(6.8vw, 10.5vh), 108px);
+    line-height: 0.9;
+    letter-spacing: 0.005em;
     overflow-wrap: anywhere;
   }
   .vol {
@@ -508,9 +509,11 @@
   }
   .name {
     margin-top: 22px;
-    font-weight: 300;
-    font-size: 21px;
-    letter-spacing: -0.03em;
+    font-family: var(--display);
+    font-weight: 400;
+    font-size: 30px;
+    line-height: 1;
+    letter-spacing: 0.01em;
   }
   .col .mono {
     display: block;

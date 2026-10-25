@@ -125,15 +125,15 @@
   }
   .welcome h1,
   .page h1 {
-    font-weight: 300;
-    font-size: clamp(56px, 7vw, 96px);
-    line-height: 0.9;
-    letter-spacing: -0.05em;
+    font-family: var(--display);
+    font-weight: 400;
+    font-size: clamp(64px, 8vw, 116px);
+    line-height: 0.88;
+    letter-spacing: 0.005em;
   }
   /* A settings page is a few rows: a heading the size of the content, not a poster. */
   .page h1 {
-    font-size: 40px;
-    letter-spacing: -0.035em;
+    font-size: 52px;
   }
   .welcome p {
     margin: 24px 0 36px;
