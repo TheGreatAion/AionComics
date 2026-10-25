@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { tick } from "svelte";
   import { api, coverUrl, storyTitle, type Panel } from "$lib/api";
   import Icon, { type IconName } from "$lib/components/Icon.svelte";
   import WindowControls from "$lib/components/WindowControls.svelte";
@@ -18,6 +19,7 @@
   import { prefs } from "./prefs.svelte";
   import ScrollView from "./ScrollView.svelte";
   import Shortcuts from "./Shortcuts.svelte";
+  import Ticks from "./Ticks.svelte";
 
   let { id, onclose, onopen }: { id: number; onclose: () => void; onopen: (id: number) => void } = $props();
 
@@ -158,6 +160,8 @@
       c.overlay = null;
       return;
     }
+    // Typing a page number isn't turning pages.
+    if (e.target === pageBox) return;
     if (e.key === "Escape" && c.endCard) {
       c.endCard = false;
       return;
@@ -195,8 +199,28 @@
   function hideIn(ms: number) {
     clearTimeout(hideTimer);
     hideTimer = setTimeout(() => {
-      if (!c.overlay && !menu.open && !overBars) chrome = false;
+      if (!c.overlay && !menu.open && !overBars && !editing) chrome = false;
     }, ms);
+  }
+
+  // The page box in the toolbar: shows where you are, and takes a page number to go to.
+  let pageBox = $state<HTMLInputElement>();
+  let editing = $state(false);
+  let draft = $state("");
+  const pageText = $derived.by(() => {
+    const s = c.shown;
+    return s.length === 2 ? `${s[0] + 1}–${s[1] + 1}` : `${s[0] + 1}`;
+  });
+  function pageKey(e: KeyboardEvent) {
+    if (e.key === "Enter") {
+      const n = parseInt(draft, 10);
+      if (n >= 1) c.goTo(Math.min(n, c.count) - 1);
+      pageBox?.blur();
+    } else if (e.key === "Escape") {
+      pageBox?.blur();
+    } else return;
+    e.preventDefault();
+    e.stopPropagation();
   }
   function wake() {
     chrome = true;
@@ -339,7 +363,7 @@
       </button>
     {/snippet}
 
-    <!-- The reader's own title bar: drag the window by it; the tools sit in quiet groups. -->
+    <!-- The top strip drags the window; the tools float in one pill in the middle of it. -->
     <header
       class="toolbar"
       class:shown={showChrome}
@@ -349,17 +373,18 @@
       onpointerenter={() => bars(true)}
       onpointerleave={() => bars(false)}
     >
-      <button class="tool back" onclick={close} title="Back to library (Esc)" aria-label="Back to library">
-        <Icon name="back" />
-      </button>
-      <div class="title" data-tauri-drag-region>
-        <span>{c.info.comic.seriesName.trim()}</span>
-        {#if c.info.comic.label}<span class="dim">{c.info.comic.label}</span>{/if}
-        {#if c.rtl}<span class="dim rtl" title="Reads right to left"><Icon name="readRtl" size={14} /></span>{/if}
-      </div>
-      <!-- The handful used while reading; everything else is in ⋯ (or right-click) and on the keyboard. -->
-      <div class="tools" data-tauri-drag-region>
-        <div class="group">
+      <div class="pill" data-tauri-drag-region>
+        <button class="tool back" onclick={close} title="Back to library (Esc)" aria-label="Back to library">
+          <Icon name="back" />
+        </button>
+        <div class="title" data-tauri-drag-region>
+          <span>{c.info.comic.seriesName.trim()}</span>
+          {#if c.info.comic.label}<span class="dim">{c.info.comic.label}</span>{/if}
+          {#if c.rtl}<span class="dim rtl" title="Reads right to left"><Icon name="readRtl" size={14} /></span>{/if}
+        </div>
+        <i class="sep"></i>
+        <!-- The handful used while reading; everything else is in ⋯ (or right-click) and on the keyboard. -->
+        <div class="tools">
           {@render tool("flow", "strip")}
           <button
             class="tool"
@@ -370,46 +395,51 @@
             {#if prefs.fit === "full"}<span class="txt mono">1:1</span>{:else}<Icon name={FIT_ICON[prefs.fit]} />{/if}
           </button>
           {@render tool("double", "double")}
-        </div>
-        <div class="group">{@render tool("guided", "guided")}{@render tool("bookmark", "bookmark")}</div>
-        <div class="group">
+          {@render tool("guided", "guided")}
+          {@render tool("bookmark", "bookmark")}
           {@render tool("options", "options")}
           <button class="tool" onclick={openMenu} title="All tools (or right-click the page)" aria-label="All tools">
             <Icon name="more" />
           </button>
         </div>
+        <i class="sep"></i>
+        <!-- Type a page number and press Enter to go there. -->
+        <label class="status mono" title="Type a page and press Enter">
+          <input
+            class="pageno"
+            bind:this={pageBox}
+            value={editing ? draft : pageText}
+            inputmode="numeric"
+            spellcheck="false"
+            aria-label="Page number"
+            onfocus={(e) => {
+              const box = e.currentTarget;
+              editing = true;
+              draft = String(c.shown[0] + 1);
+              tick().then(() => box.select());
+            }}
+            oninput={(e) => (draft = e.currentTarget.value.replace(/\D/g, ""))}
+            onkeydown={pageKey}
+            onblur={() => ((editing = false), wake())}
+          />
+          <span class="dim">/ {c.count}</span>
+          <span class="dim clock">{time}</span>
+        </label>
+        <button
+          class="tool"
+          class:on={c.fullscreen}
+          onclick={() => c.setFullscreen(!c.fullscreen)}
+          title={tip("fullscreen")}
+          aria-label="Full screen"
+        >
+          <Icon name={c.fullscreen ? "exitFullscreen" : "fullscreen"} />
+        </button>
       </div>
-      <div class="status mono" data-tauri-drag-region>
-        <span>{count}</span><span class="dim">{time}</span>
-      </div>
-      <button
-        class="tool"
-        class:on={c.fullscreen}
-        onclick={() => c.setFullscreen(!c.fullscreen)}
-        title={tip("fullscreen")}
-        aria-label="Full screen"
-      >
-        <Icon name={c.fullscreen ? "exitFullscreen" : "fullscreen"} />
-      </button>
       {#if !c.fullscreen}<div class="win"><WindowControls /></div>{/if}
     </header>
 
     <div class="bottom" class:shown={showChrome} onpointerenter={() => bars(true)} onpointerleave={() => bars(false)} role="presentation">
-      <div class="track">
-        <input
-          type="range"
-          min="0"
-          max={c.last}
-          value={c.page}
-          oninput={(e) => c.goTo(+(e.currentTarget as HTMLInputElement).value)}
-          style:direction={c.flipped ? "rtl" : "ltr"}
-          style:--p="{(c.page / Math.max(c.last, 1)) * 100}%"
-          aria-label="Page"
-        />
-        {#each c.bookmarks as b (b)}
-          <span class="mark" style:left="{((c.flipped ? c.last - b : b) / Math.max(c.last, 1)) * 100}%"></span>
-        {/each}
-      </div>
+      <Ticks {c} />
       {#if panel}<span class="panel mono">{panel}</span>{/if}
     </div>
 
@@ -488,15 +518,11 @@
     }
   }
 
-  /* Toolbar and page line: solid glass, no gradient over the art. */
+  /* The tools and the page ticks float over the art in glass, with no bar across the page. */
   .toolbar,
   .bottom {
     position: absolute;
-    left: 0;
-    right: 0;
     z-index: 3;
-    background: rgba(14, 14, 14, 0.86);
-    backdrop-filter: blur(24px) saturate(1.2);
     opacity: 0;
     pointer-events: none;
     transition:
@@ -509,29 +535,56 @@
     transform: none;
     pointer-events: auto;
   }
+  .pill,
+  .bottom,
+  .win {
+    background: rgba(16, 16, 16, 0.86);
+    backdrop-filter: blur(24px) saturate(1.2);
+    border: 1px solid rgba(255, 255, 255, 0.07);
+  }
+  /* A full-width strip, so the window drags from anywhere along the top; only the pill shows. */
   .toolbar {
     top: 0;
-    height: 48px;
+    left: 0;
+    right: 0;
+    height: 58px;
     display: flex;
-    align-items: center;
-    gap: 14px;
-    padding-left: 10px;
-    border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+    justify-content: center;
+    align-items: flex-start;
+    padding-top: 10px;
     transform: translateY(-8px);
   }
-  .bottom {
-    bottom: 0;
-    height: 36px;
+  .pill {
+    height: 40px;
+    max-width: calc(100% - 300px);
     display: flex;
     align-items: center;
-    padding: 0 24px;
-    border-top: 1px solid rgba(255, 255, 255, 0.06);
+    gap: 6px;
+    padding: 0 6px 0 4px;
+    border-radius: 20px;
+  }
+  .sep {
+    flex: none;
+    width: 1px;
+    height: 16px;
+    margin: 0 6px;
+    background: rgba(255, 255, 255, 0.1);
+  }
+  .bottom {
+    left: 16px;
+    right: 16px;
+    bottom: 12px;
+    height: 34px;
+    display: flex;
+    align-items: center;
+    padding: 0 18px;
+    border-radius: 17px;
     transform: translateY(8px);
   }
   .title {
     flex: 0 1 auto;
     min-width: 0;
-    max-width: 20%;
+    max-width: 240px;
     display: flex;
     align-items: baseline;
     gap: 10px;
@@ -552,26 +605,20 @@
     align-self: center;
   }
   .tools {
-    flex: 1;
+    flex: 0 1 auto;
     min-width: 0;
     display: flex;
-    /* Never spill over the title: overflow goes right and is clipped. */
-    justify-content: safe center;
     align-items: center;
-    gap: 10px;
+    gap: 2px;
     overflow: hidden;
   }
-  .group {
-    display: flex;
-    gap: 2px;
-  }
   .tool {
-    width: 30px;
+    width: 32px;
     height: 32px;
     flex: none;
     display: grid;
     place-items: center;
-    border-radius: 6px;
+    border-radius: 16px;
     color: #9a9a9a;
     transition:
       background 0.15s,
@@ -597,34 +644,53 @@
     letter-spacing: -0.02em;
   }
   .status {
+    flex: none;
     display: flex;
-    gap: 12px;
+    align-items: baseline;
+    gap: 6px;
     white-space: nowrap;
     color: #d0d0d0;
+    cursor: text;
   }
+  .pageno {
+    field-sizing: content;
+    min-width: 2ch;
+    padding: 3px 5px;
+    margin-right: -2px;
+    border: 0;
+    border-radius: 6px;
+    background: transparent;
+    color: inherit;
+    font: inherit;
+    text-align: right;
+    outline: none;
+    transition: background 0.15s;
+  }
+  .pageno:hover {
+    background: rgba(255, 255, 255, 0.07);
+  }
+  .pageno:focus {
+    background: rgba(255, 255, 255, 0.13);
+    color: #fff;
+  }
+  .clock {
+    margin-left: 6px;
+  }
+  /* The window buttons keep their corner, on glass of their own. */
   .win {
-    align-self: stretch;
+    position: absolute;
+    top: 0;
+    right: 0;
+    height: 40px;
     display: flex;
+    border-width: 0 0 1px 1px;
+    border-radius: 0 0 0 12px;
+    overflow: hidden;
   }
-  /* Narrow windows keep the essentials; everything stays in the ⋯ menu. */
   .panel {
-    margin-left: 20px;
+    margin-left: 18px;
     color: #9a9a9a;
     white-space: nowrap;
-  }
-  .track {
-    position: relative;
-    flex: 1;
-    display: flex;
-    align-items: center;
-  }
-  .mark {
-    position: absolute;
-    top: -7px;
-    width: 1px;
-    height: 6px;
-    background: var(--text);
-    pointer-events: none;
   }
   /* Readable over white margins as well as black ones. */
   .pin {
@@ -639,34 +705,10 @@
     color: rgba(255, 255, 255, 0.78);
     pointer-events: none;
   }
-  input[type="range"] {
-    flex: 1;
-    appearance: none;
-    height: 2px;
-    background: linear-gradient(to right, #e6e6e6 var(--p), #262626 var(--p));
-    outline: none;
-    cursor: pointer;
-  }
-  input[type="range"][style*="rtl"] {
-    background: linear-gradient(to left, #e6e6e6 var(--p), #262626 var(--p));
-  }
-  input[type="range"]::-webkit-slider-thumb {
-    appearance: none;
-    width: 9px;
-    height: 9px;
-    border-radius: 50%;
-    background: #e6e6e6;
-    opacity: 0;
-    transition: opacity 0.2s;
-  }
-  input[type="range"]:hover::-webkit-slider-thumb {
-    opacity: 1;
-  }
-
   .note {
     position: absolute;
     left: 50%;
-    bottom: 56px;
+    bottom: 62px;
     z-index: 7;
     transform: translate(-50%, 6px);
     padding: 8px 14px;

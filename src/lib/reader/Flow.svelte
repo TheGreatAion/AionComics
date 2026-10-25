@@ -27,7 +27,7 @@
     position: absolute;
     left: 0;
     right: 0;
-    bottom: 36px;
+    bottom: 56px;
     z-index: 4;
     display: flex;
     gap: 10px;
