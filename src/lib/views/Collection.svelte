@@ -82,7 +82,7 @@
     <div class="grid">
       {#each shown as s (s.id)}
         <button class="series" onclick={(e) => open(e, s)}>
-          <span class="art"><Cover id={s.coverId} ratio={s.coverRatio} /></span>
+          <span class="art"><Cover id={s.coverId} ratio={s.coverRatio} pages={null} /></span>
           {#if s.readCount > 0 && s.readCount < s.count}
             <span class="prog"><i style:width="{(s.readCount / s.count) * 100}%"></i></span>
           {:else}

@@ -500,6 +500,34 @@ pub fn scan(conn: &mut Connection, root: &Path) -> Result<ScanStats> {
 /// their real proportions without jumping as images load. Reads only image
 /// headers from YACReader's cover cache; covers AionComics generates itself get
 /// their ratio when the thumbnail is made.
+/// Work out the color of every cover that's been made (by AionComics or YACReader) but not yet looked at.
+pub fn cover_colors(conn: &mut Connection, root: &Path, thumbs: &Path) -> Result<usize> {
+    let yac = root.join(".yacreaderlibrary").join("covers");
+    let todo: Vec<(i64, Option<String>)> = conn
+        .prepare("SELECT id, yac_hash FROM comics WHERE cover_color IS NULL")?
+        .query_map([], |r| Ok((r.get(0)?, r.get(1)?)))?
+        .collect::<rusqlite::Result<_>>()?;
+    let mut done = 0;
+    for chunk in todo.chunks(250) {
+        let found: Vec<(i64, String)> = chunk
+            .iter()
+            .filter_map(|(id, hash)| {
+                let bytes = std::fs::read(thumbs.join(format!("{id}.jpg")))
+                    .ok()
+                    .or_else(|| hash.as_ref().and_then(|h| std::fs::read(yac.join(format!("{h}.jpg"))).ok()))?;
+                Some((*id, crate::archive::cover_color(&bytes).ok()?))
+            })
+            .collect();
+        let tx = conn.transaction()?;
+        for (id, color) in &found {
+            crate::db::set_cover_color(&tx, *id, color)?;
+        }
+        tx.commit()?;
+        done += found.len();
+    }
+    Ok(done)
+}
+
 pub fn cover_ratios(conn: &mut Connection, root: &Path) -> Result<usize> {
     let covers = root.join(".yacreaderlibrary").join("covers");
     let todo: Vec<(i64, String)> = conn

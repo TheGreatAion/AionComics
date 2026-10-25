@@ -76,6 +76,10 @@ fn migrate(conn: &Connection) -> Result<()> {
     if !has("cover_ratio")? {
         conn.execute("ALTER TABLE comics ADD COLUMN cover_ratio REAL", [])?;
     }
+    // The color a cover reads as ("#rrggbb"), for the wash behind a book.
+    if !has("cover_color")? {
+        conn.execute("ALTER TABLE comics ADD COLUMN cover_color TEXT", [])?;
+    }
     // Metadata beyond the basics, plus a snapshot of what the scan imported (the base layer edits sit on).
     for col in META_FIELDS.iter().chain(["meta_base"].iter()) {
         if !has(col)? {
@@ -186,10 +190,12 @@ pub struct ComicCard {
     /// Height / width of the cover, so the grid can reserve the right shape.
     pub cover_ratio: Option<f64>,
     pub last_read_at: Option<i64>,
+    /// The color the cover reads as, "#rrggbb", once it's been worked out.
+    pub cover_color: Option<String>,
 }
 
 const CARD_COLS: &str = "c.id, c.label, c.title, c.year, s.id, s.name, c.current_page, c.num_pages, c.read,
-  col.is_manga, c.cover_ratio, c.last_read_at";
+  col.is_manga, c.cover_ratio, c.last_read_at, c.cover_color";
 const CARD_JOIN: &str = "JOIN series s ON s.id=c.series_id JOIN collections col ON col.id=s.collection_id";
 
 fn card(r: &Row) -> rusqlite::Result<ComicCard> {
@@ -206,6 +212,7 @@ fn card(r: &Row) -> rusqlite::Result<ComicCard> {
         is_manga: r.get(9)?,
         cover_ratio: r.get(10)?,
         last_read_at: r.get(11)?,
+        cover_color: r.get(12)?,
     })
 }
 
@@ -618,6 +625,11 @@ pub fn set_read(conn: &Connection, id: i64, read: bool, now: i64) -> Result<()> 
     } else {
         conn.execute("UPDATE comics SET read=0, current_page=0, last_read_at=NULL WHERE id=?1", params![id])?;
     }
+    Ok(())
+}
+
+pub fn set_cover_color(conn: &Connection, id: i64, color: &str) -> Result<()> {
+    conn.execute("UPDATE comics SET cover_color=?2 WHERE id=?1", params![id, color])?;
     Ok(())
 }
 

@@ -164,6 +164,12 @@ fn start_scan(app: &AppHandle, state: &Shared) {
                     }
                 }
                 // Cover shapes are a slower second pass over the drive.
+                // And their colors, from the covers already made (new covers get theirs as they're made).
+                if let Ok(n) = scan::cover_colors(&mut c, &root, &state.thumbs_dir) {
+                    if n > 0 {
+                        let _ = app.emit("library-changed", ());
+                    }
+                }
                 if let Ok(n) = scan::cover_ratios(&mut c, &root) {
                     if n > 0 {
                         let _ = app.emit("library-changed", ());
@@ -583,6 +589,7 @@ fn external_card(path: &Path, id: i64, pages: usize) -> db::ComicCard {
         is_manga: false,
         cover_ratio: None,
         last_read_at: None,
+        cover_color: None,
     }
 }
 
@@ -698,7 +705,12 @@ fn cover(state: &AppState, id: i64) -> anyhow::Result<Vec<u8>> {
     }
     let (thumb, ratio) = archive::make_thumbnail(&state.archives.first_page(id, &path)?)?;
     let _ = std::fs::write(&cached, &thumb);
-    let _ = db::set_cover_ratio(&state.conn.lock().unwrap(), id, ratio);
+    let color = archive::cover_color(&thumb).ok();
+    let conn = state.conn.lock().unwrap();
+    let _ = db::set_cover_ratio(&conn, id, ratio);
+    if let Some(c) = color {
+        let _ = db::set_cover_color(&conn, id, &c);
+    }
     Ok(thumb)
 }
 

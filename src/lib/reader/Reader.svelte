@@ -3,6 +3,7 @@
   import { api, coverUrl, storyTitle, type Panel } from "$lib/api";
   import Icon, { type IconName } from "$lib/components/Icon.svelte";
   import WindowControls from "$lib/components/WindowControls.svelte";
+  import Wash from "$lib/components/Wash.svelte";
   import { fly, FLIGHT_MS, visible } from "$lib/flight";
   import { menu, reader, showMenu } from "$lib/state.svelte";
   import { ACTIONS, keysFor, menuItems } from "./actions";
@@ -321,6 +322,8 @@
     {#if c.endCard}
       {@const nextTitle = c.info.next ? storyTitle(c.info.next) : null}
       <div class="end" role="dialog">
+        <!-- In the next book's color: it's what's waiting. -->
+        <Wash color={(c.info.next ?? c.info.comic).coverColor} height="100%" strength={0.3} />
         <div class="end-card">
           <p class="done">You finished {[c.info.comic.seriesName.trim(), c.info.comic.label].filter(Boolean).join(" ")}.</p>
           {#if c.info.next}
@@ -728,6 +731,7 @@
   }
 
   .end {
+    isolation: isolate;
     position: absolute;
     inset: 0;
     z-index: 4;

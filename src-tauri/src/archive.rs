@@ -528,6 +528,58 @@ pub fn make_thumbnail(bytes: &[u8]) -> Result<(Vec<u8>, f64)> {
     Ok((out, ratio))
 }
 
+/// The color a cover reads as at a glance, as "#rrggbb": the strongest hue among its vivid
+/// pixels (by how much of the cover it covers and how saturated it is), averaged within that hue.
+/// A cover with next to no color (black and white manga, say) gets its plain average.
+pub fn cover_color(bytes: &[u8]) -> Result<String> {
+    let img = image::load_from_memory(bytes)?.thumbnail(48, 72).to_rgb8();
+    const BINS: usize = 24;
+    let mut weight = [0f64; BINS];
+    let mut sums = [[0f64; 3]; BINS];
+    let (mut all, mut n) = ([0f64; 3], 0f64);
+    for p in img.pixels() {
+        let [r, g, b] = p.0.map(|c| c as f64 / 255.0);
+        for (s, c) in all.iter_mut().zip([r, g, b]) {
+            *s += c;
+        }
+        n += 1.0;
+        let (max, min) = (r.max(g).max(b), r.min(g).min(b));
+        let (v, chroma) = (max, max - min);
+        if v < 0.12 || chroma < 0.08 {
+            continue;
+        }
+        let s = chroma / v;
+        let h = if max == r {
+            ((g - b) / chroma).rem_euclid(6.0)
+        } else if max == g {
+            (b - r) / chroma + 2.0
+        } else {
+            (r - g) / chroma + 4.0
+        } / 6.0;
+        let bin = ((h * BINS as f64) as usize).min(BINS - 1);
+        let w = s * s * v.sqrt();
+        weight[bin] += w;
+        for (acc, c) in sums[bin].iter_mut().zip([r, g, b]) {
+            *acc += c * w;
+        }
+    }
+    // Neighboring bins count toward a hue, so a gradient across two bins isn't split in half.
+    let best = (0..BINS)
+        .max_by(|&a, &b| {
+            let around = |i: usize| weight[i] + 0.5 * (weight[(i + 1) % BINS] + weight[(i + BINS - 1) % BINS]);
+            around(a).total_cmp(&around(b))
+        })
+        .unwrap_or(0);
+    let total: f64 = weight.iter().sum();
+    let rgb = if total > n * 0.02 {
+        sums[best].map(|c| c / weight[best])
+    } else {
+        all.map(|c| c / n.max(1.0))
+    };
+    let [r, g, b] = rgb.map(|c| (c.clamp(0.0, 1.0) * 255.0).round() as u8);
+    Ok(format!("#{r:02x}{g:02x}{b:02x}"))
+}
+
 /// Small JPEG of a page for the reader's page strip and bookmarks.
 pub fn make_page_thumb(bytes: &[u8]) -> Result<Vec<u8>> {
     let img = decode_at_least(bytes, 480)?;
@@ -535,4 +587,28 @@ pub fn make_page_thumb(bytes: &[u8]) -> Result<Vec<u8>> {
     let mut out = Vec::new();
     image::codecs::jpeg::JpegEncoder::new_with_quality(&mut out, 80).encode_image(&thumb)?;
     Ok(out)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn jpeg(paint: impl Fn(u32, u32) -> [u8; 3]) -> Vec<u8> {
+        let img = image::RgbImage::from_fn(200, 300, |x, y| image::Rgb(paint(x, y)));
+        let mut out = Vec::new();
+        image::codecs::jpeg::JpegEncoder::new_with_quality(&mut out, 90).encode_image(&img).unwrap();
+        out
+    }
+
+    #[test]
+    fn cover_colors() {
+        // A red title block over a mostly black cover reads as red, not as the dark average.
+        let red = cover_color(&jpeg(|_, y| if y < 90 { [200, 40, 30] } else { [10, 10, 10] })).unwrap();
+        let [r, g, b] = [1, 3, 5].map(|i| u8::from_str_radix(&red[i..i + 2], 16).unwrap());
+        assert!(r > 150 && g < 80 && b < 80, "{red}");
+        // A black and white cover gets its gray.
+        let gray = cover_color(&jpeg(|x, _| if x < 100 { [240, 240, 240] } else { [20, 20, 20] })).unwrap();
+        let [r, g, b] = [1, 3, 5].map(|i| u8::from_str_radix(&gray[i..i + 2], 16).unwrap());
+        assert!(r.abs_diff(g) < 6 && g.abs_diff(b) < 6 && (90..170).contains(&r), "{gray}");
+    }
 }

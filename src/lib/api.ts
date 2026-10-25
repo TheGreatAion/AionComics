@@ -14,6 +14,8 @@ export interface ComicCard {
   /** Cover height / width. */
   coverRatio: number | null;
   lastReadAt: number | null;
+  /** The color the cover reads as, "#rrggbb", once worked out. */
+  coverColor: string | null;
 }
 
 export interface RecentGroup {

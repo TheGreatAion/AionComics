@@ -3,6 +3,7 @@
   import { api, listText, plainText, storyTitle, unitWord, type ComicCard, type ComicMeta, type MetaField, type SeriesView } from "$lib/api";
   import { lib, nav, openReader, reader, search, sheets, showMenu } from "$lib/state.svelte";
   import Cover from "$lib/components/Cover.svelte";
+  import Wash from "$lib/components/Wash.svelte";
   import Icon from "$lib/components/Icon.svelte";
 
   let { id }: { id: number } = $props();
@@ -220,6 +221,8 @@
 
 {#if data}
   <div class="screen">
+    <!-- The chosen book tints the page in its cover's color, changing with it. -->
+    <Wash color={book?.coverColor} height={600} />
     <!-- The series: its name, who made it, how far you are. -->
     <header class="series" bind:clientHeight={headH}>
       <div class="names">
@@ -257,7 +260,7 @@
     {#if book}
       <section class="book">
         <button class="cover" bind:this={coverEl} onclick={open} oncontextmenu={(e) => bookMenu(e, book!)} title="{action} {book.label}">
-          <Cover id={book.id} ratio={shape(book)} width={coverW} flip={book.id === first?.id ? `s${data.id}` : undefined} />
+          <Cover id={book.id} ratio={shape(book)} width={coverW} pages={book.numPages} flip={book.id === first?.id ? `s${data.id}` : undefined} />
         </button>
         <div class="about" class:dim={!f}>
           <!-- A book with its own title (from Comic Vine or its ComicInfo.xml) is headed by it, its number above. -->
@@ -325,7 +328,7 @@
                 ondblclick={() => openReader(c.id)}
                 oncontextmenu={(e) => bookMenu(e, c)}
               >
-                <Cover id={c.id} ratio={c.coverRatio} width={64} />
+                <Cover id={c.id} ratio={c.coverRatio} width={64} pages={c.numPages} />
                 <span class="cap mono">{c.label}</span>
                 {#if !c.read && c.currentPage > 0 && c.numPages}
                   <span class="line"><i style:width="{((c.currentPage + 1) / c.numPages) * 100}%"></i></span>
@@ -343,6 +346,8 @@
 <style>
   /* The first screen: the series line, the chosen book, and the strip of every book under it. */
   .screen {
+    position: relative;
+    isolation: isolate;
     min-height: 100vh;
     display: flex;
     flex-direction: column;

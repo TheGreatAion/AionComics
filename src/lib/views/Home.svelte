@@ -4,6 +4,7 @@
   import { ago, api, pageUrl, progressOf, storyTitle, unitWord, type ComicCard, type Home } from "$lib/api";
   import { lib, nav, openReader, reader, search, sheets } from "$lib/state.svelte";
   import Cover from "$lib/components/Cover.svelte";
+  import Wash from "$lib/components/Wash.svelte";
   import Icon from "$lib/components/Icon.svelte";
 
   let data = $state<Home | null>(null);
@@ -202,6 +203,8 @@
 {#if data}
   <!-- The first screen: the book you're in, with your library along the bottom. -->
   <div class="screen" class:solo={!hero}>
+    <!-- The book you're in tints the top of Home in its cover's color. -->
+    <Wash color={hero?.coverColor} height={620} />
     {#if hero}
       <section class="hero">
         {#key hero.id}
@@ -294,7 +297,7 @@
           {#each lib.collections as c (c.id)}
             <button class="col" onclick={() => nav.root({ name: "collection", id: c.id })}>
               <div class="fan">
-                {#each c.covers as id (id)}<Cover {id} width={112} />{/each}
+                {#each c.covers as id (id)}<Cover {id} width={112} pages={null} />{/each}
               </div>
               <div class="name">{c.name}</div>
               <span class="mono">{c.seriesCount.toLocaleString()} series · {c.comicCount.toLocaleString()}</span>
@@ -314,6 +317,8 @@
   /* The hero takes what the library along the bottom leaves of the window. */
   /* On a very short window the first screen runs a little past the bottom rather than crowd. */
   .screen {
+    position: relative;
+    isolation: isolate;
     height: max(100vh, 690px);
     display: flex;
     flex-direction: column;
