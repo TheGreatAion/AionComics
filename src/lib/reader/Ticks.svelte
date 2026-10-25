@@ -50,7 +50,7 @@
   }
 
   // The preview stays inside the row, however near the ends the pointer is.
-  const PREVIEW = 76;
+  const PREVIEW = 95;
   const previewX = $derived(hover ? Math.min(width - PREVIEW / 2, Math.max(PREVIEW / 2, hover.x)) : 0);
 </script>
 
@@ -131,7 +131,7 @@
   .preview {
     position: absolute;
     bottom: calc(100% + 14px);
-    width: 76px;
+    width: 95px;
     transform: translateX(-50%);
     display: flex;
     flex-direction: column;
@@ -145,7 +145,7 @@
   }
   .preview img {
     width: 100%;
-    min-height: 60px;
+    min-height: 75px;
     border-radius: 2px;
     background: #222;
   }
