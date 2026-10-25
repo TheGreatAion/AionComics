@@ -20,73 +20,67 @@
   const hero = $derived(data?.continueReading[0] ?? data?.pickUpAgain[0]);
   const also = $derived(data?.continueReading.slice(1) ?? []);
   const sub = $derived(hero ? storyTitle(hero) : null);
-  const empty = $derived(data && !hero && !data.upNext.length);
+  const empty = $derived(data && !hero);
 
   const resume = () => hero && openReader(hero.id, page ?? null);
 </script>
 
 {#if data}
-  {#if hero}
-    <section class="hero">
-      <div class="text">
-        <div class="when">{ago(hero.lastReadAt)}</div>
-        <h1>{hero.seriesName.trim()}</h1>
-        <div class="vol">{hero.label}{#if sub}&ensp;&mdash;&ensp;{sub}{/if}</div>
-        <div class="where">
-          <div class="prog"><i style:width="{progressOf(hero) * 100}%"></i></div>
-          {#if hero.numPages}<span class="mono">{hero.currentPage + 1} / {hero.numPages}</span>{/if}
+  <!-- The first screen: the book you're in, with your library along the bottom. -->
+  <div class="screen" class:solo={!hero}>
+    {#if hero}
+      <section class="hero">
+        <div class="text">
+          <div class="when">{ago(hero.lastReadAt)}</div>
+          <h1>{hero.seriesName.trim()}</h1>
+          <div class="vol">{hero.label}{#if sub}&ensp;&mdash;&ensp;{sub}{/if}</div>
+          <div class="where">
+            <div class="prog"><i style:width="{progressOf(hero) * 100}%"></i></div>
+            {#if hero.numPages}<span class="mono">{hero.currentPage + 1} / {hero.numPages}</span>{/if}
+          </div>
+          <div class="actions">
+            <button class="btn play" onclick={resume}><Icon name="play" size={14} />Resume</button>
+            <button
+              class="ico"
+              title="All {unitWord(hero.isManga, 2)}"
+              aria-label="All {unitWord(hero.isManga, 2)}"
+              onclick={() => nav.go({ name: "series", id: hero.seriesId })}
+            >
+              <Icon name="strip" size={18} />
+            </button>
+          </div>
         </div>
-        <div class="actions">
-          <button class="btn play" onclick={resume}><Icon name="play" size={14} />Resume</button>
-          <button
-            class="ico"
-            title="All {unitWord(hero.isManga, 2)}"
-            aria-label="All {unitWord(hero.isManga, 2)}"
-            onclick={() => nav.go({ name: "series", id: hero.seriesId })}
-          >
-            <Icon name="strip" size={18} />
+        <div class="page">
+          <button onclick={resume} title="Resume on this page">
+            <img bind:this={page} src={pageUrl(hero.id, hero.currentPage)} alt="" draggable="false" />
           </button>
         </div>
-      </div>
-      <div class="page">
-        <button onclick={resume} title="Resume on this page">
-          <img bind:this={page} src={pageUrl(hero.id, hero.currentPage)} alt="" draggable="false" />
-        </button>
-      </div>
-    </section>
-  {/if}
+      </section>
+    {/if}
+
+    {#if lib.collections.length}
+      <section class="library">
+        <h2>Library</h2>
+        <div class="cols">
+          {#each lib.collections as c (c.id)}
+            <button class="col" onclick={() => nav.root({ name: "collection", id: c.id })}>
+              <div class="fan">
+                {#each c.covers as id (id)}<Cover {id} width={112} />{/each}
+              </div>
+              <div class="name">{c.name}</div>
+              <span class="mono">{c.seriesCount.toLocaleString()} series · {c.comicCount.toLocaleString()}</span>
+            </button>
+          {/each}
+        </div>
+      </section>
+    {/if}
+  </div>
 
   {#if also.length}
     <section class="shelf">
       <h2>Also reading</h2>
       <div class="row">
         {#each also as c (c.id)}<Book comic={c} mode="shelf" width={168} />{/each}
-      </div>
-    </section>
-  {/if}
-
-  {#if data.upNext.length}
-    <section class="shelf">
-      <h2>Next <span class="mono">{data.upNext.length}</span></h2>
-      <div class="row">
-        {#each data.upNext as c (c.id)}<Book comic={c} mode="shelf" width={140} />{/each}
-      </div>
-    </section>
-  {/if}
-
-  {#if lib.collections.length}
-    <section class="shelf" class:first={!hero}>
-      <h2>Library</h2>
-      <div class="cols">
-        {#each lib.collections as c (c.id)}
-          <button class="col" onclick={() => nav.root({ name: "collection", id: c.id })}>
-            <div class="fan">
-              {#each c.covers as id (id)}<Cover {id} width={150} />{/each}
-            </div>
-            <div class="name">{c.name}</div>
-            <span class="mono">{c.seriesCount.toLocaleString()} series · {c.comicCount.toLocaleString()}</span>
-          </button>
-        {/each}
       </div>
     </section>
   {/if}
@@ -98,14 +92,33 @@
 {/if}
 
 <style>
+  /* The hero takes what the library along the bottom leaves of the window. */
+  /* On a very short window the first screen runs a little past the bottom rather than crowd. */
+  .screen {
+    height: max(100vh, 690px);
+    display: flex;
+    flex-direction: column;
+  }
+  .screen.solo {
+    height: auto;
+    min-height: 0;
+    padding-top: 140px;
+  }
   .hero {
-    height: min(92vh, 980px);
-    min-height: 640px;
+    flex: 1;
+    min-height: 0;
     display: grid;
     grid-template-columns: minmax(380px, 5fr) 7fr;
     gap: 48px;
     padding: 64px var(--pad) 0;
     align-items: center;
+  }
+  .library {
+    flex: none;
+    padding: 0 var(--pad) 30px;
+  }
+  .library h2 {
+    margin-bottom: 0;
   }
   .text {
     padding-bottom: 32px;
@@ -118,7 +131,7 @@
   h1 {
     margin-top: 18px;
     font-weight: 300;
-    font-size: clamp(48px, 5.6vw, 84px);
+    font-size: clamp(40px, min(5.6vw, 8.5vh), 84px);
     line-height: 0.98;
     letter-spacing: -0.045em;
     overflow-wrap: anywhere;
@@ -131,7 +144,7 @@
     letter-spacing: -0.02em;
   }
   .where {
-    margin-top: 44px;
+    margin-top: min(44px, 4vh);
     display: flex;
     align-items: center;
     gap: 16px;
@@ -141,7 +154,7 @@
     width: 200px;
   }
   .actions {
-    margin-top: 36px;
+    margin-top: min(36px, 3.4vh);
     display: flex;
     align-items: center;
     gap: 16px;
@@ -157,7 +170,7 @@
     display: flex;
     align-items: center;
     justify-content: center;
-    padding: 24px 0 40px;
+    padding: 16px 0 20px;
   }
   .page button {
     height: 100%;
@@ -177,9 +190,6 @@
     padding: 0 var(--pad);
     margin-top: 112px;
   }
-  .shelf.first {
-    margin-top: 160px;
-  }
   h2 {
     font-weight: 400;
     font-size: 15px;
@@ -187,9 +197,6 @@
     display: flex;
     gap: 12px;
     align-items: baseline;
-  }
-  h2 .mono {
-    color: var(--text-3);
   }
   .row {
     display: flex;
@@ -207,11 +214,11 @@
   }
   .col {
     display: block;
-    padding-top: 28px;
+    padding-top: 18px;
   }
   .fan {
     position: relative;
-    height: 270px;
+    height: 172px;
   }
   .fan :global(.cover) {
     position: absolute;
@@ -248,9 +255,9 @@
     filter: brightness(0.8);
   }
   .name {
-    margin-top: 36px;
+    margin-top: 22px;
     font-weight: 300;
-    font-size: 26px;
+    font-size: 21px;
     letter-spacing: -0.03em;
   }
   .col .mono {
