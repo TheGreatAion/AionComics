@@ -1,0 +1,115 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>AionComics personality mockups</title>
+<link href="https://fonts.googleapis.com/css2?family=Bebas+Neue&family=Fraunces:opsz,wght@9..144,300;9..144,600&family=Oswald:wght@300;500&family=Geist:wght@300;400;500&family=Geist+Mono&display=swap" rel="stylesheet">
+<style>
+  body { margin: 0; background: #1a1a1a; color: #ddd; font: 14px/1.5 Geist, sans-serif; }
+  main { width: 1000px; margin: 0 auto; padding: 24px 0 40px; }
+  .ctl { display: flex; flex-wrap: wrap; gap: 8px 18px; align-items: center; margin-bottom: 16px; color: #999; font-size: 13px; }
+  .ctl button { font: inherit; font-size: 12px; padding: 4px 10px; border-radius: 6px; border: 1px solid #444; background: none; color: #bbb; cursor: pointer; }
+  .ctl button.on { background: #2a2a2a; border-color: #888; color: #fff; }
+  .badge { font-size: 13px; color: #ccc; margin-bottom: 14px; }
+  .f { position: relative; height: 600px; background: #0b0b0b; border-radius: 10px; overflow: hidden; color: #e8e8e8; font: 15px/1.45 Geist, sans-serif; margin-bottom: 8px; }
+  .cap { font-size: 13px; color: #999; margin: 0 0 28px; }
+  .ab { position: absolute; }
+  .d { color: #8d8d8d; }
+  .mo { font-family: "Geist Mono", monospace; font-size: 13px; }
+  .btn { display: inline-flex; align-items: center; gap: 8px; background: #efefef; color: #111; border-radius: 20px; padding: 8px 20px; font-size: 14px; }
+  .chip { display: inline-block; padding: 3px 11px; border: 1px solid rgba(255,255,255,.14); border-radius: 12px; color: #c4c4c4; margin: 0 5px 5px 0; font-size: 12px; }
+  .bk { position: relative; flex: none; }
+  .bk .c { position: absolute; inset: 0; border-radius: 2px; overflow: hidden; color: #fff; }
+  .bk .c .t { position: absolute; left: 8%; top: 6%; right: 8%; font-weight: 500; line-height: .95; letter-spacing: -.02em; }
+  .bk .c .o { position: absolute; border-radius: 50%; background: rgba(0,0,0,.28); }
+  .bk .c .sp { position: absolute; left: 0; top: 0; bottom: 0; width: 5%; background: rgba(0,0,0,.28); }
+  .bk .edge { position: absolute; top: 3px; bottom: 1px; border-radius: 0 2px 2px 0; background: #e9e4d8; border: 1px solid #bdb6a6; border-left: none; }
+  .bk .edge i { position: absolute; top: 0; bottom: 0; width: 1px; background: #cfc8b8; }
+</style>
+</head>
+<body>
+<main>
+  <div class="ctl">
+    <span>Titles in <button data-f="Bebas Neue">Bebas Neue</button> <button data-f="Fraunces">Fraunces</button> <button data-f="Oswald">Oswald</button> <button data-f="Geist">Geist (today)</button></span>
+    <span><button id="tc">Color from covers</button> <button id="td">Books with depth</button></span>
+  </div>
+  <div class="badge" id="badge"></div>
+  <div id="g"></div>
+</main>
+<script>
+(() => {
+  const q = new URLSearchParams(location.search);
+  const st = { font: q.get("font") || "Bebas Neue", color: q.get("color") !== "0", depth: q.get("depth") !== "0" };
+  const RED = "#b8322a", TEAL = "#1f8ea3", GOB = "#5b6b3a", BLUE = "#2c5aa0", PUR = "#56386b", SKY = "#3a88a8", GOLD = "#c9971c";
+  const df = () => `font-family:'${st.font}',sans-serif;` + ({
+    "Bebas Neue": "letter-spacing:.01em;line-height:.9",
+    Fraunces: "letter-spacing:-.02em;font-weight:300;line-height:1",
+    Oswald: "font-weight:300;line-height:1",
+    Geist: "font-weight:300;letter-spacing:-.04em;line-height:1",
+  })[st.font];
+  const book = (col, w, { pages = 200, title = "", num = "", x = "" } = {}) => {
+    const h = Math.round(w * 1.52);
+    const th = st.depth ? Math.max(2, Math.min(20, Math.round((pages / 55) * (w / 150)))) : 0;
+    const lines = Math.min(5, th);
+    return `<div class="bk" style="width:${w + th}px;height:${h}px;${x}">` +
+      (th ? `<div class="edge" style="left:${w - 2}px;width:${th + 2}px">${Array.from({ length: lines }, (_, k) => `<i style="left:${((k + 1) * th) / (lines + 1) + 2}px"></i>`).join("")}</div>` : "") +
+      `<div class="c" style="right:${th}px;background:${col};${st.depth ? "box-shadow:0 24px 44px -16px rgba(0,0,0,.95)" : ""}">` +
+      `<div class="t" style="font-size:${Math.max(8, w / 7)}px">${title}</div>` +
+      `<div class="o" style="width:${w * 0.6}px;height:${w * 0.6}px;left:${w * 0.22}px;top:${h * 0.4}px"></div>` +
+      (st.depth ? '<div class="sp"></div>' : "") +
+      (num ? `<span class="ab mo" style="right:7%;bottom:5%;background:rgba(0,0,0,.45);padding:0 5px;border-radius:2px;font-size:${Math.max(10, w / 10)}px">${num}</span>` : "") +
+      `</div></div>`;
+  };
+  const wash = (col, h, o = 0.26) => st.color ? `<div class="ab" style="left:0;right:0;top:0;height:${h}px;background:linear-gradient(${col}, transparent);opacity:${o * 1.6}"></div>` : "";
+  const page = (w, h) => `<div style="width:${w}px;height:${h}px;background:#e8e6e0;position:relative;flex:none;${st.depth ? "box-shadow:0 24px 44px -16px rgba(0,0,0,.95)" : ""}">${[[6, 6, 88, 30], [6, 40, 40, 30], [50, 40, 44, 30], [6, 74, 88, 20]].map(([a, b, c, d]) => `<i style="position:absolute;left:${a}%;top:${b}%;width:${c}%;height:${d}%;background:${GOB};opacity:.75"></i>`).join("")}</div>`;
+  const P = "&#9654;";
+  const home = () => `${wash(GOB, 420)}
+    <div class="ab d" style="left:32px;top:20px;display:flex;gap:22px;font-size:14px"><span style="color:#fff">Home</span><span>DC</span><span>Indie</span><span>Manga</span><span>Marvel</span></div>
+    <div class="ab" style="left:32px;top:90px;width:380px"><div style="font-size:14px;color:#cfcfcf">Yesterday</div>
+      <div style="${df()};font-size:96px;margin:8px 0 6px;color:#f4f4f4">Goblin</div>
+      <div class="d" style="font-size:17px">#1 · Eric Grissom, Will Perkins</div>
+      <div style="margin:22px 0 20px;display:flex;align-items:center;gap:12px"><div style="width:170px;height:2px;background:#333"><div style="width:9%;height:100%;background:#eee"></div></div><span class="mo d">15 / 185</span></div>
+      <span class="btn">${P} Resume</span></div>
+    <div class="ab" style="left:500px;top:60px">${[[BLUE, 1], [PUR, 2]].map(([c, k]) => `<div class="ab" style="left:${k * 14}px;top:${-k * 20}px;display:flex;gap:4px;filter:brightness(${1 - k * 0.22})">${book(c, 150, { pages: 180 })}${page(150, 228)}</div>`).reverse().join("")}<div style="display:flex;gap:4px;position:relative">${book(GOB, 150, { pages: 185, title: "GOBLIN" })}${page(150, 228)}</div></div>
+    <div class="ab" style="left:32px;right:32px;top:360px;border-top:1px solid rgba(255,255,255,.06);padding-top:14px"><div style="font-size:14px;margin-bottom:10px">Library</div>
+      <div style="display:flex;justify-content:space-between">${[["DC", BLUE, "163 series · 776"], ["Indie", GOB, "243 series · 986"], ["Manga", TEAL, "188 series · 3,872"], ["Marvel", RED, "233 series · 957"]].map(([n, c, s]) => `<div style="width:210px"><div style="position:relative;height:118px">${[0, 1, 2].map((k) => `<div class="ab" style="left:${44 + k * 20}px;bottom:${k * 4}px;filter:brightness(${0.55 + k * 0.22})">${book(k == 2 ? c : ["#444", "#666"][k], 68, { pages: 120 + k * 80 })}</div>`).join("")}</div><div style="${df()};font-size:${st.font === "Bebas Neue" ? 34 : 26}px;margin-top:8px">${n}</div><div class="mo d">${s}</div></div>`).join("")}</div></div>`;
+  const series = () => `${wash("#8c6233", 420)}
+    <div class="ab" style="left:32px;top:24px;right:32px;display:flex;justify-content:space-between;align-items:flex-end"><div><div class="d" style="font-size:13px">Marvel</div><div style="${df()};font-size:60px;margin-top:6px;color:#f4f4f4">Fantastic Four Omnibus</div><div class="d" style="font-size:15px;margin-top:6px">Stan Lee · art by Jack Kirby · 2005–2025</div></div><span class="mo d">0 / 6</span></div>
+    <div class="ab" style="left:32px;top:150px;display:flex;gap:32px;right:32px">${book("#8c6233", 180, { pages: 760, title: "FANTASTIC<br>FOUR", num: "3" })}
+      <div><div style="font-size:20px;color:#bdbdbd">#3</div><div style="${df()};font-size:60px;color:#f4f4f4;margin-top:6px">The Coming of Galactus</div>
+        <div class="mo d" style="margin-top:8px">2015 · 760 pages · The Galactus Trilogy, part 1 of 3</div>
+        <div style="margin-top:12px;color:#d0d0d0;max-width:560px">The Inhumans emerge, the Silver Surfer comes to Earth ahead of his master, and the Black Panther makes his first appearance.</div>
+        <div style="margin-top:12px;color:#eee;font-size:14px">Stan Lee <span class="d">writer</span> &nbsp; Jack Kirby <span class="d">pencils, cover</span> &nbsp; Joe Sinnott <span class="d">inks</span></div>
+        <div style="margin-top:12px">${["Fantastic Four", "Galactus", "Silver Surfer", "Black Panther", "Inhumans", "Doctor Doom"].map((t) => `<span class="chip">${t}</span>`).join("")}</div>
+        <div style="margin-top:12px"><span class="btn">${P} Read</span></div></div></div>
+    <div class="ab" style="left:0;right:0;bottom:0;height:126px;background:rgba(255,255,255,.03);border-top:1px solid rgba(255,255,255,.05)"></div>
+    <div class="ab" style="left:32px;bottom:16px;display:flex;gap:16px;align-items:flex-end">${[[RED, 1020], [BLUE, 880], ["#8c6233", 760], [PUR, 820], [SKY, 690], [GOLD, 642]].map(([c, p], k) => `<div style="${k == 2 ? "transform:translateY(-8px)" : "opacity:.6"}">${book(c, 58, { pages: p })}</div>`).join("")}</div>`;
+  const endcard = () => `${st.color ? `<div class="ab" style="inset:0;background:${TEAL};opacity:.16"></div>` : ""}
+    <div class="ab" style="inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;text-align:center">
+      <div class="d" style="font-size:15px">You finished Ajin, Vol. 1</div>
+      <div style="${df()};font-size:72px;margin:8px 0 6px;color:#f4f4f4">Nice run</div>
+      <div class="mo" style="color:#cfcfcf;display:flex;gap:24px;margin:8px 0 30px"><span>226 pages</span><span>3 sittings</span><span>4 days</span></div>
+      <div style="display:flex;gap:26px;align-items:center">${book(TEAL, 136, { pages: 226, title: "AJIN", num: "2" })}
+        <div style="text-align:left"><div class="d" style="font-size:13px">Up next · Vol. 2</div><div style="${df()};font-size:44px;color:#f4f4f4;margin:4px 0 14px">Kei on the Run</div><span class="btn">${P} Read Vol. 2</span></div></div></div>`;
+  const S = [
+    ["Home: Goblin's color behind the book you're in, titles in the display face, books with page edges", home],
+    ["Series page: the chosen book's own title as the headline with its number above, its cover color behind, the omnibus drawn thick, the strip as real books", series],
+    ["Reader end card: the next book's color, a few numbers about your read, and the next volume", endcard],
+  ];
+  const draw = () => {
+    document.getElementById("badge").textContent = `Titles in ${st.font}${st.font === "Geist" ? " (today's typeface)" : ""} · color from covers ${st.color ? "on" : "off"} · books with depth ${st.depth ? "on" : "off"}`;
+    document.querySelectorAll("[data-f]").forEach((b) => b.classList.toggle("on", b.dataset.f === st.font));
+    document.getElementById("tc").classList.toggle("on", st.color);
+    document.getElementById("td").classList.toggle("on", st.depth);
+    document.getElementById("g").innerHTML = S.map(([c, f]) => `<div class="f">${f()}</div><div class="cap">${c}</div>`).join("");
+  };
+  document.querySelectorAll("[data-f]").forEach((b) => (b.onclick = () => ((st.font = b.dataset.f), draw())));
+  document.getElementById("tc").onclick = () => ((st.color = !st.color), draw());
+  document.getElementById("td").onclick = () => ((st.depth = !st.depth), draw());
+  draw();
+  document.fonts?.ready.then(draw);
+})();
+</script>
+</body>
+</html>

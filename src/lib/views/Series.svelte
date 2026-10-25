@@ -260,8 +260,13 @@
           <Cover id={book.id} ratio={shape(book)} width={coverW} flip={book.id === first?.id ? `s${data.id}` : undefined} />
         </button>
         <div class="about" class:dim={!f}>
-          <div class="label">{book.label}</div>
-          {#if title}<div class="title">{title}</div>{/if}
+          <!-- A book with its own title (from Comic Vine or its ComicInfo.xml) is headed by it, its number above. -->
+          {#if title}
+            <div class="label small">{book.label}</div>
+            <h2 class="title" class:long={title.length > 40}>{title}</h2>
+          {:else}
+            <h2 class="label">{book.label}</h2>
+          {/if}
           <div class="facts mono">
             {facts}{#if arc}<span class="arc">{arc}</span>{/if}
           </div>
@@ -421,12 +426,27 @@
     line-height: 1;
     letter-spacing: -0.04em;
   }
+  .label.small {
+    font-size: 20px;
+    letter-spacing: -0.02em;
+    color: var(--text-2);
+  }
   .title {
-    margin-top: 8px;
-    font-size: 19px;
+    margin-top: 10px;
     font-weight: 300;
+    font-size: 44px;
+    line-height: 1.04;
+    letter-spacing: -0.035em;
     color: var(--text);
-    letter-spacing: -0.01em;
+    overflow-wrap: anywhere;
+    display: -webkit-box;
+    -webkit-line-clamp: 3;
+    line-clamp: 3;
+    -webkit-box-orient: vertical;
+    overflow: hidden;
+  }
+  .title.long {
+    font-size: 32px;
   }
   .facts {
     margin-top: 12px;
