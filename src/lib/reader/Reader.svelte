@@ -180,24 +180,45 @@
     if (!a || (a.enabled && !a.enabled(c))) return;
     e.preventDefault();
     a.run(c);
-    wake();
+    // Turning pages is reading: it puts the bars away rather than calling them up.
+    if (PAGE_TURNS.has(a.id)) rest();
+    else wake();
   }
+  const PAGE_TURNS = new Set(["prev", "next", "left", "right", "first", "last", "prevComic", "nextComic"]);
 
   // The bars fade after a few idle seconds, but never from under the pointer: resting on the toolbar
-  // or the page line keeps them, and leaving them (or the window) starts the full wait again.
+  // or the page line keeps them, and leaving them starts the full wait again. Leaving the window
+  // puts them away almost at once.
   const IDLE_MS = 3000;
+  const AWAY_MS = 250;
   let overBars = false;
-  function wake() {
-    chrome = true;
+  function hideIn(ms: number) {
     clearTimeout(hideTimer);
     hideTimer = setTimeout(() => {
       if (!c.overlay && !menu.open && !overBars) chrome = false;
-    }, IDLE_MS);
+    }, ms);
+  }
+  function wake() {
+    chrome = true;
+    hideIn(IDLE_MS);
   }
   function bars(over: boolean) {
     overBars = over;
     wake();
   }
+  function rest() {
+    if (!overBars) hideIn(0);
+  }
+
+  $effect(() => {
+    const html = document.documentElement;
+    const away = () => {
+      overBars = false;
+      hideIn(AWAY_MS);
+    };
+    html.addEventListener("mouseleave", away);
+    return () => html.removeEventListener("mouseleave", away);
+  });
 
   function zone(z: "left" | "middle" | "right") {
     if (c.overlay && c.overlay !== "flow") {
@@ -298,8 +319,9 @@
       </div>
     {/if}
 
-    <!-- The page number can stay on screen after everything else has faded (I, or Options). -->
-    {#if prefs.info && !showChrome}
+    <!-- The page number stays on screen after everything else has faded: always in full screen,
+         and otherwise when asked for (I, or Options). -->
+    {#if (prefs.info || c.fullscreen) && !showChrome}
       <div class="pin mono">{#if panel}{panel}&ensp;·&ensp;{/if}{count}&ensp;·&ensp;{time}</div>
     {/if}
 
