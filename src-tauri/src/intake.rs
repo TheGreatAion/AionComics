@@ -130,7 +130,7 @@ pub fn plan(conn: &Connection, root: &Path, paths: &[String], series: Option<i64
         Some(id) => conn.query_row("SELECT name FROM collections WHERE id=?1", [id], |r| r.get(0)).optional()?,
         None => None,
     };
-    // Existing series: (collection, normalised name, folder).
+    // Existing series: (collection, normalized name, folder).
     let mut st = conn.prepare("SELECT col.name, s.name, s.rel_path FROM series s JOIN collections col ON col.id=s.collection_id")?;
     let known: Vec<(String, String, String)> = st
         .query_map([], |r| Ok((r.get::<_, String>(0)?, r.get::<_, String>(1)?, r.get::<_, String>(2)?)))?

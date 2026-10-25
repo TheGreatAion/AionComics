@@ -116,7 +116,7 @@
 
   // Wherever the reader doesn't quite reach (a window edge mid-resize), the page background shows:
   // make that the reader's too.
-  const readerBg = $derived(prefs.background === "grey" ? "#1b1b1b" : "#000");
+  const readerBg = $derived(prefs.background === "gray" ? "#1b1b1b" : "#000");
   $effect(() => {
     document.documentElement.style.background = readerBg;
     return () => (document.documentElement.style.background = "");

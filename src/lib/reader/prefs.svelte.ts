@@ -12,7 +12,7 @@ const DEFAULTS = {
   guidedComics: false,
   /** Page count and clock pinned top-right. */
   info: false,
-  background: "black" as "black" | "grey",
+  background: "black" as "black" | "gray",
   guidedSpeed: "normal" as "slow" | "normal" | "fast",
   /** Around the current panel: dimmed, darkened, or hidden altogether. */
   guidedDim: "strong" as "light" | "strong" | "hidden",
@@ -27,6 +27,8 @@ function load(): Prefs {
     const saved = JSON.parse(localStorage.getItem("aion.reader") ?? "{}");
     // Carry over the settings from the earlier reader.
     if (saved.fit === undefined && localStorage.getItem("aion.fit") === "width") saved.fit = "width";
+    // The gray background was once saved under its British spelling.
+    if (saved.background === "grey") saved.background = "gray";
     return { ...DEFAULTS, ...saved };
   } catch {
     return { ...DEFAULTS };

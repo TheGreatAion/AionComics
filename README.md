@@ -22,7 +22,7 @@ On first launch, choose your comics folder. AionComics **only reads that folder*
 
 - Top-level folders become **collections**. A collection named `Manga` reads right to left.
 - Second-level folders are **series**. Deeper folders (`Issues`, `Compendium`, `Annuals`…) become sections on the series page.
-- Archives are detected by content, not extension, so mislabelled CBZ/CBR files still open.
+- Archives are detected by content, not extension, so mislabeled CBZ/CBR files still open.
 
 If `<root>/.yacreaderlibrary/library.ydb` exists, AionComics reads it (read-only) on every scan. It imports Comic Vine metadata, page counts, YACReader's cover cache, and reading progress whenever YACReader's copy is newer.
 
@@ -34,7 +34,7 @@ If `<root>/.yacreaderlibrary/library.ydb` exists, AionComics reads it (read-only
 
 ## Interface
 
-The art is the interface: monochrome, one typeface (Geist, bundled), no accent colour. The covers and pages bring all the colour.
+The art is the interface: monochrome, one typeface (Geist, bundled), no accent color. The covers and pages bring all the color.
 
 - **Home** opens on the page you stopped on, beside the book's title and a Resume button. Below it: *Also reading* (other books opened in the last 30 days), *Next* (the next untouched book in each series you're reading) and the collections as fanned stacks. If nothing was read in the last month, the most recent book you put down takes the top spot.
 - **Collections** are in the top bar. Each is one grid of series covers, filterable and sortable by name, recently read or recently added.
@@ -87,9 +87,9 @@ Clicking the left or right third of the screen turns pages; clicking the middle 
 
 ## Guided View
 
-`src-tauri/src/panels.rs` finds panels by flood-filling the gutter colour in from the page edge and treating each enclosed region as a panel. It then orders them with an XY-cut: rows top to bottom, and left to right (right to left for manga) within each row. Results are cached per page in the database. Bump `PANELS_VERSION` in `lib.rs` when the algorithm changes.
+`src-tauri/src/panels.rs` finds panels by flood-filling the gutter color in from the page edge and treating each enclosed region as a panel. It then orders them with an XY-cut: rows top to bottom, and left to right (right to left for manga) within each row. Results are cached per page in the database. Bump `PANELS_VERSION` in `lib.rs` when the algorithm changes.
 
-A splitting pass then cuts blobs that are really several panels along straight or slanted gutters (ones with paper running between ruled borders, so hair or speed lines don't count). Slanted panels also get their real outline (`poly`), and Guided View dims everything outside it, so a neighbour sharing a diagonal gutter stays dark. Covers, title pages and full-page art (where little of the page is ruled panels) are shown whole.
+A splitting pass then cuts blobs that are really several panels along straight or slanted gutters (ones with paper running between ruled borders, so hair or speed lines don't count). Slanted panels also get their real outline (`poly`), and Guided View dims everything outside it, so a neighbor sharing a diagonal gutter stays dark. Covers, title pages and full-page art (where little of the page is ruled panels) are shown whole.
 
 When the page's art runs off its edges (no gutter around the panels to flood from), a second pass cuts the whole page along straight light or dark lines instead: white gutters, dark gutters, and the black rules modern pages butt panels against.
 

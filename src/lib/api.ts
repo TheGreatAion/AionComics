@@ -150,7 +150,7 @@ export interface ReaderInfo {
   external: boolean;
 }
 
-/** Normalised (0–1) panel rectangle, in reading order. */
+/** Normalized (0–1) panel rectangle, in reading order. */
 export interface Panel {
   x: number;
   y: number;

@@ -24,7 +24,7 @@
   const all = $derived(data?.sections.flatMap((s) => s.comics) ?? []);
   const first = $derived(all[0]);
   // The count by the series name is the main run; other editions and extras ("Annuals") are
-  // labelled in the strip.
+  // labeled in the strip.
   const main = $derived(data?.sections.find((s) => !s.name) ?? data?.sections[0]);
   const mainRead = $derived(main?.comics.filter((c) => c.read).length ?? 0);
   const mainCount = $derived(main?.comics.length ?? 0);

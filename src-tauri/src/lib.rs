@@ -607,7 +607,7 @@ async fn open_comic(state: State<'_, Shared>, id: i64) -> CmdResult<ReaderInfo> 
         }
         let conn = state.conn.lock().unwrap();
         let comic = db::card_by_id(&conn, id)?;
-        let (prev_id, next_id) = db::neighbours(&conn, id)?;
+        let (prev_id, next_id) = db::neighbors(&conn, id)?;
         let next = next_id.map(|n| db::card_by_id(&conn, n)).transpose()?;
         let start = if comic.read { 0 } else { (comic.current_page.max(0) as usize).min(n - 1) };
         let bookmarks = db::bookmarks(&conn, id)?;

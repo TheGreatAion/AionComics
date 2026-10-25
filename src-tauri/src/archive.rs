@@ -49,7 +49,7 @@ pub fn detect(path: &Path) -> Result<Kind> {
     } else if n >= 6 && b[..6] == [b'7', b'z', 0xBC, 0xAF, 0x27, 0x1C] {
         bail!("7-Zip archives aren't supported yet")
     } else {
-        bail!("Unrecognised archive format")
+        bail!("Unrecognized archive format")
     }
 }
 
@@ -488,7 +488,7 @@ fn extract_rar(job: &RarJob, path: &Path, listing: &Listing) -> Result<()> {
 
 /// Decode an image no smaller than `long_side` on its long side. JPEGs (nearly every comic page) are
 /// decoded at a reduced scale straight from their compressed data, which is several times faster
-/// than decoding at full size and shrinking afterwards.
+/// than decoding at full size and shrinking afterward.
 pub fn decode_at_least(bytes: &[u8], long_side: u32) -> Result<image::DynamicImage> {
     if bytes.starts_with(&[0xFF, 0xD8]) {
         if let Ok(img) = decode_jpeg_scaled(bytes, long_side) {

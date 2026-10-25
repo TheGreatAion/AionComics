@@ -132,7 +132,7 @@ export class Ctl {
   }
 
   /** In double page mode, a page that can't share the screen: the last page, a wide page, or one
-   *  whose neighbour is wide. (The cover, page 0, always stands alone too.) */
+   *  whose neighbor is wide. (The cover, page 0, always stands alone too.) */
   private alone(p: number) {
     return p >= this.last || this.wide(p) || this.wide(p + 1);
   }

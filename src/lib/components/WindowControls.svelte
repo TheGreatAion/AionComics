@@ -3,7 +3,7 @@
   import { onMount } from "svelte";
   import Icon from "./Icon.svelte";
 
-  // The window has no OS title bar, so the app draws minimise, maximise and close itself.
+  // The window has no OS title bar, so the app draws minimize, maximize and close itself.
   const win = getCurrentWindow();
   let maximized = $state(false);
 
@@ -16,8 +16,8 @@
 </script>
 
 <div class="controls">
-  <button onclick={() => win.minimize()} title="Minimise" aria-label="Minimise"><Icon name="minimize" size={14} stroke={1.2} /></button>
-  <button onclick={() => win.toggleMaximize()} title={maximized ? "Restore" : "Maximise"} aria-label={maximized ? "Restore" : "Maximise"}>
+  <button onclick={() => win.minimize()} title="Minimize" aria-label="Minimize"><Icon name="minimize" size={14} stroke={1.2} /></button>
+  <button onclick={() => win.toggleMaximize()} title={maximized ? "Restore" : "Maximize"} aria-label={maximized ? "Restore" : "Maximize"}>
     <Icon name={maximized ? "restore" : "maximize"} size={14} stroke={1.2} />
   </button>
   <button class="close" onclick={() => win.close()} title="Close" aria-label="Close"><Icon name="close" size={14} stroke={1.2} /></button>

@@ -7,7 +7,7 @@ type Pt = [number, number];
 const POINTS = 8;
 
 /** Clockwise (on screen) ring of exactly POINTS points, starting nearest the top-left corner. */
-function normalise(ring: Pt[]): Pt[] {
+function normalize(ring: Pt[]): Pt[] {
   let pts = ring.slice();
   const area = pts.reduce((s, [x, y], i) => {
     const [nx, ny] = pts[(i + 1) % pts.length];
@@ -22,19 +22,19 @@ function normalise(ring: Pt[]): Pt[] {
 
 /** The lit area for a panel (or the whole page), grown by `pad` (0–1, per axis) so borders aren't clipped. */
 export function outline(p: Panel | null, padX: number, padY: number): Pt[] {
-  if (!p) return normalise([[0, 0], [1, 0], [1, 1], [0, 1]]);
+  if (!p) return normalize([[0, 0], [1, 0], [1, 1], [0, 1]]);
   const clamp = (v: number) => Math.max(0, Math.min(1, v));
   if (p.poly && p.poly.length >= 3) {
     const cx = p.poly.reduce((s, q) => s + q[0], 0) / p.poly.length;
     const cy = p.poly.reduce((s, q) => s + q[1], 0) / p.poly.length;
     // Push each corner outward from the middle by the padding.
-    return normalise(
+    return normalize(
       p.poly.map(([x, y]) => [clamp(x + Math.sign(x - cx) * padX), clamp(y + Math.sign(y - cy) * padY)] as Pt),
     );
   }
   const [x0, y0] = [clamp(p.x - padX), clamp(p.y - padY)];
   const [x1, y1] = [clamp(p.x + p.w + padX), clamp(p.y + p.h + padY)];
-  return normalise([[x0, y0], [x1, y0], [x1, y1], [x0, y1]]);
+  return normalize([[x0, y0], [x1, y0], [x1, y1], [x0, y1]]);
 }
 
 /** A clip-path that keeps everything *outside* the outline: the page rectangle with the outline cut out. */

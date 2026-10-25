@@ -1,8 +1,8 @@
 //! Panel detection for Guided View.
 //!
-//! 1. Estimate the gutter colour from the page border (white or black,
+//! 1. Estimate the gutter color from the page border (white or black,
 //!    whichever dominates; bleeding art is ignored).
-//! 2. Flood-fill gutter-coloured pixels inward from the page edge: that's
+//! 2. Flood-fill gutter-colored pixels inward from the page edge: that's
 //!    the "outside". Everything enclosed is panel material — this copes with
 //!    slanted gutters, which straight cuts can't.
 //! 3. Each connected blob of non-outside pixels is a candidate panel. A blob
@@ -28,7 +28,7 @@ pub struct Panel {
     pub w: f32,
     pub h: f32,
     /// The panel's real outline when it isn't its box (slanted layouts):
-    /// normalised page coordinates, clockwise on screen.
+    /// normalized page coordinates, clockwise on screen.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub poly: Option<Vec<[f32; 2]>>,
 }
@@ -54,7 +54,7 @@ impl Panel {
 }
 
 const WORK_SIZE: u32 = 900; // long side of the analysis image
-const GUTTER_DELTA: i16 = 40; // how far from the gutter colour still counts as gutter
+const GUTTER_DELTA: i16 = 40; // how far from the gutter color still counts as gutter
 const MIN_PANEL_AREA: f32 = 0.012; // drop specks: page numbers, stray captions
 
 // Splitting blobs that are really several panels.
@@ -83,7 +83,7 @@ const BLEED_MARGIN: f32 = 0.15; // bleed layouts: most of a cut's length that ma
 const MARGIN_FLAT: i16 = 14; // bleed layouts: how much a page margin's level may vary
 const BLEED_END_RUN: f32 = 0.12; // bleed layouts: most of a cut's length that may be art at one end
 const BLEED_ROW_FIRST: f32 = 0.8; // bleed layouts: a cut across wins unless one down scores this much better
-const MAX_SHARED: f32 = 0.5; // a box half inside a bigger one is a fragment of it (neighbours share slivers)
+const MAX_SHARED: f32 = 0.5; // a box half inside a bigger one is a fragment of it (neighbors share slivers)
 const BLEED_CUT_PAPER: f32 = 0.6; // bleed layouts: share of a cut over paper
 const BLEED_CLEAN_FLANK: f32 = 0.25; // bleed layouts: flanking needed by a cut that's ≥95% paper
 const BLEED_LIGHT_LINE: u8 = 235; // bleed layouts: a light cut's median at least this
@@ -104,7 +104,7 @@ fn edge_band(m: u8) -> usize {
 const BLEED_GUTTER_MAX: i32 = 45; // bleed layouts: work pixels past which a gutter has ended on both sides
 
 /// Gutter luminance: the dominant extreme (light or dark) around the border.
-fn gutter_colour(img: &GrayImage) -> i16 {
+fn gutter_color(img: &GrayImage) -> i16 {
     let (w, h) = (img.width(), img.height());
     let band = (w.min(h) / 60).max(2);
     let (mut light, mut dark, mut all) = (Vec::new(), Vec::new(), Vec::new());
@@ -352,7 +352,7 @@ struct Splitter {
     w: usize,
     h: usize,
     px: Vec<u8>,
-    /// Gutter-coloured, or plain white paper (balloons, light gutters on a dark page).
+    /// Gutter-colored, or plain white paper (balloons, light gutters on a dark page).
     paper: Vec<bool>,
     /// Stricter `paper` for cut lines, so light screentone doesn't pass for gutter.
     clear: Vec<bool>,
@@ -500,7 +500,7 @@ impl Splitter {
         let edge = [r.y0 <= 1, r.x1 + 2 >= self.w, r.y1 + 2 >= self.h, r.x0 <= 1];
         let ruled_sides = sides.iter().zip(edge).filter(|(s, e)| !e && s.straight >= RULED).count();
         let inner_sides = edge.iter().filter(|e| !**e).count();
-        // Corners where neighbouring sides meet (clockwise from top-left),
+        // Corners where neighboring sides meet (clockwise from top-left),
         // clipped to the box.
         let corner = |h: &Side, v: &Side| {
             // h: y = a + b x, v: x = a + b y.
@@ -524,7 +524,7 @@ impl Splitter {
         Piece { panel, ruled_sides, inner_sides }
     }
 
-    /// Drop small fragments a straight cut sheared off a neighbouring panel
+    /// Drop small fragments a straight cut sheared off a neighboring panel
     /// (a slanted corner, half a balloon), so they don't inflate the box.
     fn main_parts(&mut self, pixels: Vec<u32>) -> Vec<u32> {
         self.stamp += 1;
@@ -595,7 +595,7 @@ impl Splitter {
                 if !(lo..=hi).contains(&(a + lean)) {
                     continue;
                 }
-                // Bleed layouts: the line is judged by its own level, not a page-wide gutter colour.
+                // Bleed layouts: the line is judged by its own level, not a page-wide gutter color.
                 // Most of it must sit near its median, and that must be gutter-like: near white, or
                 // near black (a dark gutter, or the border rule panels butt against).
                 let line = if self.bleed {
@@ -643,7 +643,7 @@ impl Splitter {
                     }
                 };
                 // Bleed layouts: a dark rule ending at the page margin (plain paper, of whatever
-                // colour) runs out of the art there, so leave the margin off the line and count that
+                // color) runs out of the art there, so leave the margin off the line and count that
                 // end as open.
                 let (lead, trail) = match line {
                     Some(m) if m <= BLEED_DARK_LINE => {
@@ -827,7 +827,7 @@ pub fn detect(bytes: &[u8], rtl: bool) -> Result<Vec<Panel>> {
 
 /// `detect`, reporting each stage's findings to `log` (for tuning).
 fn detect_with(bytes: &[u8], rtl: bool, log: &mut dyn FnMut(String)) -> Result<Vec<Panel>> {
-    // Only a WORK_SIZE copy is analysed, so decode no bigger than needed.
+    // Only a WORK_SIZE copy is analyzed, so decode no bigger than needed.
     let img = crate::archive::decode_at_least(bytes, WORK_SIZE)?;
     let scale = WORK_SIZE as f32 / img.width().max(img.height()) as f32;
     let small = if scale < 1.0 {
@@ -842,7 +842,7 @@ fn detect_with(bytes: &[u8], rtl: bool, log: &mut dyn FnMut(String)) -> Result<V
     .to_luma8();
 
     // Gutters around the panels: flood them from the page edge, then split what's enclosed.
-    let bg = gutter_colour(&small);
+    let bg = gutter_color(&small);
     let mut splitter = Splitter::new(&small, bg, false);
     let mut pieces = Vec::new();
     let found = blobs(&small, bg);
@@ -947,7 +947,7 @@ mod tests {
     }
 
     /// White page with panels given by `inside(x, y)`: a 3px black border
-    /// around a grey interior.
+    /// around a gray interior.
     fn panels(inside: impl Fn(i32, i32) -> bool) -> GrayImage {
         GrayImage::from_fn(600, 900, |x, y| {
             let (x, y) = (x as i32, y as i32);

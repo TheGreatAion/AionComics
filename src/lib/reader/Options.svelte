@@ -17,7 +17,7 @@
     <span>Background</span>
     <div class="choice">
       <button class:on={prefs.background === "black"} onclick={() => set("background", "black")}>Black</button>
-      <button class:on={prefs.background === "grey"} onclick={() => set("background", "grey")}>Dark grey</button>
+      <button class:on={prefs.background === "gray"} onclick={() => set("background", "gray")}>Dark gray</button>
     </div>
   </div>
 

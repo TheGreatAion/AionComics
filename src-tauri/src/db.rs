@@ -573,8 +573,8 @@ pub fn comic_id_by_path(conn: &Connection, rel_path: &str) -> Result<Option<i64>
         .optional()?)
 }
 
-/// Neighbouring comics in the same series, for "next issue" in the reader.
-pub fn neighbours(conn: &Connection, id: i64) -> Result<(Option<i64>, Option<i64>)> {
+/// Neighboring comics in the same series, for "next issue" in the reader.
+pub fn neighbors(conn: &Connection, id: i64) -> Result<(Option<i64>, Option<i64>)> {
     let (series, key): (i64, i64) =
         conn.query_row("SELECT series_id, sort_key FROM comics WHERE id=?1", [id], |r| {
             Ok((r.get(0)?, r.get(1)?))

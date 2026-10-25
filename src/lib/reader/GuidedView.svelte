@@ -320,7 +320,7 @@
   .dim {
     position: absolute;
     inset: 0;
-    /* Everything but the stop, in the reader's background colour. */
+    /* Everything but the stop, in the reader's background color. */
     background: color-mix(in srgb, var(--reader-bg) calc(var(--dim) * 100%), transparent);
     pointer-events: none;
   }
