@@ -3,7 +3,7 @@
   import type { Ctl } from "./ctl.svelte";
 
   // The page line as a row of ticks, one per page (or per few pages in a long book). Hovering shows
-  // the page under the pointer; a click goes there and a drag scrubs.
+  // the page under the pointer (or its spread, in double page mode); a click goes there and a drag scrubs.
   let { c }: { c: Ctl } = $props();
 
   const SPACING = 7; // fewest pixels between ticks before pages start sharing one
@@ -49,9 +49,12 @@
     row?.releasePointerCapture(e.pointerId);
   }
 
+  // The preview shows what a click would put on screen: in double page mode, the whole spread.
+  const spread = $derived(hover ? c.spreadAt(hover.page) : []);
+  const PAGE_W = 87; // one page in the preview
+  const previewW = $derived(spread.length * PAGE_W + (spread.length - 1) * 2 + 8);
   // The preview stays inside the row, however near the ends the pointer is.
-  const PREVIEW = 95;
-  const previewX = $derived(hover ? Math.min(width - PREVIEW / 2, Math.max(PREVIEW / 2, hover.x)) : 0);
+  const previewX = $derived(hover ? Math.min(width - previewW / 2, Math.max(previewW / 2, hover.x)) : 0);
 </script>
 
 <div
@@ -71,16 +74,18 @@
   aria-valuenow={c.page + 1}
 >
   {#each ticks as t (t.a)}
-    {@const hot = hover !== null && hover.page >= t.a && hover.page <= t.b}
+    {@const hot = spread.some((p) => p >= t.a && p <= t.b)}
     <span class="tick" class:here={t.here} class:read={t.read} class:hot>
       {#if t.mark}<i class="mark"></i>{/if}
     </span>
   {/each}
 
   {#if hover}
-    <div class="preview" style:left="{previewX}px">
-      {#key hover.page}<img src={thumbUrl(c.id, hover.page)} alt="" draggable="false" />{/key}
-      <span class="mono">{hover.page + 1}</span>
+    <div class="preview" style:left="{previewX}px" style:width="{previewW}px">
+      <div class="pages" class:flipped={c.flipped}>
+        {#each spread as p (p)}<img src={thumbUrl(c.id, p)} alt="" draggable="false" />{/each}
+      </div>
+      <span class="mono">{spread.map((p) => p + 1).join("–")}</span>
     </div>
   {/if}
 </div>
@@ -131,7 +136,6 @@
   .preview {
     position: absolute;
     bottom: calc(100% + 14px);
-    width: 95px;
     transform: translateX(-50%);
     display: flex;
     flex-direction: column;
@@ -143,8 +147,18 @@
     border: 1px solid rgba(255, 255, 255, 0.07);
     pointer-events: none;
   }
-  .preview img {
+  .pages {
     width: 100%;
+    display: flex;
+    align-items: center;
+    gap: 2px;
+  }
+  .pages.flipped {
+    flex-direction: row-reverse;
+  }
+  .preview img {
+    flex: 1;
+    min-width: 0;
     min-height: 75px;
     border-radius: 2px;
     background: #222;

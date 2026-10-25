@@ -144,6 +144,13 @@ export class Ctl {
     return [p, p + 1];
   }
 
+  /** The pages that going to p would put on screen, in reading order. */
+  spreadAt(p: number): number[] {
+    const s = this.align(p);
+    if (!this.double || s === 0 || this.alone(s)) return [s];
+    return [s, s + 1];
+  }
+
   /** The first page of the spread that holds p. Spreads are laid out from the cover on: 1–2, 3–4…,
    *  and every page standing alone shifts the pairs after it, so jumping, resuming and turning back
    *  all land on the same spreads as turning forward. */
