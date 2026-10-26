@@ -1,0 +1,95 @@
+// Page-jump benchmark: how long pages take to show in the reader when jumping and skipping.
+//
+// Open a book in a copy of AionComics with its webview open to DevTools, then run this script:
+//   set WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS=--remote-debugging-port=9333
+//   AionComics.exe "H:\Comics\...\Book.cbz"
+//   node scripts/bench-pages.mjs
+//
+// Random jumps through the page box (time until the page is on screen), then fast skips of 15
+// pages with the arrow key (time from the last key until the page you stopped on shows). The
+// reader marks both moments (see PageView.svelte). It reads the book, so the reading position
+// and sittings change: put them back afterward.
+
+const targets = await (await fetch("http://127.0.0.1:9333/json")).json();
+const ws = new WebSocket(targets.find((t) => t.type === "page").webSocketDebuggerUrl);
+await new Promise((r) => (ws.onopen = r));
+let seq = 0;
+const send = (method, params = {}) =>
+  new Promise((res) => {
+    const i = ++seq;
+    const h = (m) => {
+      const d = JSON.parse(m.data);
+      if (d.id === i) (ws.removeEventListener("message", h), res(d.result));
+    };
+    ws.addEventListener("message", h);
+    ws.send(JSON.stringify({ id: i, method, params }));
+  });
+const ev = async (x) => (await send("Runtime.evaluate", { expression: x, awaitPromise: true, returnByValue: true })).result?.value;
+const wait = (ms) => new Promise((r) => setTimeout(r, ms));
+const CODES = { ArrowRight: 39, Enter: 13, g: 71 };
+const key = async (k) => {
+  const code = k.length === 1 ? `Key${k.toUpperCase()}` : k;
+  for (const type of ["rawKeyDown", "keyUp"]) await send("Input.dispatchKeyEvent", { type, key: k, code, windowsVirtualKeyCode: CODES[k] });
+};
+
+// Start the clock in the page, just before an action.
+const start = () => ev(`window.__benchT = performance.now()`);
+// Milliseconds from the clock's start until the page the reader settled on is on screen (null
+// after 5 s). The page asked for last after the start is the one that counts.
+const settled = () =>
+  ev(`new Promise((res) => {
+    const t0 = window.__benchT;
+    const marks = (name) => performance.getEntriesByName(name).filter((m) => m.startTime >= t0);
+    const look = () => {
+      const want = marks("aion:page").at(-1);
+      const shown = want && marks("aion:shown").find((m) => m.detail === want.detail && m.startTime >= want.startTime);
+      if (shown) return res(Math.round(shown.startTime - t0));
+      if (performance.now() - t0 > 5000) return res(null);
+      setTimeout(look, 2);
+    };
+    setTimeout(look, 30);
+  })`);
+const median = (xs) => {
+  const v = xs.filter((x) => x !== null).sort((a, b) => a - b);
+  return v.length ? v[Math.floor(v.length / 2)] : null;
+};
+
+// The reader is up once a page image is; in Guided View, switch to the normal page view (V).
+const CODES_V = 86;
+for (let k = 0; !(await ev(`!!document.querySelector("img[data-page]")`)); k++) {
+  if (k === 25 && (await ev(`!!document.querySelector(".reader img")`))) {
+    for (const type of ["rawKeyDown", "keyUp"]) await send("Input.dispatchKeyEvent", { type, key: "v", code: "KeyV", windowsVirtualKeyCode: CODES_V });
+  }
+  await wait(200);
+}
+await wait(1500);
+// The page count, from the "/ 192" beside the page box.
+const n = await ev(`+([...document.querySelectorAll(".dim")].map((e) => e.textContent.trim().match(/^\\/\\s*(\\d+)$/)).find(Boolean)?.[1] ?? 0)`);
+// Random jumps, spread over the book, in an order that keeps moving far.
+const jumps = [0.31, 0.83, 0.12, 0.57, 0.94, 0.45, 0.68, 0.21, 0.76, 0.38].map((f) => Math.max(1, Math.floor(f * n)));
+const times = [];
+for (const p of jumps) {
+  await key("g");
+  await send("Input.insertText", { text: String(p + 1) });
+  await start();
+  await key("Enter");
+  times.push(await settled());
+  await wait(400);
+}
+// Skips of 15 pages with the arrow key, a key every 35 ms (a held key repeats about that fast),
+// from three places in the book.
+const skips = [];
+for (const f of [0.15, 0.5, 0.8]) {
+  await key("g");
+  await send("Input.insertText", { text: String(Math.min(Math.floor(f * n), n - 20) + 1) });
+  await key("Enter");
+  await wait(800);
+  for (let k = 0; k < 14; k++) (await key("ArrowRight"), await wait(35));
+  await start();
+  await key("ArrowRight");
+  skips.push(await settled());
+  await wait(400);
+}
+const worst = (xs) => (xs.includes(null) ? null : Math.max(...xs));
+console.log(JSON.stringify({ pages: n, jump: median(times), jumpWorst: worst(times), skip: median(skips), skipWorst: worst(skips), jumps: times, skips }));
+ws.close();

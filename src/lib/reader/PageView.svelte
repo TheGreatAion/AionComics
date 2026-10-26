@@ -79,8 +79,18 @@
     stage.scrollLeft = c.flipped ? stage.scrollWidth : 0;
   });
 
+  // Timing marks for the page benchmark (scripts/bench-pages.mjs): a page asked for, and on screen.
+  $effect(() => {
+    performance.mark("aion:page", { detail: c.page });
+    if (performance.getEntriesByType("mark").length > 400) performance.clearMarks();
+  });
+
   function loaded(i: number, e: Event) {
     const el = e.currentTarget as HTMLImageElement;
+    el.decode().then(
+      () => requestAnimationFrame(() => performance.mark("aion:shown", { detail: i })),
+      () => {},
+    );
     c.dims[i] = { w: el.naturalWidth, h: el.naturalHeight };
     if (!announced) {
       announced = true;
