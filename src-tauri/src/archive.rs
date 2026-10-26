@@ -19,7 +19,8 @@ use std::time::Duration;
 use anyhow::{anyhow, bail, Context, Result};
 use serde::{Deserialize, Serialize};
 
-/// Unpacked CBR pages kept on disk, all books together; the books opened longest ago go first.
+/// What's kept in books' cache folders (unpacked CBR pages, screen copies, page previews), all
+/// books together; the books opened longest ago go first.
 const PAGES_CAP: u64 = 5 << 30;
 /// A page the unpacking is at most this many pages short of is waited for rather than read on
 /// its own (which means reading through the archive up to it).

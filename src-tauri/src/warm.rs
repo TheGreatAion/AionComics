@@ -17,7 +17,7 @@ const YIELD_MS: i64 = 300;
 /// Start previewing book `id` from page `from` (and making copies for a screen `screen` pixels
 /// tall), stopping the pass for any other book.
 pub fn start(state: &Shared, id: i64, count: usize, from: usize, screen: Option<u32>) {
-    // Outside books get new ids each session, so their previews aren't kept.
+    // Outside books get new ids each session, so nothing is kept for them.
     if id < 0 {
         return;
     }
@@ -51,12 +51,10 @@ fn order(count: usize, from: usize) -> impl Iterator<Item = usize> {
 
 fn run(state: &Shared, id: i64, count: usize, from: usize, stop: &AtomicBool) -> anyhow::Result<()> {
     let (path, _) = state.comic_path(id)?;
-    follow(state, id, count, from, stop, |n| state.page_thumb_path(id, n).exists(), |n| {
+    follow(state, id, count, from, stop, |n| state.page_thumb_path(id, &path, n).is_ok_and(|f| f.exists()), |n| {
         // A CBR's page may not be there yet (still being unpacked): tried again later.
         let Some(bytes) = state.archives.page_if_ready(id, &path, n)? else { return Ok(false) };
-        let file = state.page_thumb_path(id, n);
-        let _ = std::fs::create_dir_all(file.parent().unwrap());
-        std::fs::write(&file, archive::make_page_thumb(&bytes)?)?;
+        std::fs::write(state.page_thumb_path(id, &path, n)?, archive::make_page_thumb(&bytes)?)?;
         Ok(true)
     })
 }

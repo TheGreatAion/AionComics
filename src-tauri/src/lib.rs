@@ -62,9 +62,11 @@ impl AppState {
         db::get_setting(&conn, "library_root").ok().flatten().map(PathBuf::from)
     }
 
-    /// Where a page's small preview is kept.
-    fn page_thumb_path(&self, id: i64, n: usize) -> PathBuf {
-        self.thumbs_dir.join("pages").join(format!("{id}-{n}.jpg"))
+    /// Where a page's small preview is kept: in the book's cache folder, under PAGES_CAP with the
+    /// rest (see archive.rs). Library books only: outside ones get new ids each session.
+    fn page_thumb_path(&self, id: i64, path: &Path, n: usize) -> anyhow::Result<PathBuf> {
+        anyhow::ensure!(id > 0, "previews are kept for library books only");
+        Ok(self.archives.book_dir(id, path)?.join(format!("preview-{n}.jpg")))
     }
 
     fn comic_path(&self, id: i64) -> anyhow::Result<(PathBuf, db::ComicFile)> {
@@ -799,17 +801,14 @@ fn handle_image(state: &AppState, req: &Request<Vec<u8>>) -> Response<Vec<u8>> {
         ["thumb", id, n] => (|| {
             let id: i64 = id.parse()?;
             let n: usize = n.parse()?;
-            let cached = state.page_thumb_path(id, n);
-            if id > 0 {
-                if let Ok(b) = std::fs::read(&cached) {
-                    return Ok((b, "image/jpeg"));
-                }
-            }
             let (path, _) = state.comic_path(id)?;
+            let cached = state.page_thumb_path(id, &path, n).ok();
+            if let Some(b) = cached.as_ref().and_then(|c| std::fs::read(c).ok()) {
+                return Ok((b, "image/jpeg"));
+            }
             let thumb = archive::make_page_thumb(&state.archives.page(id, &path, n)?.0)?;
-            if id > 0 {
-                let _ = std::fs::create_dir_all(cached.parent().unwrap());
-                let _ = std::fs::write(&cached, &thumb);
+            if let Some(c) = cached {
+                let _ = std::fs::write(c, &thumb);
             }
             Ok((thumb, "image/jpeg"))
         })(),
@@ -817,7 +816,8 @@ fn handle_image(state: &AppState, req: &Request<Vec<u8>>) -> Response<Vec<u8>> {
         // mustn't cost a page read itself.
         ["preview", id, n] => (|| {
             let (id, n): (i64, usize) = (id.parse()?, n.parse()?);
-            Ok((std::fs::read(state.page_thumb_path(id, n))?, "image/jpeg"))
+            let (path, _) = state.comic_path(id)?;
+            Ok((std::fs::read(state.page_thumb_path(id, &path, n)?)?, "image/jpeg"))
         })(),
         // A page shown whole on a screen `h` pixels tall: its copy at that height if one's been
         // made (an empty one means the page itself will do), else the page.
@@ -881,6 +881,8 @@ pub fn run() {
             let thumbs_dir = cache_dir.join("thumbs");
             std::fs::create_dir_all(&data_dir)?;
             std::fs::create_dir_all(&thumbs_dir)?;
+            // Page previews used to be kept here with no limit; they're in the page cache now.
+            let _ = std::fs::remove_dir_all(thumbs_dir.join("pages"));
             let db_path = data_dir.join("library.db");
             // A backup you chose to restore goes in before anything opens the database.
             match backup::apply_pending(&data_dir, &db_path) {
