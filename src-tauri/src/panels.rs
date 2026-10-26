@@ -1153,6 +1153,23 @@ mod real_pages {
             for n in notes {
                 println!("     {n}");
             }
+            // AION_PANELS_MASK=1: also save what the gutter flood leaves, biggest blob black,
+            // the rest gray, the flooded gutters white.
+            if std::env::var("AION_PANELS_MASK").is_ok() {
+                let img = crate::archive::decode_at_least(&bytes, WORK_SIZE).unwrap();
+                let s = WORK_SIZE as f32 / img.width().max(img.height()) as f32;
+                let small = img.resize((img.width() as f32 * s) as u32, (img.height() as f32 * s) as u32, FilterType::Triangle).to_luma8();
+                let found = blobs(&small, gutter_color(&small));
+                let mut mask = GrayImage::from_pixel(small.width(), small.height(), image::Luma([255]));
+                let biggest = found.iter().map(|b| b.len()).max().unwrap_or(0);
+                for b in &found {
+                    let v = if b.len() == biggest { 0 } else { 140 };
+                    for &i in b {
+                        mask.as_mut()[i as usize] = v;
+                    }
+                }
+                mask.save(out.join(format!("mask{:02}.png", page + 1))).unwrap();
+            }
             let mut img = image::load_from_memory(&bytes).unwrap().to_rgb8();
             for (k, p) in panels.iter().enumerate() {
                 outline(&mut img, p, colors[k % colors.len()]);
