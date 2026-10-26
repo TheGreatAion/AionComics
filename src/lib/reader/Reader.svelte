@@ -11,7 +11,6 @@
   import { Ctl, FIT_LABEL, type Step } from "./ctl.svelte";
   import Extract from "./Extract.svelte";
   import Flow from "./Flow.svelte";
-  import GoTo from "./GoTo.svelte";
   import GuidedView from "./GuidedView.svelte";
   import { chord, loadOverrides, pretty } from "./keys";
   import Options from "./Options.svelte";
@@ -24,7 +23,15 @@
 
   let { id, onclose, onopen }: { id: number; onclose: () => void; onopen: (id: number) => void } = $props();
 
-  const c = new Ctl({ open: (n) => onopen(n), close: () => close() });
+  const c = new Ctl({
+    open: (n) => onopen(n),
+    close: () => close(),
+    // G (Go to page) puts you in the page box in the toolbar.
+    focusPage: () => {
+      wake();
+      tick().then(() => pageBox?.focus());
+    },
+  });
   let overrides = $state(loadOverrides());
   let pageImg = $state<HTMLImageElement>();
   let chrome = $state(true);
@@ -446,7 +453,6 @@
       {#if panel}<span class="panel mono">{panel}</span>{/if}
     </div>
 
-    {#if c.overlay === "goto"}<GoTo {c} />{/if}
     {#if c.overlay === "flow"}<Flow {c} />{/if}
     {#if c.overlay === "bookmarks"}<Bookmarks {c} />{/if}
     {#if c.overlay === "options"}<Options {c} />{/if}

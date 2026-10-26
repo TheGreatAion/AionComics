@@ -273,9 +273,7 @@ fn rescan(app: AppHandle, state: State<Shared>) {
 #[serde(rename_all = "camelCase")]
 struct Home {
     continue_reading: Vec<db::ComicCard>,
-    up_next: Vec<db::ComicCard>,
     pick_up_again: Vec<db::ComicCard>,
-    recently_added: Vec<db::RecentGroup>,
 }
 
 #[tauri::command]
@@ -285,9 +283,7 @@ fn home(state: State<Shared>) -> CmdResult<Home> {
     (|| -> anyhow::Result<Home> {
         Ok(Home {
             continue_reading: db::continue_reading(&conn, now, 24)?,
-            up_next: db::up_next(&conn, 24)?,
             pick_up_again: db::pick_up_again(&conn, now, 24)?,
-            recently_added: db::recent_groups(&conn, 18)?,
         })
     })()
     .map_err(err)
@@ -297,8 +293,6 @@ fn home(state: State<Shared>) -> CmdResult<Home> {
 #[serde(rename_all = "camelCase")]
 struct Nav {
     collections: Vec<db::CollectionSummary>,
-    continue_count: usize,
-    up_next_count: usize,
 }
 
 /// Everything the sidebar needs.
@@ -308,24 +302,8 @@ fn nav(state: State<Shared>) -> CmdResult<Nav> {
     (|| -> anyhow::Result<Nav> {
         Ok(Nav {
             collections: db::collections(&conn)?,
-            continue_count: db::continue_reading(&conn, scan::now(), 1000)?.len(),
-            up_next_count: db::up_next(&conn, 1000)?.len(),
         })
     })()
-    .map_err(err)
-}
-
-#[tauri::command]
-fn comic_list(state: State<Shared>, kind: String) -> CmdResult<Vec<db::ComicCard>> {
-    let conn = state.conn.lock().unwrap();
-    let now = scan::now();
-    match kind.as_str() {
-        "continue" => db::continue_reading(&conn, now, 1000),
-        "upnext" => db::up_next(&conn, 1000),
-        "pickup" => db::pick_up_again(&conn, now, 1000),
-        "finished" => db::finished(&conn, 1000),
-        _ => db::recently_added(&conn, 300),
-    }
     .map_err(err)
 }
 
@@ -837,7 +815,6 @@ pub fn run() {
             rescan,
             home,
             nav,
-            comic_list,
             search,
             mark_read_before,
             dismiss_backfill,
@@ -938,9 +915,6 @@ mod real_queries {
         show("continue", &db::continue_reading(&conn, now, 50).unwrap());
         show("up next", &db::up_next(&conn, 50).unwrap());
         show("pick up", &db::pick_up_again(&conn, now, 50).unwrap());
-        for g in db::recent_groups(&conn, 6).unwrap() {
-            println!("recent: {} x{} cover {}", g.series_name, g.count, g.cover.label);
-        }
         let vin: i64 = conn.query_row("SELECT id FROM series WHERE name='Vinland Saga'", [], |r| r.get(0)).unwrap();
         let v = db::series_view(&conn, vin).unwrap();
         println!("vinland backfill: {:?}", v.backfill.map(|b| (b.before_label, b.count)));

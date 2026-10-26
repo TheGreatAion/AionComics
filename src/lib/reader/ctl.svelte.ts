@@ -5,7 +5,7 @@ import { open, save } from "@tauri-apps/plugin-dialog";
 import { api, pageUrl, type Panel, type ReaderInfo } from "$lib/api";
 import { prefs, savePrefs, type Fit } from "./prefs.svelte";
 
-export type Overlay = null | "goto" | "flow" | "bookmarks" | "shortcuts" | "options" | "extract" | "editor";
+export type Overlay = null | "flow" | "bookmarks" | "shortcuts" | "options" | "extract" | "editor";
 export type Dims = { w: number; h: number };
 /** One stop of Guided View: a panel on a page, or a whole page (a splash inside a spread). */
 export type Step = { page: number; panel: Panel | null };
@@ -54,7 +54,7 @@ export class Ctl {
   private measuring = new Set<number>();
   private warm: HTMLImageElement[] = [];
 
-  constructor(public hooks: { open: (id: number) => void; close: () => void }) {}
+  constructor(public hooks: { open: (id: number) => void; close: () => void; focusPage?: () => void }) {}
 
   get id() {
     return this.info?.comic.id ?? 0;

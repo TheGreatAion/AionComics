@@ -261,46 +261,6 @@ pub fn up_next(conn: &Connection, limit: i64) -> Result<Vec<ComicCard>> {
     Ok(v)
 }
 
-pub fn recently_added(conn: &Connection, limit: i64) -> Result<Vec<ComicCard>> {
-    cards(conn, "ORDER BY c.added_at DESC, c.sort_key DESC LIMIT ?1", [limit])
-}
-
-pub fn finished(conn: &Connection, limit: i64) -> Result<Vec<ComicCard>> {
-    cards(conn, "WHERE c.read=1 ORDER BY c.last_read_at DESC NULLS LAST LIMIT ?1", [limit])
-}
-
-/// Recently added, folded per series so 25 new issues show as one stack.
-#[derive(Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct RecentGroup {
-    pub series_id: i64,
-    pub series_name: String,
-    pub is_manga: bool,
-    pub count: i64,
-    pub cover: ComicCard,
-}
-
-pub fn recent_groups(conn: &Connection, limit: i64) -> Result<Vec<RecentGroup>> {
-    // A "batch" is everything added within two weeks of the series' newest book.
-    let mut st = conn.prepare(
-        "WITH g AS (SELECT series_id, MAX(added_at) AS newest FROM comics GROUP BY series_id
-                    ORDER BY newest DESC LIMIT ?1)
-         SELECT s.id, s.name, col.is_manga, g.newest,
-           (SELECT COUNT(*) FROM comics b WHERE b.series_id=g.series_id AND b.added_at>=g.newest-1209600),
-           (SELECT n.id FROM comics n WHERE n.series_id=g.series_id ORDER BY n.added_at DESC, n.sort_key DESC LIMIT 1)
-         FROM g JOIN series s ON s.id=g.series_id JOIN collections col ON col.id=s.collection_id
-         ORDER BY g.newest DESC",
-    )?;
-    let rows: Vec<(i64, String, bool, i64, i64)> = st
-        .query_map([limit], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(4)?, r.get(5)?)))?
-        .collect::<rusqlite::Result<_>>()?;
-    rows.into_iter()
-        .map(|(series_id, series_name, is_manga, count, cover_id)| {
-            Ok(RecentGroup { series_id, series_name, is_manga, count, cover: card_by_id(conn, cover_id)? })
-        })
-        .collect()
-}
-
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct CollectionSummary {

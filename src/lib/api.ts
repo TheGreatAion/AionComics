@@ -18,19 +18,9 @@ export interface ComicCard {
   coverColor: string | null;
 }
 
-export interface RecentGroup {
-  seriesId: number;
-  seriesName: string;
-  isManga: boolean;
-  count: number;
-  cover: ComicCard;
-}
-
 export interface Home {
   continueReading: ComicCard[];
-  upNext: ComicCard[];
   pickUpAgain: ComicCard[];
-  recentlyAdded: RecentGroup[];
 }
 
 export interface CollectionSummary {
@@ -45,8 +35,6 @@ export interface CollectionSummary {
 
 export interface NavInfo {
   collections: CollectionSummary[];
-  continueCount: number;
-  upNextCount: number;
 }
 
 export interface SeriesSummary {
@@ -181,8 +169,6 @@ export interface Settings {
   scanning: boolean;
 }
 
-export type ListKind = "continue" | "upnext" | "pickup" | "recent" | "finished";
-
 /** Where a comic file dropped on the window would be copied. */
 export type Placement = {
   source: string;
@@ -198,7 +184,6 @@ export const api = {
   rescan: () => invoke<void>("rescan"),
   home: () => invoke<Home>("home"),
   nav: () => invoke<NavInfo>("nav"),
-  comicList: (kind: ListKind) => invoke<ComicCard[]>("comic_list", { kind }),
   search: (q: string) => invoke<SeriesSummary[]>("search", { q }),
   collection: (id: number) => invoke<CollectionView>("collection", { id }),
   series: (id: number) => invoke<SeriesView>("series", { id }),

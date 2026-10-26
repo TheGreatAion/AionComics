@@ -50,7 +50,7 @@ export const ACTIONS: Action[] = [
   { id: "right", label: "Turn right", group: "pages", keys: ["ArrowRight"], run: (c) => c.right(), hidden: true },
   { id: "first", label: "First page", group: "pages", keys: ["Home"], run: (c) => c.goTo(0), hidden: true },
   { id: "last", label: "Last page", group: "pages", keys: ["End"], run: (c) => c.goTo(c.last), hidden: true },
-  { id: "goto", label: "Go to page…", group: "pages", keys: ["g"], run: (c) => c.toggle("goto") },
+  { id: "goto", label: "Go to page…", group: "pages", keys: ["g"], run: (c) => c.hooks.focusPage?.() },
   {
     id: "flow",
     label: "Page strip",
