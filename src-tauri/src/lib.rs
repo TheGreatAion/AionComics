@@ -43,6 +43,8 @@ pub struct AppState {
     last_page: std::sync::atomic::AtomicI64,
     /// A comic Windows asked us to open at launch, until the window picks it up.
     open_request: Mutex<Option<String>>,
+    /// The book and page the reader asked for last: background work goes on around it.
+    reading: Mutex<Option<(i64, usize)>>,
     /// The book whose page previews are being made, and the flag that stops it (see warm.rs).
     warming: Mutex<Option<(i64, Arc<AtomicBool>)>>,
 }
@@ -822,6 +824,7 @@ fn handle_image(state: &AppState, req: &Request<Vec<u8>>) -> Response<Vec<u8>> {
         ["screen", id, n, h] => (|| {
             state.last_page.store(now_ms(), Ordering::SeqCst);
             let (id, n, h): (i64, usize, u32) = (id.parse()?, n.parse()?, h.parse()?);
+            *state.reading.lock().unwrap() = Some((id, n));
             let (path, _) = state.comic_path(id)?;
             if id > 0 {
                 if let Ok(copy) = std::fs::read(state.archives.screen_copy_path(id, &path, n, h)?) {
@@ -836,6 +839,7 @@ fn handle_image(state: &AppState, req: &Request<Vec<u8>>) -> Response<Vec<u8>> {
             state.last_page.store(now_ms(), Ordering::SeqCst);
             let id: i64 = id.parse()?;
             let n: usize = n.parse()?;
+            *state.reading.lock().unwrap() = Some((id, n));
             let (path, _) = state.comic_path(id)?;
             state.archives.page_first(id, &path, n)
         })(),
@@ -901,6 +905,7 @@ pub fn run() {
                 last_page: std::sync::atomic::AtomicI64::new(0),
                 open_request: Mutex::new(comic_arg(std::env::args())),
                 warming: Mutex::new(None),
+                reading: Mutex::new(None),
             });
             app.manage(state.clone());
             // Rescan a few seconds after the comics folder stops changing (a copy in progress keeps

@@ -25,18 +25,23 @@ pub fn start(state: &Shared, id: i64, count: usize, from: usize, screen: Option<
     if let Some(old) = state.warming.lock().unwrap().replace((id, stop.clone())) {
         old.1.store(true, Ordering::Relaxed);
     }
-    let state = state.clone();
+    // Previews and screen copies side by side: copies cost more, and a big or progressive scan
+    // needs one as soon as previews do.
+    let (s, halt) = (state.clone(), stop.clone());
     std::thread::spawn(move || {
-        if let Err(e) = run(&state, id, count, from, &stop) {
+        if let Err(e) = run(&s, id, count, from, &halt) {
             eprintln!("page previews for {id}: {e}");
         }
-        if let Some(h) = screen.filter(|_| !stop.load(Ordering::Relaxed)) {
+    });
+    if let Some(h) = screen {
+        let state = state.clone();
+        std::thread::spawn(move || {
             if let Err(e) = copies(&state, id, count, from, h, &stop) {
                 eprintln!("screen copies for {id}: {e}");
             }
             state.archives.prune_now();
-        }
-    });
+        });
+    }
 }
 
 /// Pages in order of distance from `from`, ahead before behind.
@@ -46,15 +51,42 @@ fn order(count: usize, from: usize) -> impl Iterator<Item = usize> {
 
 fn run(state: &Shared, id: i64, count: usize, from: usize, stop: &AtomicBool) -> anyhow::Result<()> {
     let (path, _) = state.comic_path(id)?;
-    // A CBR's pages turn up as it's unpacked: go round again for the ones that weren't there yet.
+    follow(state, id, count, from, stop, |n| state.page_thumb_path(id, n).exists(), |n| {
+        // A CBR's page may not be there yet (still being unpacked): tried again later.
+        let Some(bytes) = state.archives.page_if_ready(id, &path, n)? else { return Ok(false) };
+        let file = state.page_thumb_path(id, n);
+        let _ = std::fs::create_dir_all(file.parent().unwrap());
+        std::fs::write(&file, archive::make_page_thumb(&bytes)?)?;
+        Ok(true)
+    })
+}
+
+/// Work through a book's pages, always next the one nearest to where the reader is now (the page
+/// asked for last, or `from`), pausing whenever a page is being turned to. `have(n)`: page n is
+/// done already; `make(n)`: do it, false if it can't be yet (tried again after a while).
+fn follow(
+    state: &Shared,
+    id: i64,
+    count: usize,
+    from: usize,
+    stop: &AtomicBool,
+    have: impl Fn(usize) -> bool,
+    mut make: impl FnMut(usize) -> anyhow::Result<bool>,
+) -> anyhow::Result<()> {
+    let mut done = vec![false; count];
     for _ in 0..60 {
-        let mut missing = 0;
-        for n in order(count, from) {
+        let mut later = vec![false; count];
+        loop {
             if stop.load(Ordering::Relaxed) {
                 return Ok(());
             }
-            let file = state.page_thumb_path(id, n);
-            if file.exists() {
+            let at = match *state.reading.lock().unwrap() {
+                Some((book, page)) if book == id => page.min(count.saturating_sub(1)),
+                _ => from,
+            };
+            let Some(n) = order(count, at).find(|&n| !done[n] && !later[n]) else { break };
+            if have(n) {
+                done[n] = true;
                 continue;
             }
             while now_ms() - state.last_page.load(Ordering::SeqCst) < YIELD_MS {
@@ -63,15 +95,13 @@ fn run(state: &Shared, id: i64, count: usize, from: usize, stop: &AtomicBool) ->
                     return Ok(());
                 }
             }
-            let Some(bytes) = state.archives.page_if_ready(id, &path, n)? else {
-                missing += 1;
-                continue;
-            };
-            let thumb = archive::make_page_thumb(&bytes)?;
-            let _ = std::fs::create_dir_all(file.parent().unwrap());
-            std::fs::write(&file, thumb)?;
+            if make(n)? {
+                done[n] = true;
+            } else {
+                later[n] = true;
+            }
         }
-        if missing == 0 {
+        if !later.contains(&true) {
             return Ok(());
         }
         std::thread::sleep(Duration::from_secs(2));
@@ -83,27 +113,15 @@ fn run(state: &Shared, id: i64, count: usize, from: usize, stop: &AtomicBool) ->
 /// gets an empty file, so it isn't looked at again.
 fn copies(state: &Shared, id: i64, count: usize, from: usize, h: u32, stop: &AtomicBool) -> anyhow::Result<()> {
     let (path, _) = state.comic_path(id)?;
-    for n in order(count, from) {
-        if stop.load(Ordering::Relaxed) {
-            return Ok(());
-        }
-        let file = state.archives.screen_copy_path(id, &path, n, h)?;
-        if file.exists() {
-            continue;
-        }
-        while now_ms() - state.last_page.load(Ordering::SeqCst) < YIELD_MS {
-            std::thread::sleep(Duration::from_millis(50));
-            if stop.load(Ordering::Relaxed) {
-                return Ok(());
-            }
-        }
-        let Some(bytes) = state.archives.page_if_ready(id, &path, n)? else { continue };
+    let file = |n: usize| state.archives.screen_copy_path(id, &path, n, h);
+    follow(state, id, count, from, stop, |n| file(n).is_ok_and(|f| f.exists()), |n| {
+        let Some(bytes) = state.archives.page_if_ready(id, &path, n)? else { return Ok(false) };
         let copy = archive::make_screen_copy(&bytes, h)?.unwrap_or_default();
-        let tmp = file.with_extension("part");
+        let (file, tmp) = (file(n)?, file(n)?.with_extension("part"));
         std::fs::write(&tmp, copy)?;
         std::fs::rename(&tmp, &file)?;
-    }
-    Ok(())
+        Ok(true)
+    })
 }
 
 /// What the panels pass should work on: book, reading direction, and the page to start from.
