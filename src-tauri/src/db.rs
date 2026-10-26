@@ -1,6 +1,7 @@
 //! AionComics's own library database. Lives in the app data folder; the comics
 //! folder itself is never written to.
 
+use std::collections::HashMap;
 use std::path::Path;
 
 use anyhow::Result;
@@ -131,6 +132,8 @@ fn migrate(conn: &Connection) -> Result<()> {
          );",
     )?;
     crate::stats::migrate(conn)?;
+    // Groups of books you've said aren't duplicates, by their sorted ids.
+    conn.execute_batch("CREATE TABLE IF NOT EXISTS duplicate_ignored(key TEXT PRIMARY KEY);")?;
     // Books in a matched series that were tried for an automatic Comic Vine pairing. Settled ones
     // are left alone for good: you left them unpaired in the matcher.
     let fresh: bool = conn.query_row("SELECT COUNT(*) FROM sqlite_master WHERE name='cv_auto'", [], |r| r.get::<_, i64>(0))? == 0;
@@ -412,6 +415,107 @@ pub struct SeriesView {
     pub backfill: Option<Backfill>,
     /// The Comic Vine series this one is matched to, if any.
     pub cv_volume_id: Option<String>,
+}
+
+/// A book that may be the same as another, with where its file is.
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DupBook {
+    pub comic: ComicCard,
+    pub rel_path: String,
+    pub size: Option<i64>,
+}
+
+/// Books that look like copies of one another, and why.
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DupGroup {
+    /// Stable for the same set of books, so "not duplicates" can be remembered.
+    pub key: String,
+    pub reasons: Vec<String>,
+    pub books: Vec<DupBook>,
+}
+
+/// Books that are probably the same: files of exactly the same size and length, files matched to
+/// the same Comic Vine issue, or the same number in the same series with the same page count
+/// (a CBR and a CBZ of one issue). Groups you've marked as not duplicates are left out.
+pub fn duplicates(conn: &Connection) -> Result<Vec<DupGroup>> {
+    let signals: [(&str, &str); 3] = [
+        ("Same file size", "SELECT GROUP_CONCAT(id) FROM comics WHERE size > 0 GROUP BY size, num_pages HAVING COUNT(*) > 1"),
+        ("Same Comic Vine issue", "SELECT GROUP_CONCAT(id) FROM comics WHERE cv_id IS NOT NULL AND cv_id != '' GROUP BY cv_id HAVING COUNT(*) > 1"),
+        (
+            "Same number and length",
+            "SELECT GROUP_CONCAT(id) FROM comics WHERE num_pages > 0 GROUP BY series_id, section, label, num_pages HAVING COUNT(*) > 1",
+        ),
+    ];
+    // Books joined by any signal end up in one group (union-find over book ids).
+    let mut parent: HashMap<i64, i64> = HashMap::new();
+    fn root(p: &mut HashMap<i64, i64>, x: i64) -> i64 {
+        let up = *p.entry(x).or_insert(x);
+        if up == x {
+            return x;
+        }
+        let r = root(p, up);
+        p.insert(x, r);
+        r
+    }
+    let mut why: Vec<(Vec<i64>, &str)> = Vec::new();
+    for (reason, sql) in signals {
+        let mut st = conn.prepare(sql)?;
+        let sets: Vec<String> = st.query_map([], |r| r.get(0))?.collect::<rusqlite::Result<_>>()?;
+        for set in sets {
+            let ids: Vec<i64> = set.split(',').filter_map(|x| x.parse().ok()).collect();
+            for w in ids.windows(2) {
+                let (a, b) = (root(&mut parent, w[0]), root(&mut parent, w[1]));
+                if a != b {
+                    parent.insert(a, b);
+                }
+            }
+            why.push((ids, reason));
+        }
+    }
+    let mut groups: HashMap<i64, Vec<i64>> = HashMap::new();
+    let ids: Vec<i64> = parent.keys().copied().collect();
+    for id in ids {
+        let r = root(&mut parent, id);
+        groups.entry(r).or_default().push(id);
+    }
+    let ignored: std::collections::HashSet<String> = conn
+        .prepare("SELECT key FROM duplicate_ignored")?
+        .query_map([], |r| r.get(0))?
+        .collect::<rusqlite::Result<_>>()?;
+    let mut out = Vec::new();
+    for (r, mut members) in groups {
+        members.sort_unstable();
+        let key = members.iter().map(|i| i.to_string()).collect::<Vec<_>>().join(",");
+        if ignored.contains(&key) {
+            continue;
+        }
+        let mut reasons: Vec<String> = why
+            .iter()
+            .filter(|(ids, _)| ids.first().is_some_and(|i| root(&mut parent, *i) == r))
+            .map(|(_, reason)| reason.to_string())
+            .collect();
+        reasons.sort();
+        reasons.dedup();
+        let mut books = Vec::new();
+        for id in &members {
+            let (rel_path, size): (String, Option<i64>) =
+                conn.query_row("SELECT rel_path, size FROM comics WHERE id=?1", [id], |r| Ok((r.get(0)?, r.get(1)?)))?;
+            books.push(DupBook { comic: card_by_id(conn, *id)?, rel_path, size });
+        }
+        out.push(DupGroup { key, reasons, books });
+    }
+    out.sort_by(|a, b| {
+        let name = |g: &DupGroup| g.books[0].comic.series_name.to_lowercase();
+        name(a).cmp(&name(b)).then_with(|| a.key.cmp(&b.key))
+    });
+    Ok(out)
+}
+
+pub fn ignore_duplicate(conn: &Connection, key: &str) -> Result<()> {
+    conn.execute("INSERT OR IGNORE INTO duplicate_ignored(key) VALUES(?1)", [key])?;
+    Ok(())
 }
 
 /// One series' worth of books that someone made or appears in.

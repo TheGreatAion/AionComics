@@ -7,6 +7,8 @@ export type Route =
   | { name: "series"; id: number; book?: number }
   /** Everything by a creator, or with a character or team in it. */
   | { name: "people"; kind: "creator" | "character"; value: string }
+  /** Books that may be in the library twice. */
+  | { name: "duplicates" }
   /** What your reading adds up to. */
   | { name: "stats" }
   | { name: "settings" };

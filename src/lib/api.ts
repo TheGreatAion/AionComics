@@ -83,6 +83,13 @@ export interface SeriesView {
   cvVolumeId: string | null;
 }
 
+/** Books that look like copies of one another, and why. Nothing is ever deleted for you. */
+export interface DupGroup {
+  key: string;
+  reasons: string[];
+  books: { comic: ComicCard; relPath: string; size: number | null }[];
+}
+
 /** One book's reading so far: every sitting with it. */
 export interface BookStats {
   pages: number;
@@ -260,6 +267,8 @@ export const api = {
   series: (id: number) => invoke<SeriesView>("series", { id }),
   people: (kind: "creator" | "character", name: string) => invoke<PeopleView>("people", { kind, name }),
   bookStats: (id: number) => invoke<BookStats>("book_stats", { id }),
+  duplicates: () => invoke<DupGroup[]>("duplicates"),
+  ignoreDuplicate: (key: string) => invoke<void>("ignore_duplicate", { key }),
   readingStats: () => invoke<ReadingStats>("reading_stats", { tzMinutes: -new Date().getTimezoneOffset() }),
   openComic: (id: number) => invoke<ReaderInfo>("open_comic", { id }),
   pagePanels: (id: number, page: number, rtl: boolean) => invoke<Panel[]>("page_panels", { id, page, rtl }),

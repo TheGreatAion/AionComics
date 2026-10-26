@@ -16,6 +16,7 @@
   import Series from "$lib/views/Series.svelte";
   import People from "$lib/views/People.svelte";
   import Stats from "$lib/views/Stats.svelte";
+  import Duplicates from "$lib/views/Duplicates.svelte";
   import Settings from "$lib/views/Settings.svelte";
 
   const route = $derived(nav.current);
@@ -120,6 +121,8 @@
         <Series id={route.id} book={route.book} />
       {:else if route.name === "people"}
         <People kind={route.kind} value={route.value} />
+      {:else if route.name === "duplicates"}
+        <Duplicates />
       {:else if route.name === "stats"}
         <Stats />
       {:else if route.name === "settings"}

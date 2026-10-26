@@ -2,7 +2,7 @@
   import { open } from "@tauri-apps/plugin-dialog";
   import { api, type Backup, type CvStatus, type Settings } from "$lib/api";
   import Icon from "$lib/components/Icon.svelte";
-  import { lib } from "$lib/state.svelte";
+  import { lib, nav } from "$lib/state.svelte";
 
   let { welcome = false }: { welcome?: boolean } = $props();
   let s = $state<Settings | null>(null);
@@ -145,6 +145,16 @@
           free key at <span class="url">comicvine.gamespot.com/api</span>
         </p>
         {#if cv?.lastError}<p class="stats mono" title="Last problem"><Icon name="alert" size={12} /> {cv.lastError}</p>{/if}
+      </section>
+
+      <section>
+        <h2>Duplicates</h2>
+        <div class="row">
+          <span class="path mono">Books that may be in your library twice</span>
+          <button class="ico" title="Find duplicates" aria-label="Find duplicates" onclick={() => nav.go({ name: "duplicates" })}>
+            <Icon name="search" size={17} />
+          </button>
+        </div>
       </section>
 
       <!-- Reading progress, bookmarks, panel edits and metadata, copied once a day. -->

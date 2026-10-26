@@ -400,6 +400,18 @@ fn series(state: State<Shared>, id: i64) -> CmdResult<db::SeriesView> {
     db::series_view(&state.conn.lock().unwrap(), id).map_err(err)
 }
 
+/// Books that look like copies of one another.
+#[tauri::command]
+fn duplicates(state: State<Shared>) -> CmdResult<Vec<db::DupGroup>> {
+    db::duplicates(&state.conn.lock().unwrap()).map_err(err)
+}
+
+/// Stop showing a group: you've checked and they're different books.
+#[tauri::command]
+fn ignore_duplicate(state: State<Shared>, key: String) -> CmdResult<()> {
+    db::ignore_duplicate(&state.conn.lock().unwrap(), &key).map_err(err)
+}
+
 /// Every book by a creator, or with a character or team in it.
 #[tauri::command]
 fn people(state: State<Shared>, kind: String, name: String) -> CmdResult<db::PeopleView> {
@@ -911,6 +923,8 @@ pub fn run() {
             collection,
             series,
             people,
+            duplicates,
+            ignore_duplicate,
             book_stats,
             reading_stats,
             open_comic,
