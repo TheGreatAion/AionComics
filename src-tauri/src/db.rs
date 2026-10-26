@@ -323,13 +323,16 @@ pub struct SeriesSummary {
     pub cover_ratio: Option<f64>,
     pub last_read_at: Option<i64>,
     pub last_added_at: Option<i64>,
+    /// The first book's cover color, "#rrggbb".
+    pub cover_color: Option<String>,
 }
 
 const SERIES_SELECT: &str = "SELECT s.id, s.name, col.is_manga, COUNT(c.id), COALESCE(SUM(c.read),0),
        COALESCE(MAX(c.read=0 AND c.current_page>0),0),
        (SELECT c2.id FROM comics c2 WHERE c2.series_id=s.id ORDER BY c2.sort_key LIMIT 1),
        (SELECT c2.cover_ratio FROM comics c2 WHERE c2.series_id=s.id ORDER BY c2.sort_key LIMIT 1),
-       MAX(c.last_read_at), MAX(c.added_at)
+       MAX(c.last_read_at), MAX(c.added_at),
+       (SELECT c2.cover_color FROM comics c2 WHERE c2.series_id=s.id ORDER BY c2.sort_key LIMIT 1)
      FROM series s JOIN collections col ON col.id=s.collection_id LEFT JOIN comics c ON c.series_id=s.id";
 
 fn series_summary(r: &Row) -> rusqlite::Result<SeriesSummary> {
@@ -344,6 +347,7 @@ fn series_summary(r: &Row) -> rusqlite::Result<SeriesSummary> {
         cover_ratio: r.get(7)?,
         last_read_at: r.get(8)?,
         last_added_at: r.get(9)?,
+        cover_color: r.get(10)?,
     })
 }
 

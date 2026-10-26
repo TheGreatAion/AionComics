@@ -56,6 +56,8 @@ export interface SeriesSummary {
   coverRatio: number | null;
   lastReadAt: number | null;
   lastAddedAt: number | null;
+  /** The first book's cover color, "#rrggbb". */
+  coverColor: string | null;
 }
 
 export interface CollectionView {
