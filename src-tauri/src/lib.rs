@@ -108,6 +108,27 @@ impl AppState {
 
 // ---------- scanning ----------
 
+/// A book not opened for this long has its cache cleared.
+const CACHE_DAYS: u64 = 30;
+
+/// Keep the page cache to what's likely to be read again: a book you've finished, or haven't opened
+/// for CACHE_DAYS, is cleared (all of it comes back if it's opened again), and a CBR keeps no
+/// unpacked pages it can do without. `keep`: the book being opened, left as it is.
+fn tidy_cache(state: &AppState, keep: Option<i64>) {
+    let month = std::time::Duration::from_secs(CACHE_DAYS * 24 * 3600);
+    for (id, used) in state.archives.cached_books() {
+        if Some(id) == keep {
+            continue;
+        }
+        let finished = db::card_by_id(&state.conn.lock().unwrap(), id).map(|c| c.read).unwrap_or(true);
+        if finished || used.elapsed().is_ok_and(|age| age > month) {
+            state.archives.forget_book(id);
+        } else if let Ok((path, _)) = state.comic_path(id) {
+            state.archives.trim_unpacked(id, &path);
+        }
+    }
+}
+
 fn now_ms() -> i64 {
     std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_millis() as i64).unwrap_or(0)
 }
@@ -673,6 +694,8 @@ async fn open_comic(state: State<'_, Shared>, id: i64, screen: Option<u32>) -> C
         let bookmarks = db::bookmarks(&conn, id)?;
         drop(conn);
         warm::start(&state, id, n, start, screen);
+        let s = state.clone();
+        std::thread::spawn(move || tidy_cache(&s, Some(id)));
         Ok(ReaderInfo { comic, page_count: n, start_page: start, prev_id, next, bookmarks, external: false })
     })
     .await
@@ -951,6 +974,10 @@ pub fn run() {
             }
             // Pick up anything added or moved since last launch.
             start_scan(app.handle(), &state);
+            {
+                let state = state.clone();
+                std::thread::spawn(move || tidy_cache(&state, None));
+            }
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![

@@ -1,12 +1,13 @@
 //! Reading pages out of comic archives (CBZ/ZIP and CBR/RAR) and plain folders of images.
 //!
 //! ZIP archives support random access, so pages are read on demand from a
-//! small pool of open archives. RAR archives can only be read front to back,
-//! so a background thread unpacks a whole CBR into a cache folder, from the
-//! page you're on to the end and then the start; a page it hasn't reached yet
-//! is read on its own meanwhile. Unpacked pages are kept between sessions,
-//! up to PAGES_CAP, and page lists are remembered on disk, because listing a
-//! big CBR means reading through it.
+//! small pool of open archives. unrar can only read a RAR front to back, but
+//! the RAR headers say where each page sits, so a page of any CBR that isn't
+//! solid is unpacked by itself from its own block (see rarindex.rs). Only a
+//! CBR whose pages can't be is unpacked whole into a cache folder by a
+//! background thread, from the page you're on to the end and then the start,
+//! and kept between sessions, up to PAGES_CAP. Page lists are remembered on
+//! disk, because listing a big CBR means reading through it.
 
 use std::collections::{HashMap, HashSet};
 use std::fs::{self, File};
@@ -337,6 +338,8 @@ pub struct Archives {
     checked: Mutex<HashSet<i64>>,
     /// Numbers the tiny archives single CBR pages are unpacked from (see `rar_direct`).
     scratch: std::sync::atomic::AtomicU64,
+    /// CBRs whose old unpacked pages were cleared away this session (see `drop_unpacked`).
+    trimmed: Mutex<HashSet<i64>>,
 }
 
 impl Archives {
@@ -363,6 +366,7 @@ impl Archives {
             gates: Mutex::new(Lru::new(8)),
             checked: Mutex::new(HashSet::new()),
             scratch: Default::default(),
+            trimmed: Mutex::new(HashSet::new()),
         }
     }
 
@@ -528,6 +532,14 @@ impl Archives {
     }
 
     fn rar_read(&self, id: i64, path: &Path, listing: &Arc<Listing>, index: usize) -> Result<Vec<u8>> {
+        // Every page can be got at by itself: nothing needs unpacking whole, or keeping unpacked.
+        if listing.parts.iter().all(|p| p.is_some()) {
+            self.drop_unpacked(id, path);
+            if let Some(data) = self.rar_direct(path, listing, index) {
+                return Ok(data);
+            }
+            return rar_read_one(path, &listing.pages[index]);
+        }
         let job = self.rar_job(id, path, listing, index)?;
         let target = job.dir.join(index.to_string());
         let mut st = job.state.lock().unwrap();
@@ -552,6 +564,54 @@ impl Archives {
             return rar_read_one(path, &listing.pages[index]);
         }
         bail!(err.unwrap_or_else(|| "page missing from archive".into()))
+    }
+
+    /// Library books with a cache folder, and when each was last opened.
+    pub fn cached_books(&self) -> Vec<(i64, std::time::SystemTime)> {
+        fs::read_dir(&self.pages_dir)
+            .into_iter()
+            .flatten()
+            .flatten()
+            .filter_map(|e| {
+                let id: i64 = e.file_name().to_string_lossy().parse().ok().filter(|&id| id > 0)?;
+                let used = fs::metadata(e.path().join("stamp")).and_then(|m| m.modified()).ok()?;
+                Some((id, used))
+            })
+            .collect()
+    }
+
+    /// Clear a book's cache folder (it's made again if the book is opened again), unless its
+    /// CBR is being unpacked right now.
+    pub fn forget_book(&self, id: i64) {
+        if self.rars.lock().unwrap().items.iter().any(|(k, j)| *k == id && !j.state.lock().unwrap().done) {
+            return;
+        }
+        let _ = fs::remove_dir_all(self.pages_dir.join(id.to_string()));
+        self.checked.lock().unwrap().remove(&id);
+        self.trimmed.lock().unwrap().remove(&id);
+    }
+
+    /// Clear away a CBR's pages unpacked whole, if every one of its pages can be got at by itself.
+    pub fn trim_unpacked(&self, id: i64, path: &Path) {
+        let Ok(listing) = self.listing(id, path) else { return };
+        if listing.kind == Kind::Rar && listing.parts.iter().all(|p| p.is_some()) {
+            self.drop_unpacked(id, path);
+        }
+    }
+
+    /// A CBR's pages unpacked whole before its pages could be got at one by one: no use now.
+    /// Looked at once a session.
+    fn drop_unpacked(&self, id: i64, path: &Path) {
+        if !self.trimmed.lock().unwrap().insert(id) {
+            return;
+        }
+        let Ok(dir) = self.book_dir(id, path) else { return };
+        for e in fs::read_dir(dir).into_iter().flatten().flatten() {
+            let name = e.file_name().to_string_lossy().into_owned();
+            if name.split('.').next().is_some_and(|n| !n.is_empty() && n.bytes().all(|b| b.is_ascii_digit())) {
+                let _ = fs::remove_file(e.path());
+            }
+        }
     }
 
     /// The book's cache folder (a CBR's unpacked pages, any book's screen copies), emptied first
@@ -698,7 +758,8 @@ pub fn make_screen_copy(bytes: &[u8], h: u32) -> Result<Option<Vec<u8>>> {
     let img = decode_at_least(bytes, w.max(h))?;
     let copy = img.resize_exact(w, h, image::imageops::FilterType::CatmullRom).to_rgb8();
     let mut out = Vec::new();
-    image::codecs::jpeg::JpegEncoder::new_with_quality(&mut out, 90).encode_image(&copy)?;
+    // At screen size, quality 85 looks the same as higher and takes a fifth less room.
+    image::codecs::jpeg::JpegEncoder::new_with_quality(&mut out, 85).encode_image(&copy)?;
     Ok(Some(out))
 }
 
