@@ -2,7 +2,7 @@
 
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { open, save } from "@tauri-apps/plugin-dialog";
-import { api, pageUrl, previewUrl, type Panel, type ReaderInfo } from "$lib/api";
+import { api, pageUrl, previewUrl, screenUrl, thumbUrl, type Panel, type ReaderInfo } from "$lib/api";
 import { prefs, savePrefs, type Fit } from "./prefs.svelte";
 
 export type Overlay = null | "flow" | "bookmarks" | "shortcuts" | "options" | "extract" | "editor";
@@ -117,6 +117,14 @@ export class Ctl {
     return !!d && d.w > d.h * 1.05;
   }
 
+  /** Where a page is shown from. Shown whole (fit to the page or its height, not zoomed or
+   *  turned), a big page comes as its copy at screen height, which decodes several times faster;
+   *  otherwise as it is, every pixel there for zooming in. */
+  src(i: number) {
+    const whole = (prefs.fit === "page" || prefs.fit === "height") && this.zoom === 1 && !this.magnifier && this.rotation % 180 === 0;
+    return whole ? screenUrl(this.id, i) : pageUrl(this.id, i);
+  }
+
   /** Load and decode a page before it's shown: its size pairs spreads correctly, and the decoded
    *  pixels make the turn instant instead of decoding a big scan the moment it appears. */
   measure(i: number) {
@@ -124,7 +132,7 @@ export class Ctl {
     this.measuring.add(i);
     const book = this.id;
     const img = new Image();
-    img.src = pageUrl(book, i);
+    img.src = this.src(i);
     img
       .decode()
       .then(() => {
@@ -136,7 +144,9 @@ export class Ctl {
     if (this.warm.length > 10) this.warm.shift();
   }
 
-  /** Load a page's small preview, if it's been made, to show while the page itself loads. */
+  /** Load a page's small preview to show while the page itself loads: the one made already, or,
+   *  if it hasn't been yet and the page is still loading, one made now (far quicker to make than
+   *  a big page is to decode). */
   preview(i: number) {
     if (this.dims[i] || this.previewing.has(i)) return;
     this.previewing.add(i);
@@ -146,6 +156,9 @@ export class Ctl {
       if (this.id !== book) return;
       this.hints[i] = { w: img.naturalWidth, h: img.naturalHeight };
       requestAnimationFrame(() => performance.mark("aion:preview", { detail: i }));
+    };
+    img.onerror = () => {
+      if (this.id === book && !this.dims[i] && this.shown.includes(i) && !img.src.includes("/thumb/")) img.src = thumbUrl(book, i);
     };
     img.src = previewUrl(book, i);
   }

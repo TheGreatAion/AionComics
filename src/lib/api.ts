@@ -272,8 +272,10 @@ export const api = {
   duplicates: () => invoke<DupGroup[]>("duplicates"),
   ignoreDuplicate: (key: string) => invoke<void>("ignore_duplicate", { key }),
   readingStats: () => invoke<ReadingStats>("reading_stats", { tzMinutes: -new Date().getTimezoneOffset() }),
-  openComic: (id: number) => invoke<ReaderInfo>("open_comic", { id }),
+  openComic: (id: number) => invoke<ReaderInfo>("open_comic", { id, screen: screenHeight }),
   pagePanels: (id: number, page: number, rtl: boolean) => invoke<Panel[]>("page_panels", { id, page, rtl }),
+  /** Guided View: work out the book's panels in the background, from page `from` on. */
+  panelsAhead: (id: number, from: number, rtl: boolean) => invoke<void>("panels_ahead", { id, from, rtl }),
   comicMeta: (id: number) => invoke<ComicMeta>("comic_meta", { id }),
   editComicMeta: (id: number, changes: Partial<Record<MetaField, string | null>>) =>
     invoke<ComicMeta>("edit_comic_meta", { id, changes }),
@@ -311,6 +313,10 @@ const base = navigator.userAgent.includes("Windows") ? "http://aion.localhost" :
 export const coverUrl = (id: number) => `${base}/cover/${id}`;
 export const pageUrl = (id: number, n: number) => `${base}/page/${id}/${n}`;
 export const thumbUrl = (id: number, n: number) => `${base}/thumb/${id}/${n}`;
+/** The screen's height in pixels, rounded up to a multiple of 120: big pages get copies this tall. */
+export const screenHeight = Math.ceil((screen.height * devicePixelRatio) / 120) * 120;
+/** A page to show whole: its copy at screen height if one's been made, else the page itself. */
+export const screenUrl = (id: number, n: number) => `${base}/screen/${id}/${n}/${screenHeight}`;
 /** A page's small preview, only if it's been made already (404 otherwise; see warm.rs). */
 export const previewUrl = (id: number, n: number) => `${base}/preview/${id}/${n}`;
 

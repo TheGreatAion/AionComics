@@ -29,7 +29,7 @@
   // A page that failed to load (shown with a retry), and a counter that forces a fresh request.
   let failed = $state<number | null>(null);
   let retry = $state(0);
-  const src = (i: number) => pageUrl(c.id, i) + (retry ? `?retry=${retry}` : "");
+  const src = (i: number) => c.src(i) + (retry ? `?retry=${retry}` : "");
 
   $effect(() => {
     c.stage = stage ?? null;
@@ -91,10 +91,15 @@
   });
   const live = (i: number) => quiet || !!c.dims[i];
 
-  // Once the page is on screen, look one spread ahead and behind so pairing and page turns are
-  // instant (not before: they'd hold up the page itself).
+  // Once the pages themselves are on screen (not just their previews), look one spread ahead and
+  // behind so pairing and page turns are instant. Not before: they'd hold up the page itself.
+  let painted = $state<Record<number, boolean>>({});
   $effect(() => {
-    if (!ready || !quiet) return;
+    void c.id;
+    painted = {};
+  });
+  $effect(() => {
+    if (!quiet || !order.every((i) => painted[i])) return;
     const p = c.page;
     c.settleAt(p);
     for (const d of [1, 2, 3, -1, -2]) c.measure(p + d);
@@ -117,7 +122,11 @@
   function loaded(i: number, e: Event) {
     const el = e.currentTarget as HTMLImageElement;
     el.decode().then(
-      () => requestAnimationFrame(() => performance.mark("aion:shown", { detail: i })),
+      () =>
+        requestAnimationFrame(() => {
+          painted[i] = true;
+          performance.mark("aion:shown", { detail: i });
+        }),
       () => {},
     );
     c.dims[i] = { w: el.naturalWidth, h: el.naturalHeight };

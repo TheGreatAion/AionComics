@@ -22,6 +22,7 @@ name = "aion"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "crc32fast",
  "image",
  "jpeg-decoder",
  "natord",

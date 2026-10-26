@@ -6,6 +6,7 @@ mod db;
 mod frames;
 mod intake;
 mod panels;
+mod rarindex;
 mod scan;
 mod stats;
 mod warm;
@@ -642,7 +643,7 @@ fn external_card(path: &Path, id: i64, pages: usize) -> db::ComicCard {
 }
 
 #[tauri::command]
-async fn open_comic(state: State<'_, Shared>, id: i64) -> CmdResult<ReaderInfo> {
+async fn open_comic(state: State<'_, Shared>, id: i64, screen: Option<u32>) -> CmdResult<ReaderInfo> {
     let state = state.inner().clone();
     tauri::async_runtime::spawn_blocking(move || -> anyhow::Result<ReaderInfo> {
         let (path, _) = state.comic_path(id)?;
@@ -667,12 +668,18 @@ async fn open_comic(state: State<'_, Shared>, id: i64) -> CmdResult<ReaderInfo> 
         let start = if comic.read { 0 } else { (comic.current_page.max(0) as usize).min(n - 1) };
         let bookmarks = db::bookmarks(&conn, id)?;
         drop(conn);
-        warm::start(&state, id, n, start);
+        warm::start(&state, id, n, start, screen);
         Ok(ReaderInfo { comic, page_count: n, start_page: start, prev_id, next, bookmarks, external: false })
     })
     .await
     .map_err(err)?
     .map_err(err)
+}
+
+/// In Guided View: work out the book's panels in the background, from page `from` on.
+#[tauri::command]
+fn panels_ahead(state: State<'_, Shared>, id: i64, from: usize, rtl: bool) {
+    warm::panels_ahead(state.inner(), id, rtl, from);
 }
 
 #[tauri::command]
@@ -809,6 +816,21 @@ fn handle_image(state: &AppState, req: &Request<Vec<u8>>) -> Response<Vec<u8>> {
         ["preview", id, n] => (|| {
             let (id, n): (i64, usize) = (id.parse()?, n.parse()?);
             Ok((std::fs::read(state.page_thumb_path(id, n))?, "image/jpeg"))
+        })(),
+        // A page shown whole on a screen `h` pixels tall: its copy at that height if one's been
+        // made (an empty one means the page itself will do), else the page.
+        ["screen", id, n, h] => (|| {
+            state.last_page.store(now_ms(), Ordering::SeqCst);
+            let (id, n, h): (i64, usize, u32) = (id.parse()?, n.parse()?, h.parse()?);
+            let (path, _) = state.comic_path(id)?;
+            if id > 0 {
+                if let Ok(copy) = std::fs::read(state.archives.screen_copy_path(id, &path, n, h)?) {
+                    if !copy.is_empty() {
+                        return Ok((copy, "image/jpeg"));
+                    }
+                }
+            }
+            state.archives.page_first(id, &path, n)
         })(),
         ["page", id, n] => (|| {
             state.last_page.store(now_ms(), Ordering::SeqCst);
@@ -947,6 +969,7 @@ pub fn run() {
             reading_stats,
             open_comic,
             page_panels,
+            panels_ahead,
             save_progress,
             set_read,
             open_path,

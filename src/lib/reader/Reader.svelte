@@ -64,7 +64,7 @@
       .catch((e) => (c.error = String(e)));
   });
 
-  // Guided View stops for the page or spread on screen, and the next spread's ahead of time.
+  // Guided View stops for the page or spread on screen; the pages after it are worked out ahead.
   $effect(() => {
     void panelsRev;
     if (!c.info || c.mode !== "guided") return;
@@ -86,9 +86,8 @@
       else if (!prefs.guidedOverview && steps.length && c.step < 0) c.step = 0;
       c.zoomAt = null;
       c.landOnLast = false;
-      for (const n of [pages[pages.length - 1] + 1, pages[pages.length - 1] + 2]) {
-        if (n <= c.last) api.pagePanels(book, n, rtl).catch(() => {});
-      }
+      // The rest of the book's panels, from the next page on, in the background.
+      api.panelsAhead(book, pages[pages.length - 1] + 1, rtl).catch(() => {});
     });
   });
 

@@ -2,9 +2,11 @@
 //!
 //! ZIP archives support random access, so pages are read on demand from a
 //! small pool of open archives. RAR archives can only be read front to back,
-//! so a background thread unpacks a CBR into a cache folder starting at the
-//! page you're on and stays a few dozen pages ahead of you. Page lists are
-//! remembered on disk, because listing a big CBR means reading through it.
+//! so a background thread unpacks a whole CBR into a cache folder, from the
+//! page you're on to the end and then the start; a page it hasn't reached yet
+//! is read on its own meanwhile. Unpacked pages are kept between sessions,
+//! up to PAGES_CAP, and page lists are remembered on disk, because listing a
+//! big CBR means reading through it.
 
 use std::collections::{HashMap, HashSet};
 use std::fs::{self, File};
@@ -17,8 +19,11 @@ use std::time::Duration;
 use anyhow::{anyhow, bail, Context, Result};
 use serde::{Deserialize, Serialize};
 
-/// How many pages ahead of the reader a CBR is unpacked.
-const RAR_AHEAD: usize = 24;
+/// Unpacked CBR pages kept on disk, all books together; the books opened longest ago go first.
+const PAGES_CAP: u64 = 5 << 30;
+/// A page the unpacking is at most this many pages short of is waited for rather than read on
+/// its own (which means reading through the archive up to it).
+const RAR_SOON: usize = 6;
 /// Page requests for one book served at once (see `Archives::page_first`).
 const PAGE_READERS: usize = 2;
 /// A waiting request this many pages or more from the newest one is dropped: skipped past.
@@ -108,12 +113,29 @@ pub struct Listing {
     pub solid: bool,
     /// Image entry names in reading order.
     pub pages: Vec<String>,
+    /// A RAR's pages that can be got at directly, by page (see rarindex.rs).
+    #[serde(default)]
+    pub parts: Vec<Option<Part>>,
+    /// Where a RAR's opening headers end.
+    #[serde(default)]
+    pub head: u64,
+}
+
+/// Where a RAR page sits in the file, so it can be read without walking the archive to it.
+#[derive(Clone, Copy, Serialize, Deserialize)]
+pub struct Part {
+    /// Its block (header and data): where it starts, and how long it is.
+    block: (u64, u64),
+    /// Its bytes as they are, when stored uncompressed.
+    data: Option<(u64, u64)>,
+    crc: u32,
 }
 
 pub fn list(path: &Path) -> Result<Listing> {
     let kind = detect(path)?;
     let mut pages = Vec::new();
     let mut solid = false;
+    let (mut parts, mut head) = (Vec::new(), 0);
     match kind {
         Kind::Zip => {
             let z = open_zip(path)?;
@@ -136,14 +158,34 @@ pub fn list(path: &Path) -> Result<Listing> {
         Kind::Rar => {
             let arc = unrar::Archive::new(path).open_for_listing()?;
             solid = arc.is_solid();
+            // Every file in archive order, to line up with the headers read for parts.
+            let mut files = Vec::new();
             for e in arc {
                 let e = e?;
                 if e.is_file() {
                     let n = rar_name(&e);
                     if is_image(&n) {
-                        pages.push(n);
+                        pages.push(n.clone());
                     }
+                    files.push((n, e.unpacked_size, e.file_crc));
                 }
+            }
+            // Only when the headers tell the same story as unrar: as many files, the same sizes.
+            let found = crate::rarindex::entries(path).ok().filter(|ix| {
+                ix.files.len() == files.len() && ix.files.iter().zip(&files).all(|(e, f)| e.unpacked == f.1)
+            });
+            sort_pages(&mut pages);
+            parts = vec![None; pages.len()];
+            if let Some(ix) = found.filter(|_| !solid) {
+                let at: HashMap<&str, Part> = ix
+                    .files
+                    .iter()
+                    .zip(&files)
+                    .filter(|(e, _)| e.alone)
+                    .map(|(e, f)| (f.0.as_str(), Part { block: e.block, data: e.stored, crc: f.2 }))
+                    .collect();
+                parts = pages.iter().map(|p| at.get(p.as_str()).copied()).collect();
+                head = ix.head;
             }
         }
     }
@@ -151,7 +193,7 @@ pub fn list(path: &Path) -> Result<Listing> {
         bail!("No pages found in this archive");
     }
     sort_pages(&mut pages);
-    Ok(Listing { kind, solid, pages })
+    Ok(Listing { kind, solid, pages, parts, head })
 }
 
 /// Read a single named entry from a RAR by streaming until we reach it.
@@ -196,30 +238,20 @@ impl<V: Clone> Lru<V> {
     }
 }
 
+/// Unpacking one CBR into its cache folder, a file per page (named by its reading-order index).
 struct RarJob {
     dir: PathBuf,
-    /// First page this job unpacks; in a non-solid archive earlier pages are skipped past.
-    start: usize,
     state: Mutex<RarState>,
     cv: Condvar,
     cancel: AtomicBool,
-    /// Pushed out of the cache by other books: its pages can go once it stops.
-    evicted: AtomicBool,
 }
 
 #[derive(Default)]
 struct RarState {
     done: bool,
     error: Option<String>,
-    /// The page the reader asked for last; unpacking stays RAR_AHEAD pages past it.
-    want: usize,
-    /// Every page someone is waiting for right now. The reader asks for several at once (the page
-    /// on screen and the ones it loads ahead), and none of them may be skipped.
-    pending: Vec<usize>,
-    /// Pages the job has gone past, unpacked or not.
-    seen: HashSet<usize>,
-    /// Furthest page unpacked so far.
-    reached: Option<usize>,
+    /// The page unpacked last.
+    last: Option<usize>,
 }
 
 /// A remembered page list, valid while the file's size and modification time match.
@@ -300,13 +332,25 @@ pub struct Archives {
     zips: Mutex<Lru<ZipHandle>>,
     rars: Mutex<Lru<Arc<RarJob>>>,
     gates: Mutex<Lru<Arc<Gate>>>,
+    /// Books whose cache folder was checked against their file this session.
+    checked: Mutex<HashSet<i64>>,
+    /// Numbers the tiny archives single CBR pages are unpacked from (see `rar_direct`).
+    scratch: std::sync::atomic::AtomicU64,
 }
 
 impl Archives {
     pub fn new(cache_dir: &Path) -> Self {
         let pages_dir = cache_dir.join("pages");
-        // Extracted pages are disposable; start each session clean.
-        let _ = fs::remove_dir_all(&pages_dir);
+        // Books opened from outside the library get new ids each session: their pages are no use.
+        // Nor are tiny archives left over from unpacking single pages.
+        for e in fs::read_dir(&pages_dir).into_iter().flatten().flatten() {
+            let name = e.file_name().to_string_lossy().into_owned();
+            if name.starts_with('-') {
+                let _ = fs::remove_dir_all(e.path());
+            } else if name.starts_with("one-") {
+                let _ = fs::remove_file(e.path());
+            }
+        }
         let listings_dir = cache_dir.join("listings");
         let _ = fs::create_dir_all(&listings_dir);
         Self {
@@ -316,6 +360,8 @@ impl Archives {
             zips: Mutex::new(Lru::new(4)),
             rars: Mutex::new(Lru::new(4)),
             gates: Mutex::new(Lru::new(8)),
+            checked: Mutex::new(HashSet::new()),
+            scratch: Default::default(),
         }
     }
 
@@ -341,12 +387,24 @@ impl Archives {
             return None;
         }
         let saved: SavedListing = serde_json::from_slice(&fs::read(self.listings_dir.join(format!("{id}.json"))).ok()?).ok()?;
-        (stamp(path)? == (saved.size, saved.mtime)).then_some(saved.listing)
+        // A CBR listed before pages had parts gets listed again, once.
+        let current = saved.listing.kind != Kind::Rar || saved.listing.parts.len() == saved.listing.pages.len();
+        (current && stamp(path)? == (saved.size, saved.mtime)).then_some(saved.listing)
     }
 
     fn save_listing(&self, id: i64, path: &Path, listing: &Listing) {
         let Some((size, mtime)) = stamp(path).filter(|_| id > 0) else { return };
-        let saved = SavedListing { size, mtime, listing: Listing { kind: listing.kind, solid: listing.solid, pages: listing.pages.clone() } };
+        let saved = SavedListing {
+            size,
+            mtime,
+            listing: Listing {
+                kind: listing.kind,
+                solid: listing.solid,
+                pages: listing.pages.clone(),
+                parts: listing.parts.clone(),
+                head: listing.head,
+            },
+        };
         if let Ok(json) = serde_json::to_vec(&saved) {
             let _ = fs::write(self.listings_dir.join(format!("{id}.json")), json);
         }
@@ -381,14 +439,51 @@ impl Archives {
         self.page(id, path, index)
     }
 
-    /// A page for background work, without unpacking anything: CBZ and folder pages are read, a
-    /// CBR's only once its unpacking has reached them (None until then).
+    /// A page for background work, without starting to unpack a CBR: CBZ and folder pages are
+    /// read, a CBR's once unpacked or when they can be got at directly (None otherwise).
     pub fn page_if_ready(&self, id: i64, path: &Path, index: usize) -> Result<Option<Vec<u8>>> {
         let listing = self.listing(id, path)?;
         match listing.kind {
-            Kind::Rar => Ok(fs::read(self.pages_dir.join(id.to_string()).join(index.to_string())).ok()),
+            Kind::Rar => match fs::read(self.book_dir(id, path)?.join(index.to_string())) {
+                Ok(data) => Ok(Some(data)),
+                Err(_) => Ok(self.rar_direct(path, &listing, index)),
+            },
             _ => self.page(id, path, index).map(|p| Some(p.0)),
         }
+    }
+
+    /// Where page `n`'s copy for a screen `h` pixels tall goes (see `make_screen_copy`).
+    pub fn screen_copy_path(&self, id: i64, path: &Path, n: usize, h: u32) -> Result<PathBuf> {
+        Ok(self.book_dir(id, path)?.join(format!("screen-{n}-{h}.jpg")))
+    }
+
+    /// Keep the cache under PAGES_CAP now (it's also kept so after each CBR is unpacked).
+    pub fn prune_now(&self) {
+        let busy: Vec<PathBuf> = self.rars.lock().unwrap().items.iter().map(|(_, j)| j.dir.clone()).collect();
+        prune(&self.pages_dir, &busy);
+    }
+
+    /// A CBR page got at directly (see rarindex.rs): read straight from the file if it's stored
+    /// as it is, else unpacked from its block alone. None if it can't be, or doesn't check out.
+    fn rar_direct(&self, path: &Path, listing: &Listing, index: usize) -> Option<Vec<u8>> {
+        use std::io::{Seek, SeekFrom};
+        let part = listing.parts.get(index).copied().flatten()?;
+        let data = match part.data {
+            Some((at, len)) => {
+                let mut f = File::open(path).ok()?;
+                f.seek(SeekFrom::Start(at)).ok()?;
+                let mut buf = vec![0u8; len as usize];
+                f.read_exact(&mut buf).ok()?;
+                buf
+            }
+            None => {
+                let n = self.scratch.fetch_add(1, Ordering::Relaxed);
+                let _ = fs::create_dir_all(&self.pages_dir);
+                let tmp = self.pages_dir.join(format!("one-{n}.rar"));
+                crate::rarindex::unpack_alone(path, listing.head, part.block, &tmp).ok()?
+            }
+        };
+        (crc32fast::hash(&data) == part.crc).then_some(data)
     }
 
     /// First page without kicking off a full RAR extraction (used for covers).
@@ -396,7 +491,10 @@ impl Archives {
         let listing = self.listing(id, path)?;
         match listing.kind {
             Kind::Zip => self.zip_read(id, path, &listing.pages[0]),
-            Kind::Rar => rar_read_one(path, &listing.pages[0]),
+            Kind::Rar => match self.rar_direct(path, &listing, 0) {
+                Some(data) => Ok(data),
+                None => rar_read_one(path, &listing.pages[0]),
+            },
             Kind::Folder => Ok(fs::read(path.join(&listing.pages[0]))?),
         }
     }
@@ -432,153 +530,125 @@ impl Archives {
         let job = self.rar_job(id, path, listing, index)?;
         let target = job.dir.join(index.to_string());
         let mut st = job.state.lock().unwrap();
-        st.want = index;
-        st.pending.push(index);
-        job.cv.notify_all();
-        let unpacked = loop {
-            if target.exists() {
-                break true;
-            }
-            // The job finished, or went past this page without unpacking it (it was looking for another).
-            if st.done || (!listing.solid && st.seen.contains(&index)) {
-                break false;
-            }
-            st = job.cv.wait_timeout(st, Duration::from_millis(250)).unwrap().0;
-        };
-        if let Some(k) = st.pending.iter().position(|&p| p == index) {
-            st.pending.remove(k);
+        // A solid archive can only be read front to back, so the unpacking is the only way to the
+        // page. Otherwise wait only if it's about to get there, and the page can't be got at
+        // directly.
+        let direct = listing.parts.get(index).is_some_and(|p| p.is_some());
+        let soon = |st: &RarState| !direct && st.last.is_some_and(|l| l < index && index - l <= RAR_SOON);
+        let deadline = std::time::Instant::now() + Duration::from_millis(400);
+        while !target.exists() && !st.done && (listing.solid || soon(&st) && std::time::Instant::now() < deadline) {
+            st = job.cv.wait_timeout(st, Duration::from_millis(50)).unwrap().0;
         }
         let err = st.error.clone();
         drop(st);
-        if unpacked {
-            return Ok(fs::read(&target)?);
+        if let Ok(data) = fs::read(&target) {
+            return Ok(data);
         }
-        // A non-solid archive can always be read directly; a solid one only by unpacking in order.
+        if let Some(data) = self.rar_direct(path, listing, index) {
+            return Ok(data);
+        }
         if !listing.solid {
             return rar_read_one(path, &listing.pages[index]);
         }
         bail!(err.unwrap_or_else(|| "page missing from archive".into()))
     }
 
-    /// The unpacking job for this book, started (or restarted) so it will reach `index` soon.
-    fn rar_job(&self, id: i64, path: &Path, listing: &Arc<Listing>, index: usize) -> Result<Arc<RarJob>> {
-        let mut rars = self.rars.lock().unwrap();
+    /// The book's cache folder (a CBR's unpacked pages, any book's screen copies), emptied first
+    /// if what's in it came from an earlier version of the file. Checking it marks the book used,
+    /// for PAGES_CAP.
+    pub fn book_dir(&self, id: i64, path: &Path) -> Result<PathBuf> {
         let dir = self.pages_dir.join(id.to_string());
-        if let Some(j) = rars.get(id) {
-            let st = j.state.lock().unwrap();
-            let on_disk = dir.join(index.to_string()).exists();
-            let reached = st.reached.unwrap_or(j.start);
-            // A solid archive can only be unpacked front to back, so its one job is kept. A non-solid one
-            // jumps: a page the job has already gone past, or one far ahead of it, starts a new job there.
-            let keep = on_disk || listing.solid || (!st.done && index >= reached && index <= reached + RAR_AHEAD);
-            if keep {
-                drop(st);
-                return Ok(j);
+        if self.checked.lock().unwrap().insert(id) {
+            let (size, mtime) = stamp(path).ok_or_else(|| anyhow!("can't read {}", path.display()))?;
+            let mark = format!("{size} {mtime}");
+            let file = dir.join("stamp");
+            if fs::read_to_string(&file).ok().as_deref() != Some(mark.as_str()) {
+                let _ = fs::remove_dir_all(&dir);
             }
-            drop(st);
-            j.cancel.store(true, Ordering::Relaxed);
-            j.cv.notify_all();
+            fs::create_dir_all(&dir)?;
+            fs::write(&file, mark)?;
         }
-        fs::create_dir_all(&dir)?;
-        let start = if listing.solid { 0 } else { index };
-        let job = Arc::new(RarJob {
-            dir,
-            start,
-            state: Mutex::new(RarState { want: index, ..Default::default() }),
-            cv: Condvar::new(),
-            cancel: AtomicBool::new(false),
-            evicted: AtomicBool::new(false),
-        });
+        Ok(dir)
+    }
+
+    /// The unpacking job for this book, started (from page `from`) if it isn't running or finished.
+    fn rar_job(&self, id: i64, path: &Path, listing: &Arc<Listing>, from: usize) -> Result<Arc<RarJob>> {
+        let dir = self.book_dir(id, path)?;
+        let mut rars = self.rars.lock().unwrap();
+        if let Some(j) = rars.get(id) {
+            return Ok(j);
+        }
+        let job = Arc::new(RarJob { dir, state: Mutex::default(), cv: Condvar::new(), cancel: AtomicBool::new(false) });
         if let Some(old) = rars.put(id, job.clone()) {
-            // Another book fell out of the cache: stop it and drop its pages.
-            old.evicted.store(true, Ordering::Relaxed);
+            // Another book fell out: stop unpacking it (what it unpacked stays).
             old.cancel.store(true, Ordering::Relaxed);
             old.cv.notify_all();
-            if old.state.lock().unwrap().done {
-                let _ = fs::remove_dir_all(&old.dir);
-            }
         }
-        let (j, path, listing) = (job.clone(), path.to_path_buf(), listing.clone());
+        let busy: Vec<PathBuf> = rars.items.iter().map(|(_, j)| j.dir.clone()).collect();
+        drop(rars);
+        let (j, path, listing, pages_dir) = (job.clone(), path.to_path_buf(), listing.clone(), self.pages_dir.clone());
         std::thread::spawn(move || {
-            let res = extract_rar(&j, &path, &listing);
+            let res = extract_rar(&j, &path, &listing, from);
             let mut st = j.state.lock().unwrap();
             st.done = true;
             st.error = res.err().map(|e| e.to_string());
             drop(st);
             j.cv.notify_all();
-            if j.evicted.load(Ordering::Relaxed) {
-                let _ = fs::remove_dir_all(&j.dir);
-            }
+            prune(&pages_dir, &busy);
         });
         Ok(job)
     }
 }
 
-fn extract_rar(job: &RarJob, path: &Path, listing: &Listing) -> Result<()> {
-    let index: HashMap<&str, usize> = listing
-        .pages
-        .iter()
-        .enumerate()
-        .map(|(i, n)| (n.as_str(), i))
-        .collect();
-    let mut arc = unrar::Archive::new(path).open_for_processing()?;
-    while let Some(h) = arc.read_header()? {
-        if job.cancel.load(Ordering::Relaxed) {
-            return Ok(());
+fn extract_rar(job: &RarJob, path: &Path, listing: &Listing, from: usize) -> Result<()> {
+    let index: HashMap<&str, usize> = listing.pages.iter().enumerate().map(|(i, n)| (n.as_str(), i)).collect();
+    let have = |i: usize| job.dir.join(i.to_string()).exists();
+    // From the page the reader opened on to the end first (a non-solid archive skips past the
+    // pages before it cheaply), then the start. A solid one has to be decoded in order.
+    let from = if listing.solid { 0 } else { from };
+    for first_pass in [true, false] {
+        if !first_pass && from == 0 {
+            break;
         }
-        let name = rar_name(h.entry());
-        let Some(&i) = index.get(name.as_str()) else {
-            arc = h.skip()?;
-            continue;
-        };
-        let target = job.dir.join(i.to_string());
-        if target.exists() {
-            arc = h.skip()?;
-            job.state.lock().unwrap().seen.insert(i);
-            continue;
-        }
-        // Unpack the pages someone is waiting for and the ones just ahead of the reader. Pages are often
-        // stored out of reading order, so a non-solid archive skips past anything else rather than
-        // unpacking it, and pauses only when nothing is being waited for. A solid archive must decode
-        // everything in order anyway, so it unpacks as it goes and just pauses when far enough ahead.
-        let take = {
-            let mut st = job.state.lock().unwrap();
-            loop {
-                if job.cancel.load(Ordering::Relaxed) {
-                    return Ok(());
-                }
-                let wanted = st.pending.contains(&i);
-                let near = i >= st.want && i <= st.want + RAR_AHEAD;
-                if wanted || near {
-                    break true;
-                }
-                let hunting = st.pending.iter().any(|p| !st.seen.contains(p));
-                let behind = i < st.want || i < job.start;
-                if hunting || behind {
-                    break listing.solid;
-                }
-                // Far enough ahead and nothing is being waited for: pause until the reader moves on.
-                st = job.cv.wait_timeout(st, Duration::from_millis(500)).unwrap().0;
+        let mut arc = unrar::Archive::new(path).open_for_processing()?;
+        while let Some(h) = arc.read_header()? {
+            if job.cancel.load(Ordering::Relaxed) {
+                return Ok(());
             }
-        };
-        if !take {
-            arc = h.skip()?;
-            job.state.lock().unwrap().seen.insert(i);
+            let page = index.get(rar_name(h.entry()).as_str()).copied();
+            let Some(i) = page.filter(|&i| (i >= from) == first_pass && !have(i)) else {
+                arc = if listing.solid { h.read()?.1 } else { h.skip()? };
+                continue;
+            };
+            let (data, next) = h.read()?;
+            let tmp = job.dir.join(format!("{i}.part"));
+            fs::write(&tmp, &data)?;
+            fs::rename(&tmp, job.dir.join(i.to_string()))?;
+            job.state.lock().unwrap().last = Some(i);
             job.cv.notify_all();
-            continue;
+            arc = next;
         }
-        let (data, next) = h.read()?;
-        let tmp = job.dir.join(format!("{i}.part"));
-        fs::write(&tmp, &data)?;
-        fs::rename(&tmp, &target)?;
-        let mut st = job.state.lock().unwrap();
-        st.reached = Some(st.reached.map_or(i, |r| r.max(i)));
-        st.seen.insert(i);
-        drop(st);
-        job.cv.notify_all();
-        arc = next;
     }
     Ok(())
+}
+
+/// Keep unpacked pages under PAGES_CAP: the books opened longest ago go, except `busy` ones.
+fn prune(pages_dir: &Path, busy: &[PathBuf]) {
+    let size = |d: &Path| fs::read_dir(d).into_iter().flatten().flatten().filter_map(|e| e.metadata().ok()).map(|m| m.len()).sum::<u64>();
+    let used = |d: &Path| fs::metadata(d.join("stamp")).and_then(|m| m.modified()).ok();
+    let mut books: Vec<(Option<std::time::SystemTime>, u64, PathBuf)> =
+        fs::read_dir(pages_dir).into_iter().flatten().flatten().map(|e| e.path()).map(|d| (used(&d), size(&d), d)).collect();
+    let mut total: u64 = books.iter().map(|b| b.1).sum();
+    books.sort_by_key(|b| b.0);
+    for (_, bytes, dir) in books {
+        if total <= PAGES_CAP {
+            break;
+        }
+        if !busy.contains(&dir) {
+            let _ = fs::remove_dir_all(&dir);
+            total -= bytes;
+        }
+    }
 }
 
 /// Decode an image no smaller than `long_side` on its long side. JPEGs (nearly every comic page) are
@@ -610,6 +680,36 @@ fn decode_jpeg_scaled(bytes: &[u8], long_side: u32) -> Result<image::DynamicImag
         _ => None,
     };
     img.ok_or_else(|| anyhow!("unsupported JPEG pixel format"))
+}
+
+/// A page this much taller than the screen, or more, gets a copy at screen height.
+const SCREEN_SLACK: f64 = 1.25;
+
+/// A copy of a page at screen height `h` (a JPEG), for showing it whole: a big scan takes several
+/// times as long to decode as the screen can show of it. None when the page isn't that much
+/// bigger than the screen, so the page itself does.
+pub fn make_screen_copy(bytes: &[u8], h: u32) -> Result<Option<Vec<u8>>> {
+    let (pw, ph) = page_size(bytes)?;
+    if (ph as f64) < h as f64 * SCREEN_SLACK {
+        return Ok(None);
+    }
+    let w = ((pw as f64 * h as f64 / ph as f64).round() as u32).max(1);
+    let img = decode_at_least(bytes, w.max(h))?;
+    let copy = img.resize_exact(w, h, image::imageops::FilterType::CatmullRom).to_rgb8();
+    let mut out = Vec::new();
+    image::codecs::jpeg::JpegEncoder::new_with_quality(&mut out, 90).encode_image(&copy)?;
+    Ok(Some(out))
+}
+
+/// A page's size from its header, without decoding it.
+fn page_size(bytes: &[u8]) -> Result<(u32, u32)> {
+    if bytes.starts_with(&[0xFF, 0xD8]) {
+        let mut d = jpeg_decoder::Decoder::new(bytes);
+        d.read_info()?;
+        let info = d.info().ok_or_else(|| anyhow!("no JPEG header"))?;
+        return Ok((info.width as u32, info.height as u32));
+    }
+    Ok(image::ImageReader::new(std::io::Cursor::new(bytes)).with_guessed_format()?.into_dimensions()?)
 }
 
 /// Downscale a page into a JPEG thumbnail for the library grid.
@@ -704,6 +804,16 @@ mod tests {
         drop(a);
         assert!(landed.join().unwrap(), "the newest gets the free reader");
         drop(b);
+    }
+
+    /// A page well over screen height gets a copy at it, the same shape; one near it gets none.
+    #[test]
+    fn screen_copies() {
+        let page = jpeg(|x, y| [(x % 256) as u8, (y % 256) as u8, 90]);
+        let copy = make_screen_copy(&page, 100).unwrap().expect("300 tall on a 100 tall screen");
+        let img = image::load_from_memory(&copy).unwrap();
+        assert_eq!((img.width(), img.height()), (67, 100));
+        assert!(make_screen_copy(&page, 280).unwrap().is_none(), "300 tall on a 280 tall screen");
     }
 
     fn jpeg(paint: impl Fn(u32, u32) -> [u8; 3]) -> Vec<u8> {

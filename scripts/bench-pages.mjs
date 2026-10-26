@@ -6,7 +6,7 @@
 //   node scripts/bench-pages.mjs
 //
 // Random jumps through the page box (time until the page is on screen), then fast skips of 15
-// pages with the arrow key (time from the last key until the page you stopped on shows). The
+// pages with Page Down (time from the last key until the page you stopped on shows). The
 // reader marks both moments (see PageView.svelte). It reads the book, so the reading position
 // and sittings change: put them back afterward.
 
@@ -26,7 +26,7 @@ const send = (method, params = {}) =>
   });
 const ev = async (x) => (await send("Runtime.evaluate", { expression: x, awaitPromise: true, returnByValue: true })).result?.value;
 const wait = (ms) => new Promise((r) => setTimeout(r, ms));
-const CODES = { ArrowRight: 39, Enter: 13, g: 71 };
+const CODES = { PageDown: 34, Enter: 13, g: 71 };
 const key = async (k) => {
   const code = k.length === 1 ? `Key${k.toUpperCase()}` : k;
   for (const type of ["rawKeyDown", "keyUp"]) await send("Input.dispatchKeyEvent", { type, key: k, code, windowsVirtualKeyCode: CODES[k] });
@@ -84,18 +84,21 @@ for (const p of jumps) {
   seens.push(seen);
   await wait(400);
 }
-// Skips of 15 pages with the arrow key, a key every 35 ms (a held key repeats about that fast),
+// Skips of 15 pages with Page Down (forward in manga too), a key every 35 ms (a held key repeats
+// about that fast),
 // from three places in the book.
 const skips = [];
 const skipSeens = [];
 for (const f of [0.15, 0.5, 0.8]) {
   await key("g");
-  await send("Input.insertText", { text: String(Math.min(Math.floor(f * n), n - 36) + 1) });
+  await send("Input.insertText", { text: String(Math.max(1, Math.min(Math.floor(f * n), n - 36)) + 1) });
   await key("Enter");
   await wait(800);
-  for (let k = 0; k < 14; k++) (await key("ArrowRight"), await wait(35));
+  // 15 presses, fewer in a short book (two pages a press in double page mode).
+  const presses = Math.max(3, Math.min(15, Math.floor((n - 4) / 4)));
+  for (let k = 0; k < presses - 1; k++) (await key("PageDown"), await wait(35));
   await start();
-  await key("ArrowRight");
+  await key("PageDown");
   const [full, seen] = await settled();
   skips.push(full);
   skipSeens.push(seen);
