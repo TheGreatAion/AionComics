@@ -23,6 +23,14 @@ export interface Home {
   pickUpAgain: ComicCard[];
 }
 
+/** A copy of the library database: reading progress, bookmarks, panel edits and metadata. */
+export interface Backup {
+  name: string;
+  /** Unix seconds. */
+  madeAt: number;
+  size: number;
+}
+
 export interface CollectionSummary {
   id: number;
   name: string;
@@ -73,6 +81,16 @@ export interface SeriesView {
   backfill: { beforeId: number; beforeLabel: string; count: number } | null;
   /** The Comic Vine series this one is matched to. */
   cvVolumeId: string | null;
+}
+
+/** Everything by one creator, or with one character or team in it, grouped by series. */
+export interface PeopleView {
+  name: string;
+  kind: "creator" | "character";
+  /** What they did and in how many books, most first: ["pencils", 30]. */
+  roles: [string, number][];
+  books: number;
+  series: { id: number; name: string; collectionName: string; comics: ComicCard[] }[];
 }
 
 /** Metadata fields a book can carry (names match the database columns). */
@@ -182,11 +200,16 @@ export const api = {
   settings: () => invoke<Settings>("get_settings"),
   setLibraryRoot: (path: string) => invoke<void>("set_library_root", { path }),
   rescan: () => invoke<void>("rescan"),
+  backups: () => invoke<Backup[]>("backups"),
+  backupNow: () => invoke<Backup>("backup_now"),
+  /** Backs up today's state, then restarts AionComics with the chosen backup in place. */
+  restoreBackup: (name: string) => invoke<void>("restore_backup", { name }),
   home: () => invoke<Home>("home"),
   nav: () => invoke<NavInfo>("nav"),
   search: (q: string) => invoke<SeriesSummary[]>("search", { q }),
   collection: (id: number) => invoke<CollectionView>("collection", { id }),
   series: (id: number) => invoke<SeriesView>("series", { id }),
+  people: (kind: "creator" | "character", name: string) => invoke<PeopleView>("people", { kind, name }),
   openComic: (id: number) => invoke<ReaderInfo>("open_comic", { id }),
   pagePanels: (id: number, page: number, rtl: boolean) => invoke<Panel[]>("page_panels", { id, page, rtl }),
   comicMeta: (id: number) => invoke<ComicMeta>("comic_meta", { id }),

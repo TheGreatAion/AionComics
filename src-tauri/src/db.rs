@@ -413,6 +413,76 @@ pub struct SeriesView {
     pub cv_volume_id: Option<String>,
 }
 
+/// One series' worth of books that someone made or appears in.
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PeopleSeries {
+    pub id: i64,
+    pub name: String,
+    pub collection_name: String,
+    pub comics: Vec<ComicCard>,
+}
+
+/// Everything in the library by one creator, or with one character or team in it.
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PeopleView {
+    pub name: String,
+    pub kind: String,
+    /// What they did and in how many books ("pencils", 30), most first.
+    pub roles: Vec<(String, i64)>,
+    pub books: i64,
+    /// Biggest share of their books first.
+    pub series: Vec<PeopleSeries>,
+}
+
+/// The credit fields a creator is looked up in, and the role each one means.
+const CREATOR_FIELDS: [(&str, &str); 6] = [
+    ("writer", "writer"),
+    ("penciller", "pencils"),
+    ("inker", "inks"),
+    ("colorist", "colors"),
+    ("letterer", "letters"),
+    ("cover_artist", "cover"),
+];
+const CHARACTER_FIELDS: [(&str, &str); 2] = [("characters", "character"), ("teams", "team")];
+
+/// Books by a creator (`kind` "creator") or with a character or team in them (`kind` "character").
+/// Names are whole lines of those fields, so "Stan Lee" doesn't also find "Stan Lees".
+pub fn people_view(conn: &Connection, kind: &str, name: &str) -> Result<PeopleView> {
+    let fields: &[(&str, &str)] = if kind == "character" { &CHARACTER_FIELDS } else { &CREATOR_FIELDS };
+    let has = |f: &str| format!("instr(char(10) || COALESCE(c.{f}, '') || char(10), char(10) || ?1 || char(10)) > 0");
+    let any = fields.iter().map(|(f, _)| has(f)).collect::<Vec<_>>().join(" OR ");
+    let flags = fields.iter().map(|(f, _)| format!("({})", has(f))).collect::<Vec<_>>().join(", ");
+    let sql = format!(
+        "SELECT {CARD_COLS}, col.name, {flags} FROM comics c {CARD_JOIN} WHERE {any}
+         ORDER BY s.name COLLATE NOCASE, c.section != '', c.sort_key"
+    );
+    let mut st = conn.prepare(&sql)?;
+    let mut series: Vec<PeopleSeries> = Vec::new();
+    let mut roles: Vec<(String, i64)> = fields.iter().map(|(_, r)| (r.to_string(), 0)).collect();
+    let mut books = 0;
+    let mut rows = st.query([name.trim()])?;
+    while let Some(r) = rows.next()? {
+        let c = card(r)?;
+        let collection: String = r.get(13)?;
+        for (i, role) in roles.iter_mut().enumerate() {
+            if r.get::<_, bool>(14 + i)? {
+                role.1 += 1;
+            }
+        }
+        books += 1;
+        match series.last_mut() {
+            Some(g) if g.id == c.series_id => g.comics.push(c),
+            _ => series.push(PeopleSeries { id: c.series_id, name: c.series_name.clone(), collection_name: collection, comics: vec![c] }),
+        }
+    }
+    series.sort_by(|a, b| b.comics.len().cmp(&a.comics.len()));
+    roles.retain(|r| r.1 > 0);
+    roles.sort_by(|a, b| b.1.cmp(&a.1));
+    Ok(PeopleView { name: name.trim().to_string(), kind: kind.to_string(), roles, books, series })
+}
+
 pub fn series_view(conn: &Connection, id: i64) -> Result<SeriesView> {
     let (name, collection_id, collection_name, is_manga): (String, i64, String, bool) = conn.query_row(
         "SELECT s.name, col.id, col.name, col.is_manga FROM series s JOIN collections col ON col.id=s.collection_id WHERE s.id=?1",

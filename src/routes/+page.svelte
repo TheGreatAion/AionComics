@@ -14,6 +14,7 @@
   import Collection from "$lib/views/Collection.svelte";
   import Home from "$lib/views/Home.svelte";
   import Series from "$lib/views/Series.svelte";
+  import People from "$lib/views/People.svelte";
   import Settings from "$lib/views/Settings.svelte";
 
   const route = $derived(nav.current);
@@ -115,7 +116,9 @@
       {:else if route.name === "collection"}
         <Collection id={route.id} />
       {:else if route.name === "series"}
-        <Series id={route.id} />
+        <Series id={route.id} book={route.book} />
+      {:else if route.name === "people"}
+        <People kind={route.kind} value={route.value} />
       {:else if route.name === "settings"}
         <Settings />
       {/if}

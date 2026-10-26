@@ -6,7 +6,7 @@
   import Wash from "$lib/components/Wash.svelte";
   import Icon from "$lib/components/Icon.svelte";
 
-  let { id }: { id: number } = $props();
+  let { id, book: startBook }: { id: number; book?: number } = $props();
   let data = $state<SeriesView | null>(null);
   let synEl = $state<HTMLParagraphElement>();
   let expanded = $state(false);
@@ -46,7 +46,7 @@
   let picked = $state<number | null>(null);
   $effect(() => {
     void id;
-    picked = null;
+    picked = startBook ?? null;
   });
   const book = $derived<ComicCard | undefined>(all.find((c) => c.id === picked) ?? target);
   let meta = $state<ComicMeta | null>(null);
@@ -281,7 +281,11 @@
           {/if}
           {#if credits.length}
             <div class="credits">
-              {#each allPeople ? credits : credits.slice(0, PEOPLE) as p (p.name)}<span>{p.name} <em>{p.roles}</em></span>{/each}
+              {#each allPeople ? credits : credits.slice(0, PEOPLE) as p (p.name)}
+                <button class="person" title="Everything by {p.name}" onclick={() => nav.go({ name: "people", kind: "creator", value: p.name })}>
+                  {p.name} <em>{p.roles}</em>
+                </button>
+              {/each}
               {#if credits.length > PEOPLE && !allPeople}
                 <button class="link more-people" onclick={() => (allPeople = true)}>+{credits.length - PEOPLE}</button>
               {/if}
@@ -289,7 +293,9 @@
           {/if}
           {#if characters.length}
             <div class="chips">
-              {#each allChips ? characters : characters.slice(0, CHIPS) as ch (ch)}<span class="chip">{ch}</span>{/each}
+              {#each allChips ? characters : characters.slice(0, CHIPS) as ch (ch)}
+                <button class="chip" title="Everything with {ch}" onclick={() => nav.go({ name: "people", kind: "character", value: ch })}>{ch}</button>
+              {/each}
               {#if characters.length > CHIPS && !allChips}
                 <button class="chip more-chips" onclick={() => (allChips = true)}>+{characters.length - CHIPS}</button>
               {/if}
@@ -499,6 +505,21 @@
   }
   .more-people {
     font-size: 13px;
+  }
+  .person {
+    color: inherit;
+    font: inherit;
+    transition: color 0.15s;
+  }
+  .person:hover {
+    color: #fff;
+    text-decoration: underline;
+    text-underline-offset: 4px;
+    text-decoration-color: var(--text-3);
+  }
+  .chip:hover {
+    color: var(--text);
+    border-color: rgba(255, 255, 255, 0.32);
   }
   .credits em {
     font-style: normal;

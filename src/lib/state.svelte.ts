@@ -3,7 +3,10 @@ import type { CollectionSummary } from "./api";
 export type Route =
   | { name: "home" }
   | { name: "collection"; id: number }
-  | { name: "series"; id: number }
+  /** `book`: the book to show first, instead of the one you're on. */
+  | { name: "series"; id: number; book?: number }
+  /** Everything by a creator, or with a character or team in it. */
+  | { name: "people"; kind: "creator" | "character"; value: string }
   | { name: "settings" };
 
 type Entry = { route: Route; scroll: number };

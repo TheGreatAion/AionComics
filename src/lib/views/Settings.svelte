@@ -1,6 +1,6 @@
 <script lang="ts">
   import { open } from "@tauri-apps/plugin-dialog";
-  import { api, type CvStatus, type Settings } from "$lib/api";
+  import { api, type Backup, type CvStatus, type Settings } from "$lib/api";
   import Icon from "$lib/components/Icon.svelte";
   import { lib } from "$lib/state.svelte";
 
@@ -11,13 +11,46 @@
   let cvBusy = $state(false);
   let cvError = $state("");
   let error = $state<string | null>(null);
+  let backups = $state<Backup[]>([]);
+  let backupBusy = $state(false);
+  let backupError = $state("");
+  // The backup you've asked to restore, waiting for a yes.
+  let confirming = $state<string | null>(null);
+  let showAll = $state(false);
 
   $effect(() => {
     void lib.version;
     void lib.scanning;
     api.settings().then((v) => (s = v));
     api.cvStatus().then((v) => (cv = v));
+    api.backups().then((v) => (backups = v));
   });
+
+  async function backupNow() {
+    backupBusy = true;
+    backupError = "";
+    try {
+      await api.backupNow();
+      backups = await api.backups();
+    } catch (e) {
+      backupError = String(e);
+    } finally {
+      backupBusy = false;
+    }
+  }
+
+  async function restore(name: string) {
+    backupBusy = true;
+    try {
+      await api.restoreBackup(name);
+    } catch (e) {
+      backupError = String(e);
+      backupBusy = false;
+      confirming = null;
+    }
+  }
+
+  const size = (n: number) => `${(n / 1_048_576).toFixed(1)} MB`;
 
   async function saveKey(key: string) {
     cvBusy = true;
@@ -113,6 +146,43 @@
         </p>
         {#if cv?.lastError}<p class="stats mono" title="Last problem"><Icon name="alert" size={12} /> {cv.lastError}</p>{/if}
       </section>
+
+      <!-- Reading progress, bookmarks, panel edits and metadata, copied once a day. -->
+      <section>
+        <h2>Backups</h2>
+        <div class="row">
+          <span class="path mono">
+            {backups.length ? `Last ${when(backups[0].madeAt)}` : "None yet"}
+          </span>
+          <button class="ico" title="Back up now" aria-label="Back up now" disabled={backupBusy} onclick={backupNow}>
+            <span class:spin={backupBusy && !confirming}><Icon name={backupBusy && !confirming ? "rescan" : "plus"} size={17} /></span>
+          </button>
+        </div>
+        {#if backupError}<p class="err"><Icon name="alert" size={14} />{backupError}</p>{/if}
+        {#if backups.length}
+          <ul class="backups">
+            {#each showAll ? backups : backups.slice(0, 3) as b (b.name)}
+              <li>
+                <span class="mono">{when(b.madeAt)}</span>
+                <span class="mono dim">{size(b.size)}</span>
+                {#if confirming === b.name}
+                  <span class="ask">Restart with this backup?</span>
+                  <button class="ico" title="Restore and restart" aria-label="Restore and restart" disabled={backupBusy} onclick={() => restore(b.name)}>
+                    <span class:spin={backupBusy}><Icon name={backupBusy ? "rescan" : "check"} size={16} /></span>
+                  </button>
+                  <button class="ico" title="Cancel" aria-label="Cancel" disabled={backupBusy} onclick={() => (confirming = null)}><Icon name="close" size={15} /></button>
+                {:else}
+                  <button class="ico" title="Restore this backup" aria-label="Restore this backup" onclick={() => (confirming = b.name)}>
+                    <Icon name="undo" size={16} />
+                  </button>
+                {/if}
+              </li>
+            {/each}
+          </ul>
+          {#if backups.length > 3 && !showAll}<button class="link more" onclick={() => (showAll = true)}>{backups.length - 3} more</button>{/if}
+          <p class="stats mono">One a day, the newest 10 kept · restoring backs up first, so it can be undone</p>
+        {/if}
+      </section>
     {/if}
   </div>
 {/if}
@@ -176,6 +246,29 @@
   }
   .lead.on {
     color: var(--text);
+  }
+  .backups {
+    list-style: none;
+    margin: 14px 0 0;
+    padding: 0;
+  }
+  .backups li {
+    display: flex;
+    align-items: center;
+    gap: 16px;
+    height: 34px;
+    font-size: 13px;
+  }
+  .backups .dim {
+    color: var(--text-3);
+  }
+  .backups .ask {
+    color: var(--text);
+    margin-left: 8px;
+  }
+  .backups + .more {
+    margin-top: 4px;
+    font-size: 13px;
   }
   .key {
     width: 360px;

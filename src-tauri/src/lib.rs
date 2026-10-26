@@ -1,4 +1,5 @@
 mod archive;
+mod backup;
 mod comicinfo;
 mod cv;
 mod db;
@@ -19,6 +20,7 @@ use tauri::http::{header, Request, Response, StatusCode};
 use tauri::{AppHandle, Emitter, Manager, State};
 
 pub struct AppState {
+    data_dir: PathBuf,
     db_path: PathBuf,
     conn: Mutex<Connection>,
     thumbs_dir: PathBuf,
@@ -269,6 +271,46 @@ fn rescan(app: AppHandle, state: State<Shared>) {
     start_scan(&app, &state);
 }
 
+/// The database backups there are, newest first.
+#[tauri::command]
+fn backups(state: State<Shared>) -> CmdResult<Vec<backup::Backup>> {
+    backup::list(&backup::dir(&state.data_dir)).map_err(err)
+}
+
+#[tauri::command]
+fn backup_now(state: State<Shared>) -> CmdResult<backup::Backup> {
+    backup::make(&state.conn.lock().unwrap(), &backup::dir(&state.data_dir), scan::now()).map_err(err)
+}
+
+/// Put a backup back: today's state is backed up first (so this can be undone), then AionComics
+/// restarts and the copy goes in before the database opens.
+#[tauri::command]
+fn restore_backup(app: AppHandle, state: State<Shared>, name: String) -> CmdResult<()> {
+    let dir = backup::dir(&state.data_dir);
+    backup::make(&state.conn.lock().unwrap(), &dir, scan::now()).map_err(err)?;
+    backup::schedule(&state.data_dir, &name).map_err(err)?;
+    relaunch().map_err(err)?;
+    app.exit(0);
+    Ok(())
+}
+
+/// Start AionComics again a moment after this copy has gone (with only one copy allowed at a
+/// time, a new one started straight away would hand over to this one and quit).
+fn relaunch() -> anyhow::Result<()> {
+    let exe = std::env::current_exe()?;
+    let mut cmd = std::process::Command::new("cmd");
+    #[cfg(windows)]
+    {
+        use std::os::windows::process::CommandExt;
+        // cmd reads its own quoting, so the line goes through as written. No console window,
+        // and not tied to this process.
+        cmd.raw_arg(format!("/C ping -n 3 127.0.0.1 >nul & start \"\" \"{}\"", exe.display()));
+        cmd.creation_flags(0x0800_0000 | 0x0000_0008);
+    }
+    cmd.spawn()?;
+    Ok(())
+}
+
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
 struct Home {
@@ -355,6 +397,12 @@ fn collection(state: State<Shared>, id: i64) -> CmdResult<db::CollectionView> {
 #[tauri::command]
 fn series(state: State<Shared>, id: i64) -> CmdResult<db::SeriesView> {
     db::series_view(&state.conn.lock().unwrap(), id).map_err(err)
+}
+
+/// Every book by a creator, or with a character or team in it.
+#[tauri::command]
+fn people(state: State<Shared>, kind: String, name: String) -> CmdResult<db::PeopleView> {
+    db::people_view(&state.conn.lock().unwrap(), &kind, &name).map_err(err)
 }
 
 #[derive(Serialize)]
@@ -763,9 +811,16 @@ pub fn run() {
             std::fs::create_dir_all(&data_dir)?;
             std::fs::create_dir_all(&thumbs_dir)?;
             let db_path = data_dir.join("library.db");
+            // A backup you chose to restore goes in before anything opens the database.
+            match backup::apply_pending(&data_dir, &db_path) {
+                Ok(Some(name)) => eprintln!("restored backup {name}"),
+                Ok(None) => {}
+                Err(e) => eprintln!("couldn't restore a backup: {e}"),
+            }
             let conn = db::open(&db_path)?;
             let cv_key = db::get_setting(&conn, "cv_api_key")?;
             let state: Shared = Arc::new(AppState {
+                data_dir: data_dir.clone(),
                 db_path,
                 conn: Mutex::new(conn),
                 thumbs_dir,
@@ -805,6 +860,20 @@ pub fn run() {
                     });
                 });
             }
+            // A copy of the database a day, on a connection of its own.
+            {
+                let state = state.clone();
+                std::thread::spawn(move || loop {
+                    let dir = backup::dir(&state.data_dir);
+                    if backup::due(&dir, scan::now()) {
+                        match db::open(&state.db_path).and_then(|c| backup::make(&c, &dir, scan::now())) {
+                            Ok(b) => eprintln!("backed up to {}", b.name),
+                            Err(e) => eprintln!("backup failed: {e}"),
+                        }
+                    }
+                    std::thread::sleep(std::time::Duration::from_secs(3600));
+                });
+            }
             // Pick up anything added or moved since last launch.
             start_scan(app.handle(), &state);
             Ok(())
@@ -813,6 +882,9 @@ pub fn run() {
             get_settings,
             set_library_root,
             rescan,
+            backups,
+            backup_now,
+            restore_backup,
             home,
             nav,
             search,
@@ -822,6 +894,7 @@ pub fn run() {
             reveal,
             collection,
             series,
+            people,
             open_comic,
             page_panels,
             save_progress,
