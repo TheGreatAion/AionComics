@@ -2,7 +2,7 @@
 
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { open, save } from "@tauri-apps/plugin-dialog";
-import { api, pageUrl, type Panel, type ReaderInfo } from "$lib/api";
+import { api, pageUrl, previewUrl, type Panel, type ReaderInfo } from "$lib/api";
 import { prefs, savePrefs, type Fit } from "./prefs.svelte";
 
 export type Overlay = null | "flow" | "bookmarks" | "shortcuts" | "options" | "extract" | "editor";
@@ -31,6 +31,8 @@ export class Ctl {
   seek = $state(0);
   /** Natural sizes of pages seen so far; spreads need to know which pages are wide. */
   dims = $state<Record<number, Dims>>({});
+  /** Pages' small previews that have loaded (their sizes): shown in place of a page still loading. */
+  hints = $state<Record<number, Dims>>({});
   zoom = $state(1);
   rotation = $state(0);
   magnifier = $state(false);
@@ -52,6 +54,7 @@ export class Ctl {
   stage: HTMLElement | null = null;
   private noteTimer: ReturnType<typeof setTimeout> | undefined;
   private measuring = new Set<number>();
+  private previewing = new Set<number>();
   private warm: { i: number; img: HTMLImageElement }[] = [];
 
   constructor(public hooks: { open: (id: number) => void; close: () => void; focusPage?: () => void }) {}
@@ -92,6 +95,8 @@ export class Ctl {
     // Page sizes and decoded pages belong to the previous book. Cleared here, together with the
     // switch, so the old book's pages can't measure themselves into the new one in between.
     this.dims = {};
+    this.hints = {};
+    this.previewing.clear();
     this.measuring.clear();
     this.warm = [];
     this.info = info;
@@ -129,6 +134,20 @@ export class Ctl {
     // Hold on to the last few so their decoded pixels stay cached.
     this.warm.push({ i, img });
     if (this.warm.length > 10) this.warm.shift();
+  }
+
+  /** Load a page's small preview, if it's been made, to show while the page itself loads. */
+  preview(i: number) {
+    if (this.dims[i] || this.previewing.has(i)) return;
+    this.previewing.add(i);
+    const book = this.id;
+    const img = new Image();
+    img.onload = () => {
+      if (this.id !== book) return;
+      this.hints[i] = { w: img.naturalWidth, h: img.naturalHeight };
+      requestAnimationFrame(() => performance.mark("aion:preview", { detail: i }));
+    };
+    img.src = previewUrl(book, i);
   }
 
   /** The reader settled on page p: stop loading pages around where it was before. */

@@ -8,6 +8,7 @@ mod intake;
 mod panels;
 mod scan;
 mod stats;
+mod warm;
 
 /// Bump when panel detection changes so cached results are recomputed.
 const PANELS_VERSION: i64 = 9;
@@ -41,6 +42,8 @@ pub struct AppState {
     last_page: std::sync::atomic::AtomicI64,
     /// A comic Windows asked us to open at launch, until the window picks it up.
     open_request: Mutex<Option<String>>,
+    /// The book whose page previews are being made, and the flag that stops it (see warm.rs).
+    warming: Mutex<Option<(i64, Arc<AtomicBool>)>>,
 }
 
 type Shared = Arc<AppState>;
@@ -54,6 +57,11 @@ impl AppState {
     fn root(&self) -> Option<PathBuf> {
         let conn = self.conn.lock().unwrap();
         db::get_setting(&conn, "library_root").ok().flatten().map(PathBuf::from)
+    }
+
+    /// Where a page's small preview is kept.
+    fn page_thumb_path(&self, id: i64, n: usize) -> PathBuf {
+        self.thumbs_dir.join("pages").join(format!("{id}-{n}.jpg"))
     }
 
     fn comic_path(&self, id: i64) -> anyhow::Result<(PathBuf, db::ComicFile)> {
@@ -658,6 +666,8 @@ async fn open_comic(state: State<'_, Shared>, id: i64) -> CmdResult<ReaderInfo> 
         let next = next_id.map(|n| db::card_by_id(&conn, n)).transpose()?;
         let start = if comic.read { 0 } else { (comic.current_page.max(0) as usize).min(n - 1) };
         let bookmarks = db::bookmarks(&conn, id)?;
+        drop(conn);
+        warm::start(&state, id, n, start);
         Ok(ReaderInfo { comic, page_count: n, start_page: start, prev_id, next, bookmarks, external: false })
     })
     .await
@@ -780,7 +790,7 @@ fn handle_image(state: &AppState, req: &Request<Vec<u8>>) -> Response<Vec<u8>> {
         ["thumb", id, n] => (|| {
             let id: i64 = id.parse()?;
             let n: usize = n.parse()?;
-            let cached = state.thumbs_dir.join("pages").join(format!("{id}-{n}.jpg"));
+            let cached = state.page_thumb_path(id, n);
             if id > 0 {
                 if let Ok(b) = std::fs::read(&cached) {
                     return Ok((b, "image/jpeg"));
@@ -793,6 +803,12 @@ fn handle_image(state: &AppState, req: &Request<Vec<u8>>) -> Response<Vec<u8>> {
                 let _ = std::fs::write(&cached, &thumb);
             }
             Ok((thumb, "image/jpeg"))
+        })(),
+        // A preview only if it's been made already: it stands in while the page loads, so it
+        // mustn't cost a page read itself.
+        ["preview", id, n] => (|| {
+            let (id, n): (i64, usize) = (id.parse()?, n.parse()?);
+            Ok((std::fs::read(state.page_thumb_path(id, n))?, "image/jpeg"))
         })(),
         ["page", id, n] => (|| {
             state.last_page.store(now_ms(), Ordering::SeqCst);
@@ -862,6 +878,7 @@ pub fn run() {
                 reading_info: AtomicBool::new(false),
                 last_page: std::sync::atomic::AtomicI64::new(0),
                 open_request: Mutex::new(comic_arg(std::env::args())),
+                warming: Mutex::new(None),
             });
             app.manage(state.clone());
             // Rescan a few seconds after the comics folder stops changing (a copy in progress keeps

@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { pageUrl } from "$lib/api";
+  import { pageUrl, previewUrl } from "$lib/api";
   import type { Ctl } from "./ctl.svelte";
   import PageStatus from "./PageStatus.svelte";
   import { DOUBLE_CLICK_MS, prefs } from "./prefs.svelte";
@@ -39,7 +39,12 @@
   const shown = $derived(c.shown);
   // On screen left to right: a right-to-left spread puts the second page on the left.
   const order = $derived(c.flipped && shown.length === 2 ? [shown[1], shown[0]] : shown);
-  const dims = $derived(order.map((i) => c.dims[i]));
+  // A page still loading is laid out by its preview, which is drawn in its place.
+  const dims = $derived(order.map((i) => c.dims[i] ?? c.hints[i]));
+  $effect(() => {
+    for (const i of order) if (!c.dims[i]) c.preview(i);
+  });
+  const behind = (i: number) => (c.hints[i] ? `url(${previewUrl(c.id, i)})` : undefined);
   const ready = $derived(dims.every(Boolean));
   // Lay pages out at a common height of 1000 units, side by side.
   const unitW = $derived(dims.reduce((s, d) => s + (d ? (d.w * 1000) / d.h : 0), 0));
@@ -66,6 +71,9 @@
     s *= c.zoom;
     return { w: W * s, h: H * s, cw: unitW * s, ch: 1000 * s };
   });
+
+  // Pages are sized from their shapes, so one still loading (no picture yet) keeps its place.
+  const width = (k: number) => (box && dims[k] ? `${(dims[k]!.w / dims[k]!.h) * box.ch}px` : undefined);
 
   const overflows = $derived(!!box && (box.w > vw + 1 || box.h > vh + 1));
 
@@ -225,9 +233,9 @@
     >
       {#each order as i, k (i)}
         {#if k === 0}
-          <img bind:this={img} src={live(i) ? src(i) : undefined} data-page={i} alt="Page {i + 1}" draggable="false" decoding="async" onload={(e) => loaded(i, e)} onerror={() => (failed = i)} />
+          <img bind:this={img} src={live(i) ? src(i) : undefined} style:width={width(k)} style:background-image={behind(i)} data-page={i} alt="Page {i + 1}" draggable="false" decoding="async" onload={(e) => loaded(i, e)} onerror={() => (failed = i)} />
         {:else}
-          <img src={live(i) ? src(i) : undefined} data-page={i} alt="Page {i + 1}" draggable="false" decoding="async" onload={(e) => loaded(i, e)} onerror={() => (failed = i)} />
+          <img src={live(i) ? src(i) : undefined} style:width={width(k)} style:background-image={behind(i)} data-page={i} alt="Page {i + 1}" draggable="false" decoding="async" onload={(e) => loaded(i, e)} onerror={() => (failed = i)} />
         {/if}
       {/each}
     </div>
@@ -299,6 +307,9 @@
     height: 100%;
     width: auto;
     user-select: none;
+  }
+  .content img {
+    background-size: 100% 100%;
   }
   .lens {
     position: fixed;

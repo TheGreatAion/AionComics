@@ -311,6 +311,8 @@ const base = navigator.userAgent.includes("Windows") ? "http://aion.localhost" :
 export const coverUrl = (id: number) => `${base}/cover/${id}`;
 export const pageUrl = (id: number, n: number) => `${base}/page/${id}/${n}`;
 export const thumbUrl = (id: number, n: number) => `${base}/thumb/${id}/${n}`;
+/** A page's small preview, only if it's been made already (404 otherwise; see warm.rs). */
+export const previewUrl = (id: number, n: number) => `${base}/preview/${id}/${n}`;
 
 export const unitWord = (isManga: boolean, n: number) =>
   isManga ? (n === 1 ? "volume" : "volumes") : n === 1 ? "issue" : "issues";

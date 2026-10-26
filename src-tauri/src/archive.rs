@@ -381,6 +381,16 @@ impl Archives {
         self.page(id, path, index)
     }
 
+    /// A page for background work, without unpacking anything: CBZ and folder pages are read, a
+    /// CBR's only once its unpacking has reached them (None until then).
+    pub fn page_if_ready(&self, id: i64, path: &Path, index: usize) -> Result<Option<Vec<u8>>> {
+        let listing = self.listing(id, path)?;
+        match listing.kind {
+            Kind::Rar => Ok(fs::read(self.pages_dir.join(id.to_string()).join(index.to_string())).ok()),
+            _ => self.page(id, path, index).map(|p| Some(p.0)),
+        }
+    }
+
     /// First page without kicking off a full RAR extraction (used for covers).
     pub fn first_page(&self, id: i64, path: &Path) -> Result<Vec<u8>> {
         let listing = self.listing(id, path)?;
