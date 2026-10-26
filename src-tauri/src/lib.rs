@@ -3,6 +3,7 @@ mod backup;
 mod comicinfo;
 mod cv;
 mod db;
+mod frames;
 mod intake;
 mod panels;
 mod scan;

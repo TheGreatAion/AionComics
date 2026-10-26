@@ -868,7 +868,16 @@ fn detect_with(bytes: &[u8], rtl: bool, log: &mut dyn FnMut(String)) -> Result<V
     let mut pieces = Vec::new();
     splitter.split((0..small.width() * small.height()).collect(), 0, &mut pieces);
     log("bleed:".into());
-    Ok(judge(pieces, true, log).map(|(kept, _)| ordered(kept, rtl)).unwrap_or_default())
+    if let Ok((kept, _)) = judge(pieces, true, log) {
+        return Ok(ordered(kept, rtl));
+    }
+
+    // No gutter runs between panels that overlap, or between framed panels laid over art that
+    // fills the page; but each of them has a border drawn round what shows of it.
+    let framed = crate::frames::find(&small, log);
+    let mut out = Vec::new();
+    order(framed, rtl, true, 0, &mut out);
+    Ok(out)
 }
 
 /// Keep the pieces that make a paneled page, with their ruled share of the page; Err when the page
@@ -1169,6 +1178,11 @@ mod real_pages {
                     }
                 }
                 mask.save(out.join(format!("mask{:02}.png", page + 1))).unwrap();
+                let (lines, best) = crate::frames::debug(&small);
+                lines.save(out.join(format!("lines{:02}.png", page + 1))).unwrap();
+                for b in best {
+                    println!("     cand {b}");
+                }
             }
             let mut img = image::load_from_memory(&bytes).unwrap().to_rgb8();
             for (k, p) in panels.iter().enumerate() {
