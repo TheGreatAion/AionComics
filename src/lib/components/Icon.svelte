@@ -41,6 +41,7 @@
     play: "M7 4.5v15l12-7.5z",
     arrowRight: "M5 12h14M13 6l6 6-6 6",
     chevronLeft: "M15 6l-6 6 6 6",
+    stats: "M5 20v-7M12 20V5M19 20v-11M3 20.5h18",
     chevronRight: "M9 6l6 6-6 6",
     readRtl: "M12 6.5 6.5 12l5.5 5.5M18.5 6.5 13 12l5.5 5.5",
     order: "M10 6h10M10 12h10M10 18h10M4 4.5l1.5-1v5M4 13.5a1.5 1.5 0 1 1 2.6 1L4 17.5h3",

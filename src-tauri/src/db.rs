@@ -130,6 +130,7 @@ fn migrate(conn: &Connection) -> Result<()> {
            mtime INTEGER NOT NULL
          );",
     )?;
+    crate::stats::migrate(conn)?;
     // Books in a matched series that were tried for an automatic Comic Vine pairing. Settled ones
     // are left alone for good: you left them unpaired in the matcher.
     let fresh: bool = conn.query_row("SELECT COUNT(*) FROM sqlite_master WHERE name='cv_auto'", [], |r| r.get::<_, i64>(0))? == 0;

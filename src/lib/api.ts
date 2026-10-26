@@ -83,6 +83,55 @@ export interface SeriesView {
   cvVolumeId: string | null;
 }
 
+/** One book's reading so far: every sitting with it. */
+export interface BookStats {
+  pages: number;
+  sittings: number;
+  seconds: number;
+  firstAt: number | null;
+  lastAt: number | null;
+}
+
+export interface ReadingPeriod {
+  pages: number;
+  seconds: number;
+  sittings: number;
+  finished: number;
+}
+
+export interface Ranked {
+  name: string;
+  pages: number;
+  seriesId: number | null;
+  coverId: number | null;
+}
+
+/** What your reading adds up to, recorded from the first sitting on. */
+export interface ReadingStats {
+  since: number | null;
+  week: ReadingPeriod;
+  month: ReadingPeriod;
+  year: ReadingPeriod;
+  all: ReadingPeriod;
+  /** The last 12 weeks, oldest first: [Monday as days since 1970, pages]. */
+  weeks: [number, number][];
+  streak: number;
+  bestStreak: number;
+  series: Ranked[];
+  creators: Ranked[];
+  characters: Ranked[];
+  finished: ComicCard[];
+}
+
+/** "2 h 14 min", "35 min", "under a minute". */
+export function duration(seconds: number): string {
+  const m = Math.round(seconds / 60);
+  if (m < 1) return "under a minute";
+  if (m < 60) return `${m} min`;
+  const h = Math.floor(m / 60);
+  return m % 60 ? `${h} h ${m % 60} min` : `${h} h`;
+}
+
 /** Everything by one creator, or with one character or team in it, grouped by series. */
 export interface PeopleView {
   name: string;
@@ -210,6 +259,8 @@ export const api = {
   collection: (id: number) => invoke<CollectionView>("collection", { id }),
   series: (id: number) => invoke<SeriesView>("series", { id }),
   people: (kind: "creator" | "character", name: string) => invoke<PeopleView>("people", { kind, name }),
+  bookStats: (id: number) => invoke<BookStats>("book_stats", { id }),
+  readingStats: () => invoke<ReadingStats>("reading_stats", { tzMinutes: -new Date().getTimezoneOffset() }),
   openComic: (id: number) => invoke<ReaderInfo>("open_comic", { id }),
   pagePanels: (id: number, page: number, rtl: boolean) => invoke<Panel[]>("page_panels", { id, page, rtl }),
   comicMeta: (id: number) => invoke<ComicMeta>("comic_meta", { id }),

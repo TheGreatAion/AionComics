@@ -6,6 +6,7 @@ mod db;
 mod intake;
 mod panels;
 mod scan;
+mod stats;
 
 /// Bump when panel detection changes so cached results are recomputed.
 const PANELS_VERSION: i64 = 8;
@@ -690,7 +691,22 @@ fn save_progress(state: State<Shared>, id: i64, page: i64, page_count: i64) -> C
     if id < 0 {
         return Ok(());
     }
-    db::set_progress(&state.conn.lock().unwrap(), id, page, page_count, scan::now()).map_err(err)
+    let conn = state.conn.lock().unwrap();
+    let now = scan::now();
+    db::set_progress(&conn, id, page, page_count, now).map_err(err)?;
+    stats::record(&conn, id, page, page_count, now).map_err(err)
+}
+
+/// One book's reading so far, for the end card.
+#[tauri::command]
+fn book_stats(state: State<Shared>, id: i64) -> CmdResult<stats::BookStats> {
+    stats::book(&state.conn.lock().unwrap(), id).map_err(err)
+}
+
+/// Everything for the stats page. `tz_minutes` is the reader's offset from UTC.
+#[tauri::command]
+fn reading_stats(state: State<Shared>, tz_minutes: i64) -> CmdResult<stats::Stats> {
+    stats::stats(&state.conn.lock().unwrap(), scan::now(), tz_minutes * 60).map_err(err)
 }
 
 #[tauri::command]
@@ -895,6 +911,8 @@ pub fn run() {
             collection,
             series,
             people,
+            book_stats,
+            reading_stats,
             open_comic,
             page_panels,
             save_progress,

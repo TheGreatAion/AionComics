@@ -1,6 +1,6 @@
 <script lang="ts">
   import { tick } from "svelte";
-  import { api, coverUrl, storyTitle, type Panel } from "$lib/api";
+  import { api, coverUrl, duration, storyTitle, type BookStats, type Panel } from "$lib/api";
   import Icon, { type IconName } from "$lib/components/Icon.svelte";
   import WindowControls from "$lib/components/WindowControls.svelte";
   import Wash from "$lib/components/Wash.svelte";
@@ -115,6 +115,24 @@
     pending = [book, p, count];
     clearTimeout(saveTimer);
     saveTimer = setTimeout(flush, 400);
+  });
+
+  // The end card says how the read went, once the last page's save is in.
+  let read = $state<BookStats | null>(null);
+  $effect(() => {
+    if (!c.endCard || !c.info) return void (read = null);
+    const book = c.id;
+    flush().then(() => api.bookStats(book).then((s) => book === c.id && (read = s)));
+  });
+  const readLine = $derived.by(() => {
+    if (!read?.sittings) return [];
+    const days = read.firstAt && read.lastAt ? Math.round((read.lastAt - read.firstAt) / 86_400) + 1 : 1;
+    return [
+      `${read.pages.toLocaleString()} ${read.pages === 1 ? "page" : "pages"}`,
+      `${read.sittings} ${read.sittings === 1 ? "sitting" : "sittings"}`,
+      duration(read.seconds),
+      ...(days > 1 ? [`over ${days} days`] : []),
+    ];
   });
 
   $effect(() => {
@@ -333,6 +351,9 @@
         <Wash color={(c.info.next ?? c.info.comic).coverColor} height="100%" strength={0.3} />
         <div class="end-card">
           <p class="done">You finished {[c.info.comic.seriesName.trim(), c.info.comic.label].filter(Boolean).join(" ")}.</p>
+          {#if readLine.length}
+            <p class="read mono">{#each readLine as part, i}{#if i}<span class="dot">·</span>{/if}<span>{part}</span>{/each}</p>
+          {/if}
           {#if c.info.next}
             <button class="next" onclick={() => onopen(c.info!.next!.id)}>
               <img src={coverUrl(c.info.next.id)} alt="" />
@@ -756,6 +777,16 @@
   .done {
     color: var(--text-2);
     margin-bottom: 40px;
+  }
+  /* How the read went: "226 pages · 3 sittings · 2 h 10 min · over 4 days". */
+  .read {
+    margin: -26px 0 36px;
+    color: var(--text);
+    display: flex;
+    gap: 10px;
+  }
+  .read .dot {
+    color: var(--text-3);
   }
   .next {
     display: flex;

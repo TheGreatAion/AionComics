@@ -35,6 +35,9 @@
     <button class="ico" title="Search (Ctrl K)" aria-label="Search" onclick={() => (search.open = true)}>
       <Icon name="search" size={17} />
     </button>
+    <button class="ico" class:on={route.name === "stats"} title="Your reading" aria-label="Your reading" onclick={() => nav.root({ name: "stats" })}>
+      <Icon name="stats" size={17} />
+    </button>
     <button
       class="ico"
       class:on={route.name === "settings"}
