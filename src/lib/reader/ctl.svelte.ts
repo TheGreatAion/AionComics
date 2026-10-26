@@ -52,7 +52,7 @@ export class Ctl {
   stage: HTMLElement | null = null;
   private noteTimer: ReturnType<typeof setTimeout> | undefined;
   private measuring = new Set<number>();
-  private warm: HTMLImageElement[] = [];
+  private warm: { i: number; img: HTMLImageElement }[] = [];
 
   constructor(public hooks: { open: (id: number) => void; close: () => void; focusPage?: () => void }) {}
 
@@ -127,8 +127,18 @@ export class Ctl {
       })
       .catch(() => this.id === book && this.measuring.delete(i));
     // Hold on to the last few so their decoded pixels stay cached.
-    this.warm.push(img);
+    this.warm.push({ i, img });
     if (this.warm.length > 10) this.warm.shift();
+  }
+
+  /** The reader settled on page p: stop loading pages around where it was before. */
+  settleAt(p: number) {
+    this.warm = this.warm.filter((w) => {
+      if (w.img.complete || Math.abs(w.i - p) <= 3) return true;
+      w.img.src = "";
+      this.measuring.delete(w.i);
+      return false;
+    });
   }
 
   /** In double page mode, a page that can't share the screen: the last page, a wide page, or one

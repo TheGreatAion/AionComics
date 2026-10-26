@@ -4,6 +4,10 @@
   import PageStatus from "./PageStatus.svelte";
   import { DOUBLE_CLICK_MS, prefs } from "./prefs.svelte";
 
+  /** Turns this close together are skipping; loading waits until none came for QUIET_MS. */
+  const SKIPPING_MS = 90;
+  const QUIET_MS = 70;
+
   let {
     c,
     onzone,
@@ -65,10 +69,27 @@
 
   const overflows = $derived(!!box && (box.w > vw + 1 || box.h > vh + 1));
 
-  // Look one spread ahead and behind so pairing and page turns are instant.
+  // Skipping (a held arrow key, a drag along the ticks): pages flying past aren't worth loading.
+  // A page turned to right after another waits for a moment's quiet, unless it's loaded already.
+  let quiet = $state(true);
+  let turnedAt = 0;
   $effect(() => {
+    void c.page;
+    const now = performance.now();
+    if (now - turnedAt < SKIPPING_MS) quiet = false;
+    turnedAt = now;
+    const t = setTimeout(() => (quiet = true), QUIET_MS);
+    return () => clearTimeout(t);
+  });
+  const live = (i: number) => quiet || !!c.dims[i];
+
+  // Once the page is on screen, look one spread ahead and behind so pairing and page turns are
+  // instant (not before: they'd hold up the page itself).
+  $effect(() => {
+    if (!ready || !quiet) return;
     const p = c.page;
-    for (const d of [-2, -1, 1, 2, 3]) c.measure(p + d);
+    c.settleAt(p);
+    for (const d of [1, 2, 3, -1, -2]) c.measure(p + d);
   });
 
   // New page: back to the top, and to the right-hand edge when reading right to left.
@@ -204,9 +225,9 @@
     >
       {#each order as i, k (i)}
         {#if k === 0}
-          <img bind:this={img} src={src(i)} data-page={i} alt="Page {i + 1}" draggable="false" decoding="async" onload={(e) => loaded(i, e)} onerror={() => (failed = i)} />
+          <img bind:this={img} src={live(i) ? src(i) : undefined} data-page={i} alt="Page {i + 1}" draggable="false" decoding="async" onload={(e) => loaded(i, e)} onerror={() => (failed = i)} />
         {:else}
-          <img src={src(i)} data-page={i} alt="Page {i + 1}" draggable="false" decoding="async" onload={(e) => loaded(i, e)} onerror={() => (failed = i)} />
+          <img src={live(i) ? src(i) : undefined} data-page={i} alt="Page {i + 1}" draggable="false" decoding="async" onload={(e) => loaded(i, e)} onerror={() => (failed = i)} />
         {/if}
       {/each}
     </div>

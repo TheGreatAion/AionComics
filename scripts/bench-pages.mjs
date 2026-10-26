@@ -81,7 +81,7 @@ for (const p of jumps) {
 const skips = [];
 for (const f of [0.15, 0.5, 0.8]) {
   await key("g");
-  await send("Input.insertText", { text: String(Math.min(Math.floor(f * n), n - 20) + 1) });
+  await send("Input.insertText", { text: String(Math.min(Math.floor(f * n), n - 36) + 1) });
   await key("Enter");
   await wait(800);
   for (let k = 0; k < 14; k++) (await key("ArrowRight"), await wait(35));

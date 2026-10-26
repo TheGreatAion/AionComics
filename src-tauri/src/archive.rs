@@ -19,6 +19,12 @@ use serde::{Deserialize, Serialize};
 
 /// How many pages ahead of the reader a CBR is unpacked.
 const RAR_AHEAD: usize = 24;
+/// Page requests for one book served at once (see `Archives::page_first`).
+const PAGE_READERS: usize = 2;
+/// A waiting request this many pages or more from the newest one is dropped: skipped past.
+const STALE: usize = 4;
+/// Open copies of one ZIP kept for reading pages side by side.
+const ZIP_SPARE: usize = 3;
 
 // unrar's C++ sources use registry/crypto APIs from advapi32. Tauri happens to
 // link it already, but tests and tools built from this crate need it too.
@@ -230,7 +236,62 @@ fn stamp(path: &Path) -> Option<(u64, u64)> {
     Some((m.len(), mtime))
 }
 
-type ZipHandle = Arc<Mutex<Zip>>;
+/// Open copies of one ZIP, free for the taking: each read takes one, so reads run side by side.
+type ZipHandle = Arc<Mutex<Vec<Zip>>>;
+
+/// The reader's page requests for one book, newest first.
+#[derive(Default)]
+struct Gate {
+    state: Mutex<GateState>,
+    cv: Condvar,
+}
+
+#[derive(Default)]
+struct GateState {
+    next: u64,
+    running: usize,
+    /// (ticket, page) of requests waiting their turn; higher tickets are newer.
+    waiting: Vec<(u64, usize)>,
+    /// The page asked for last.
+    latest: usize,
+}
+
+/// A request's turn at the archive; the next waiting one goes when it's dropped.
+struct Turn<'a>(&'a Gate);
+
+impl Drop for Turn<'_> {
+    fn drop(&mut self) {
+        self.0.state.lock().unwrap().running -= 1;
+        self.0.cv.notify_all();
+    }
+}
+
+impl Gate {
+    /// Wait for this request's turn: the newest waiting request goes next, and one for a page far
+    /// from the newest gets none (None) — the reader has skipped past it.
+    fn enter(&self, page: usize) -> Option<Turn<'_>> {
+        let mut st = self.state.lock().unwrap();
+        let ticket = st.next;
+        st.next += 1;
+        st.waiting.push((ticket, page));
+        st.latest = page;
+        self.cv.notify_all();
+        loop {
+            let newest = st.waiting.iter().map(|w| w.0).max();
+            if st.running < PAGE_READERS && newest == Some(ticket) {
+                st.waiting.retain(|w| w.0 != ticket);
+                st.running += 1;
+                return Some(Turn(self));
+            }
+            if page.abs_diff(st.latest) >= STALE {
+                st.waiting.retain(|w| w.0 != ticket);
+                self.cv.notify_all();
+                return None;
+            }
+            st = self.cv.wait(st).unwrap();
+        }
+    }
+}
 
 pub struct Archives {
     pages_dir: PathBuf,
@@ -238,6 +299,7 @@ pub struct Archives {
     listings: Mutex<Lru<Arc<Listing>>>,
     zips: Mutex<Lru<ZipHandle>>,
     rars: Mutex<Lru<Arc<RarJob>>>,
+    gates: Mutex<Lru<Arc<Gate>>>,
 }
 
 impl Archives {
@@ -253,6 +315,7 @@ impl Archives {
             listings: Mutex::new(Lru::new(16)),
             zips: Mutex::new(Lru::new(4)),
             rars: Mutex::new(Lru::new(4)),
+            gates: Mutex::new(Lru::new(8)),
         }
     }
 
@@ -303,6 +366,21 @@ impl Archives {
         Ok((data, mime_for(name)))
     }
 
+    /// A page the reader is waiting for: the newest request for a book is served first, and ones
+    /// it has skipped past (STALE pages or more from the newest) are dropped with an error.
+    pub fn page_first(&self, id: i64, path: &Path, index: usize) -> Result<(Vec<u8>, &'static str)> {
+        let gate = {
+            let mut gates = self.gates.lock().unwrap();
+            gates.get(id).unwrap_or_else(|| {
+                let g = Arc::new(Gate::default());
+                gates.put(id, g.clone());
+                g
+            })
+        };
+        let Some(_turn) = gate.enter(index) else { bail!("skipped") };
+        self.page(id, path, index)
+    }
+
     /// First page without kicking off a full RAR extraction (used for covers).
     pub fn first_page(&self, id: i64, path: &Path) -> Result<Vec<u8>> {
         let listing = self.listing(id, path)?;
@@ -316,20 +394,27 @@ impl Archives {
     fn zip_read(&self, id: i64, path: &Path, name: &str) -> Result<Vec<u8>> {
         let handle = {
             let mut zips = self.zips.lock().unwrap();
-            match zips.get(id) {
-                Some(h) => h,
-                None => {
-                    let z = open_zip(path)?;
-                    let h: ZipHandle = Arc::new(Mutex::new(z));
-                    zips.put(id, h.clone());
-                    h
-                }
-            }
+            zips.get(id).unwrap_or_else(|| {
+                let h: ZipHandle = Arc::default();
+                zips.put(id, h.clone());
+                h
+            })
         };
-        let mut z = handle.lock().unwrap();
-        let mut f = z.by_name(name)?;
-        let mut buf = Vec::with_capacity(f.size() as usize);
-        f.read_to_end(&mut buf)?;
+        let free = handle.lock().unwrap().pop();
+        let mut z = match free {
+            Some(z) => z,
+            None => open_zip(path)?,
+        };
+        let buf = {
+            let mut f = z.by_name(name)?;
+            let mut buf = Vec::with_capacity(f.size() as usize);
+            f.read_to_end(&mut buf)?;
+            buf
+        };
+        let mut spare = handle.lock().unwrap();
+        if spare.len() < ZIP_SPARE {
+            spare.push(z);
+        }
         Ok(buf)
     }
 
@@ -592,6 +677,24 @@ pub fn make_page_thumb(bytes: &[u8]) -> Result<Vec<u8>> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// While two pages are being read, a request waits; one for a page far from a newer request
+    /// is dropped, and the newest goes as soon as a reader is free.
+    #[test]
+    fn newest_page_first() {
+        let gate = Arc::new(Gate::default());
+        let (a, b) = (gate.enter(0).unwrap(), gate.enter(1).unwrap());
+        let g = gate.clone();
+        let passed = std::thread::spawn(move || g.enter(2).is_some());
+        std::thread::sleep(Duration::from_millis(50));
+        let g = gate.clone();
+        let landed = std::thread::spawn(move || g.enter(9).is_some());
+        assert!(!passed.join().unwrap(), "skipped past: dropped");
+        std::thread::sleep(Duration::from_millis(50));
+        drop(a);
+        assert!(landed.join().unwrap(), "the newest gets the free reader");
+        drop(b);
+    }
 
     fn jpeg(paint: impl Fn(u32, u32) -> [u8; 3]) -> Vec<u8> {
         let img = image::RgbImage::from_fn(200, 300, |x, y| image::Rgb(paint(x, y)));

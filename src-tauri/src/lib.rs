@@ -799,7 +799,7 @@ fn handle_image(state: &AppState, req: &Request<Vec<u8>>) -> Response<Vec<u8>> {
             let id: i64 = id.parse()?;
             let n: usize = n.parse()?;
             let (path, _) = state.comic_path(id)?;
-            state.archives.page(id, &path, n)
+            state.archives.page_first(id, &path, n)
         })(),
         _ => Err(anyhow::anyhow!("not found")),
     };
