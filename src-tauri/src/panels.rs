@@ -840,7 +840,55 @@ fn detect_with(bytes: &[u8], rtl: bool, log: &mut dyn FnMut(String)) -> Result<V
         img
     }
     .to_luma8();
+    // A scan's dark rim around the paper would pass for the gutter color and stop the flood from
+    // reaching the real gutters: analyze the paper inside it, then put the panels back in place.
+    let Some((x0, y0, x1, y1)) = rim(&small) else {
+        return detect_in(small, rtl, log);
+    };
+    let (w, h) = (small.width() as f32, small.height() as f32);
+    log(format!("rim cut: {x0},{y0} to {x1},{y1}"));
+    let inner = image::imageops::crop_imm(&small, x0, y0, x1 - x0, y1 - y0).to_image();
+    let (sx, sy, ox, oy) = ((x1 - x0) as f32 / w, (y1 - y0) as f32 / h, x0 as f32 / w, y0 as f32 / h);
+    let mut panels = detect_in(inner, rtl, log)?;
+    for p in &mut panels {
+        (p.x, p.y, p.w, p.h) = (ox + p.x * sx, oy + p.y * sy, p.w * sx, p.h * sy);
+        for v in p.poly.iter_mut().flatten() {
+            *v = [ox + v[0] * sx, oy + v[1] * sy];
+        }
+    }
+    Ok(panels)
+}
 
+/// The paper inside a scan's dark rim, as a crop box (x0, y0, x1, y1), when there is a rim: a few
+/// rows or columns of near black along at least three edges, with light paper just inside along
+/// at least one (art may run into the rim on the others, or lettering cross the margin).
+fn rim(img: &GrayImage) -> Option<(u32, u32, u32, u32)> {
+    let (w, h) = (img.width(), img.height());
+    let px = |x: u32, y: u32| img.get_pixel(x, y)[0];
+    // Thickness of the rim along one edge (lines from it that are near all dark), and whether the
+    // band just inside is mostly light.
+    let side = |n: u32, len: u32, at: &dyn Fn(u32, u32) -> u8| -> (u32, bool) {
+        let share = |k: u32, f: &dyn Fn(u8) -> bool| (0..len).filter(|&t| f(at(k, t))).count() as f32 / len as f32;
+        let mut k = 0;
+        while k < n / 12 && share(k, &|v| v <= 60) >= 0.9 {
+            k += 1;
+        }
+        (k, (k + 2..k + 8).all(|j| share(j, &|v| v >= 150) >= 0.6))
+    };
+    let top = side(h, w, &|k, t| px(t, k));
+    let bottom = side(h, w, &|k, t| px(t, h - 1 - k));
+    let left = side(w, h, &|k, t| px(k, t));
+    let right = side(w, h, &|k, t| px(w - 1 - k, t));
+    let edges = [top, bottom, left, right];
+    if edges.iter().filter(|e| e.0 >= 3).count() < 3 || !edges.iter().any(|e| e.0 >= 3 && e.1) {
+        return None;
+    }
+    // Past the rim and the paper's own edge (a soft line where the scan meets it).
+    let cut = |e: (u32, bool)| if e.0 > 0 { e.0 + 2 } else { 0 };
+    Some((cut(left), cut(top), w - cut(right), h - cut(bottom)))
+}
+
+fn detect_in(small: GrayImage, rtl: bool, log: &mut dyn FnMut(String)) -> Result<Vec<Panel>> {
     // Gutters around the panels: flood them from the page edge, then split what's enclosed.
     let bg = gutter_color(&small);
     let mut splitter = Splitter::new(&small, bg, false);
@@ -874,7 +922,8 @@ fn detect_with(bytes: &[u8], rtl: bool, log: &mut dyn FnMut(String)) -> Result<V
 
     // No gutter runs between panels that overlap, or between framed panels laid over art that
     // fills the page; but each of them has a border drawn round what shows of it.
-    let framed = crate::frames::find(&small, log);
+    // AION_NOFRAMES=1 (tests): leave this pass out, to compare.
+    let framed = if cfg!(test) && std::env::var("AION_NOFRAMES").is_ok() { Vec::new() } else { crate::frames::find(&small, log) };
     let mut out = Vec::new();
     order(framed, rtl, true, 0, &mut out);
     Ok(out)
@@ -979,6 +1028,21 @@ mod tests {
         let rtl = detect(&page(), true).unwrap();
         assert!(rtl[1].x > rtl[2].x);
         assert!(ltr.iter().all(|p| p.poly.is_none()), "rectangles need no polygon");
+    }
+
+    /// The same page scanned with a black rim round the paper: the rim is cut away, and the panels
+    /// come back where they are on the whole page.
+    #[test]
+    fn scan_rim() {
+        let inner = image::load_from_memory(&page()).unwrap().to_luma8();
+        let mut img = GrayImage::from_pixel(640, 960, Luma([22]));
+        image::imageops::overlay(&mut img, &inner, 20, 30);
+        let plain = detect(&page(), false).unwrap();
+        let rimmed = detect(&png(img), false).unwrap();
+        assert_eq!(rimmed.len(), 3, "{rimmed:?}");
+        let left = 20.0 / 640.0 + plain[1].x * 600.0 / 640.0;
+        assert!((rimmed[1].x - left).abs() < 0.01, "{rimmed:?}");
+        assert!(rim(&inner).is_none(), "no rim, no cut");
     }
 
     /// Two panels side by side, split by a gutter leaning ~6°, with art
