@@ -12,22 +12,28 @@
 <svelte:window onscroll={() => (scrolled = window.scrollY > 24)} />
 
 <!-- The window has no OS title bar: this bar is where you drag it from. -->
-<header class:solid={scrolled} data-tauri-drag-region>
-  <button class="ico panel" class:on={side.open} title="Side panel (Ctrl B)" aria-label="Side panel" onclick={toggleSide}>
-    <Icon name="sidebar" size={17} />
-  </button>
+<!-- With the side panel open, the panel holds the app's name and the way around; the bar starts
+     beside it and keeps back, search, stats and settings. -->
+<header class:solid={scrolled} class:beside={side.open} data-tauri-drag-region>
+  {#if !side.open}
+    <button class="ico panel" title="Show the side panel (Ctrl B)" aria-label="Show the side panel" onclick={toggleSide}>
+      <Icon name="sidebar" size={17} />
+    </button>
+  {/if}
   {#if nav.canGoBack}
     <button class="back link" onclick={() => nav.back()} title="Back (Alt+←)">&larr;</button>
   {/if}
-  <button class="mark" onclick={() => nav.root({ name: "home" })}>AionComics</button>
-  <nav data-tauri-drag-region>
-    <button class="link" class:on={route.name === "home"} onclick={() => nav.root({ name: "home" })}>Home</button>
-    {#each lib.collections as c (c.id)}
-      <button class="link" class:on={active(c.id)} onclick={() => nav.root({ name: "collection", id: c.id })}>
-        {c.name}
-      </button>
-    {/each}
-  </nav>
+  {#if !side.open}
+    <button class="mark" onclick={() => nav.root({ name: "home" })}>AionComics</button>
+    <nav data-tauri-drag-region>
+      <button class="link" class:on={route.name === "home"} onclick={() => nav.root({ name: "home" })}>Home</button>
+      {#each lib.collections as c (c.id)}
+        <button class="link" class:on={active(c.id)} onclick={() => nav.root({ name: "collection", id: c.id })}>
+          {c.name}
+        </button>
+      {/each}
+    </nav>
+  {/if}
   <div class="right" data-tauri-drag-region>
     {#if lib.scanning}
       <span class="ico" title="Scanning your library"><span class="spin"><Icon name="rescan" size={16} /></span></span>
@@ -69,7 +75,12 @@
     border-bottom: 1px solid transparent;
     transition:
       background 0.4s,
-      border-color 0.4s;
+      border-color 0.4s,
+      left 0.45s var(--ease);
+  }
+  /* Beside the open side panel, gliding with it. */
+  header.beside {
+    left: var(--side);
   }
   header.solid {
     background: rgba(10, 10, 10, 0.86);

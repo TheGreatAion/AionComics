@@ -18,7 +18,8 @@
 <style>
   .wash {
     position: absolute;
-    left: 0;
+    /* On under the side panel, whose glass lets it show through. */
+    left: calc(-1 * var(--side-now, 0px));
     right: 0;
     top: 0;
     z-index: -1;
@@ -27,6 +28,7 @@
     mask-image: linear-gradient(to bottom, #000 0%, rgba(0, 0, 0, 0.55) 45%, transparent 100%);
     transition:
       background-color 0.9s var(--ease),
-      opacity 0.9s var(--ease);
+      opacity 0.9s var(--ease),
+      left 0.45s var(--ease);
   }
 </style>

@@ -86,6 +86,12 @@
     };
   });
 
+  // How much of the window's left the side panel takes: pages make room, and the color wash at
+  // their top reaches in under it.
+  $effect(() => {
+    document.documentElement.style.setProperty("--side-now", side.open && lib.hasRoot ? "var(--side)" : "0px");
+  });
+
   // New page starts at the top; views restore the old position on Back once they've loaded.
   $effect(() => {
     void route;
@@ -115,9 +121,9 @@
   <Settings welcome />
 {:else}
   <TopBar />
-  {#if side.open}<SidePanel />{/if}
+  <SidePanel />
   {#key nav.stack.length + JSON.stringify(route)}
-    <main class:side={side.open}>
+    <main>
       {#if route.name === "home"}
         <Home />
       {:else if route.name === "collection"}
@@ -172,8 +178,10 @@
     min-height: 100vh;
     animation: fade 0.45s var(--ease);
   }
-  main.side {
-    padding-left: var(--side);
+  /* Room for the side panel, made as it slides in (see app.css). */
+  main {
+    padding-left: var(--side-now);
+    transition: padding-left 0.45s var(--ease);
   }
   /* Opacity only: a moving page would throw off covers flying onto it. */
   @keyframes fade {

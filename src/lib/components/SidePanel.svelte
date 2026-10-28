@@ -1,5 +1,5 @@
 <script lang="ts" module>
-  /** Shown or hidden, remembered between sessions (Ctrl B, or the button in the top bar). */
+  /** Shown or hidden, remembered between sessions (Ctrl B, or the panel button). */
   export const side = $state({ open: load() });
 
   function load() {
@@ -22,7 +22,8 @@
 
 <script lang="ts">
   // A side panel for getting around fast: the books you're partway through, the series added
-  // lately, and every collection opening into its series, with a filter over all of them.
+  // lately, and every collection opening into its series, with a filter over all of them. While
+  // it's open it is the app's navigation: the top bar keeps only back, search, stats and settings.
   import { api, progressOf, type ComicCard, type SeriesSummary } from "$lib/api";
   import { lib, nav, openReader } from "$lib/state.svelte";
   import Icon from "./Icon.svelte";
@@ -90,26 +91,35 @@
   const matches = (s: SeriesSummary) => words.every((w) => s.name.toLowerCase().includes(w));
   const shownSeries = (id: number) => (series[id] ?? []).filter((s) => !words.length || matches(s));
 
-  // Within the series page of the book, or reading it.
+  // On the series page of this series (or of a book in it).
   const seriesHere = (id: number) => route.name === "series" && route.id === id;
 </script>
 
-<aside>
+<!-- Always there, slid away when hidden, so it can glide in and out. -->
+<aside class:open={side.open} inert={!side.open} aria-label="Library">
+  <!-- The panel's top is the window's top: where the app's name sits, and where it's dragged from. -->
+  <div class="top" data-tauri-drag-region>
+    <button class="ico" title="Hide the side panel (Ctrl B)" aria-label="Hide the side panel" onclick={toggleSide}>
+      <Icon name="sidebar" size={17} />
+    </button>
+    <button class="mark" onclick={() => nav.root({ name: "home" })}>AionComics</button>
+  </div>
+
   <label class="find">
     <Icon name="search" size={14} />
-    <input bind:value={filter} placeholder="Filter series" spellcheck="false" />
+    <input bind:value={filter} placeholder="Find a series" spellcheck="false" />
     {#if filter}
-      <button class="clear" aria-label="Clear filter" onclick={() => (filter = "")}><Icon name="close" size={12} /></button>
+      <button class="clear" aria-label="Clear" onclick={() => (filter = "")}><Icon name="close" size={12} /></button>
     {/if}
   </label>
 
   <div class="scroll">
     {#if !words.length}
-      <button class="row top" class:on={here({ name: "home" })} onclick={() => nav.root({ name: "home" })}>Home</button>
+      <button class="row home" class:on={here({ name: "home" })} onclick={() => nav.root({ name: "home" })}>Home</button>
 
       {#if reading.length}
         <button class="head" onclick={() => flip("reading")}>
-          <span class="chev" class:open={opened.reading}><Icon name="chevronRight" size={12} /></span>Continue reading
+          Continue reading<span class="chev" class:open={opened.reading}><Icon name="chevronRight" size={11} /></span>
         </button>
         {#if opened.reading}
           {#each reading as c (c.id)}
@@ -128,7 +138,7 @@
       {/if}
 
       <button class="head" onclick={() => flip("added")}>
-        <span class="chev" class:open={opened.added}><Icon name="chevronRight" size={12} /></span>Recently added
+        Recently added<span class="chev" class:open={opened.added}><Icon name="chevronRight" size={11} /></span>
       </button>
       {#if opened.added}
         {#each added as s (s.id)}
@@ -139,25 +149,28 @@
       {/if}
     {/if}
 
-    <div class="label">Library</div>
+    <div class="head label">Library</div>
     {#each lib.collections as c (c.id)}
       {@const list = shownSeries(c.id)}
+      {@const unfolded = opened[`c${c.id}`] || !!words.length}
       {#if !words.length || list.length}
         <div class="coll" class:on={here({ name: "collection", id: c.id })}>
-          <button class="chev-btn" aria-label={opened[`c${c.id}`] ? "Close" : "Open"} onclick={() => flip(`c${c.id}`)}>
-            <span class="chev" class:open={opened[`c${c.id}`] || !!words.length}><Icon name="chevronRight" size={12} /></span>
-          </button>
           <button class="row" onclick={() => nav.root({ name: "collection", id: c.id })}>
             <span class="name">{c.name}</span>
             <span class="count">{words.length ? list.length : c.seriesCount}</span>
           </button>
+          <button class="fold" aria-label={unfolded ? `Fold away ${c.name}` : `Show the series in ${c.name}`} onclick={() => flip(`c${c.id}`)}>
+            <span class="chev" class:open={unfolded}><Icon name="chevronRight" size={12} /></span>
+          </button>
         </div>
-        {#if opened[`c${c.id}`] || words.length}
-          {#each list as s (s.id)}
-            <button class="row series" class:on={seriesHere(s.id)} class:done={s.count > 0 && s.readCount >= s.count} onclick={() => nav.go({ name: "series", id: s.id })}>
-              <span class="name">{s.name}</span>
-            </button>
-          {/each}
+        {#if unfolded}
+          <div class="list">
+            {#each list as s (s.id)}
+              <button class="row series" class:on={seriesHere(s.id)} class:done={s.count > 0 && s.readCount >= s.count} onclick={() => nav.go({ name: "series", id: s.id })}>
+                <span class="name">{s.name}</span>
+              </button>
+            {/each}
+          </div>
         {/if}
       {/if}
     {/each}
@@ -168,37 +181,53 @@
 </aside>
 
 <style>
+  /* Glass over the page, like the top bar once you scroll: the cover's color runs on underneath. */
   aside {
     position: fixed;
-    top: 64px;
+    top: 0;
     bottom: 0;
     left: 0;
     width: var(--side);
-    z-index: 15;
+    z-index: 25;
     display: flex;
     flex-direction: column;
-    border-right: 1px solid var(--line);
-    background: var(--bg);
-    font-size: 13px;
+    background: rgba(10, 10, 10, 0.5);
+    backdrop-filter: blur(28px);
+    box-shadow: inset -1px 0 0 rgba(255, 255, 255, 0.04);
+    transform: translateX(-100%);
+    transition: transform 0.45s var(--ease);
   }
+  aside.open {
+    transform: none;
+  }
+  .top {
+    flex: none;
+    height: 64px;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 0 18px;
+  }
+  .mark {
+    font-weight: 500;
+    font-size: 15px;
+    letter-spacing: -0.01em;
+  }
+  /* The same quiet underline as the filter on a collection's page. */
   .find {
     flex: none;
     display: flex;
     align-items: center;
     gap: 8px;
-    margin: 6px 14px 10px;
-    padding: 0 10px;
-    height: 32px;
-    border-radius: 7px;
-    background: var(--raised);
+    margin: 2px 20px 14px;
+    padding-bottom: 6px;
+    border-bottom: 1px solid var(--line);
     color: var(--text-3);
+    transition: border-color 0.2s;
   }
   .find:focus-within {
+    border-color: var(--text-2);
     color: var(--text-2);
-    box-shadow: inset 0 0 0 1px var(--track);
-  }
-  .find input:focus-visible {
-    outline: none;
   }
   .find input {
     flex: 1;
@@ -206,10 +235,12 @@
     border: 0;
     background: none;
     color: var(--text);
-    font-size: 13px;
   }
   .find input::placeholder {
     color: var(--text-3);
+  }
+  .find input:focus-visible {
+    outline: none;
   }
   .clear {
     color: var(--text-3);
@@ -221,7 +252,7 @@
   .scroll {
     flex: 1;
     overflow-y: auto;
-    padding: 0 8px 28px;
+    padding: 0 10px 32px;
     scrollbar-width: thin;
     scrollbar-color: transparent transparent;
   }
@@ -233,23 +264,25 @@
     display: flex;
     align-items: baseline;
     gap: 8px;
-    padding: 5px 8px;
-    border-radius: 6px;
+    padding: 5px 10px;
+    border-radius: 7px;
     text-align: left;
     color: var(--text-2);
     position: relative;
+    transition:
+      color 0.15s,
+      background 0.15s;
   }
   .row:hover {
     color: var(--text);
-    background: rgba(255, 255, 255, 0.04);
   }
   .on > .row,
   .row.on {
     color: var(--text);
     background: rgba(255, 255, 255, 0.07);
   }
-  .top {
-    margin-bottom: 4px;
+  .home {
+    font-size: 15px;
   }
   .name {
     flex: 1;
@@ -265,28 +298,32 @@
     font-size: 11px;
     color: var(--text-3);
   }
-  .head,
-  .label {
+  /* Section titles as the rest of the app writes them ("Library", "Today"): plain, a size up. */
+  .head {
     display: flex;
     align-items: center;
-    gap: 4px;
+    gap: 6px;
     width: 100%;
-    margin: 14px 0 4px;
-    padding: 0 8px;
-    font-size: 11px;
-    letter-spacing: 0.06em;
-    text-transform: uppercase;
+    margin: 26px 0 8px;
+    padding: 0 10px;
+    font-size: 15px;
+    color: var(--text);
+  }
+  .head .chev {
     color: var(--text-3);
+    opacity: 0;
+    transition:
+      opacity 0.2s,
+      transform 0.25s var(--ease);
   }
-  .head:hover {
-    color: var(--text-2);
-  }
-  .label {
-    margin-top: 18px;
+  /* The fold arrow shows when it matters: pointed at, or folded away. */
+  .head:hover .chev,
+  .head .chev:not(.open) {
+    opacity: 1;
   }
   .chev {
     display: flex;
-    transition: transform 0.2s var(--ease);
+    transition: transform 0.25s var(--ease);
   }
   .chev.open {
     transform: rotate(90deg);
@@ -296,13 +333,13 @@
   }
   .book .row {
     flex-wrap: wrap;
-    padding-right: 30px;
-    padding-bottom: 8px;
+    padding-right: 32px;
+    padding-bottom: 9px;
   }
   .bar {
     position: absolute;
-    left: 8px;
-    right: 30px;
+    left: 10px;
+    right: 32px;
     bottom: 3px;
     height: 2px;
     background: var(--track);
@@ -334,26 +371,36 @@
     color: var(--bg);
     background: var(--text);
   }
+  /* Collections in the big titles' face, as on Home and their own pages. */
   .coll {
     display: flex;
     align-items: center;
   }
   .coll .row {
-    padding-left: 4px;
+    align-items: center;
   }
-  .chev-btn {
+  .coll .name {
+    font-family: var(--display);
+    font-size: 21px;
+    line-height: 1.15;
+    letter-spacing: 0.01em;
+  }
+  .fold {
     flex: none;
-    width: 22px;
-    height: 26px;
+    width: 26px;
+    height: 30px;
     display: grid;
     place-items: center;
     color: var(--text-3);
   }
-  .chev-btn:hover {
+  .fold:hover {
     color: var(--text);
   }
+  .list {
+    margin: 2px 0 10px;
+  }
   .series {
-    padding-left: 30px;
+    padding-left: 18px;
   }
   .series.done:not(.on) {
     color: var(--text-3);
@@ -362,7 +409,7 @@
     color: var(--text);
   }
   .none {
-    padding: 8px;
+    padding: 8px 10px;
     color: var(--text-3);
   }
 </style>
