@@ -15,6 +15,8 @@
   --display: "Bebas Neue", "Geist Variable", system-ui, sans-serif;
   --ease: cubic-bezier(0.2, 0.7, 0, 1);
   --pad: 56px;
+  /* The side panel's width, when it's shown. */
+  --side: 248px;
   color-scheme: dark;
 }
 

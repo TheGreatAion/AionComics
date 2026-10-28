@@ -9,6 +9,7 @@
   import MetaEditor from "$lib/components/MetaEditor.svelte";
   import SearchOverlay from "$lib/components/SearchOverlay.svelte";
   import TopBar from "$lib/components/TopBar.svelte";
+  import SidePanel, { side, toggleSide } from "$lib/components/SidePanel.svelte";
   import WindowControls from "$lib/components/WindowControls.svelte";
   import Reader from "$lib/reader/Reader.svelte";
   import Collection from "$lib/views/Collection.svelte";
@@ -96,6 +97,9 @@
     if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "k") {
       e.preventDefault();
       search.open = true;
+    } else if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "b") {
+      e.preventDefault();
+      toggleSide();
     } else if (e.altKey && e.key === "ArrowLeft") nav.back();
   }
 
@@ -111,8 +115,9 @@
   <Settings welcome />
 {:else}
   <TopBar />
+  {#if side.open}<SidePanel />{/if}
   {#key nav.stack.length + JSON.stringify(route)}
-    <main>
+    <main class:side={side.open}>
       {#if route.name === "home"}
         <Home />
       {:else if route.name === "collection"}
@@ -166,6 +171,9 @@
   main {
     min-height: 100vh;
     animation: fade 0.45s var(--ease);
+  }
+  main.side {
+    padding-left: var(--side);
   }
   /* Opacity only: a moving page would throw off covers flying onto it. */
   @keyframes fade {

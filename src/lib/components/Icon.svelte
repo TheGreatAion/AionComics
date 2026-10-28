@@ -45,6 +45,7 @@
     chevronRight: "M9 6l6 6-6 6",
     readRtl: "M12 6.5 6.5 12l5.5 5.5M18.5 6.5 13 12l5.5 5.5",
     order: "M10 6h10M10 12h10M10 18h10M4 4.5l1.5-1v5M4 13.5a1.5 1.5 0 1 1 2.6 1L4 17.5h3",
+    sidebar: "M4 4.5h16v15H4zM9.5 4.5v15",
   } as const;
   export type IconName = keyof typeof PATHS;
 </script>

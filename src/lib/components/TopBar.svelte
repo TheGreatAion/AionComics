@@ -1,6 +1,7 @@
 <script lang="ts">
   import { lib, nav, search } from "$lib/state.svelte";
   import Icon from "./Icon.svelte";
+  import { side, toggleSide } from "./SidePanel.svelte";
   import WindowControls from "./WindowControls.svelte";
 
   let scrolled = $state(false);
@@ -12,6 +13,9 @@
 
 <!-- The window has no OS title bar: this bar is where you drag it from. -->
 <header class:solid={scrolled} data-tauri-drag-region>
+  <button class="ico panel" class:on={side.open} title="Side panel (Ctrl B)" aria-label="Side panel" onclick={toggleSide}>
+    <Icon name="sidebar" size={17} />
+  </button>
   {#if nav.canGoBack}
     <button class="back link" onclick={() => nav.back()} title="Back (Alt+←)">&larr;</button>
   {/if}
@@ -79,8 +83,12 @@
     height: 40px;
     display: flex;
   }
+  /* Tucked in beside the name, closer than the bar's other gaps. */
+  .panel {
+    margin: 0 -30px 0 -14px;
+  }
   .back {
-    margin: 0 -28px 0 -24px;
+    margin: 0 -28px 0 0;
     font-size: 16px;
   }
   .mark {
