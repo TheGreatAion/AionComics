@@ -28,7 +28,6 @@
     mask-image: linear-gradient(to bottom, #000 0%, rgba(0, 0, 0, 0.55) 45%, transparent 100%);
     transition:
       background-color 0.9s var(--ease),
-      opacity 0.9s var(--ease),
-      left 0.45s var(--ease);
+      opacity 0.9s var(--ease);
   }
 </style>

@@ -87,9 +87,22 @@
   });
 
   // How much of the window's left the side panel takes: pages make room, and the color wash at
-  // their top reaches in under it.
+  // their top reaches in under it. When the panel slides, the page is laid out once at its new
+  // width and glides there as a whole: laying out a page of covers over again on every frame of
+  // the slide made it stutter.
+  let shown: boolean | null = null;
   $effect(() => {
-    document.documentElement.style.setProperty("--side-now", side.open && lib.hasRoot ? "var(--side)" : "0px");
+    const open = side.open && !!lib.hasRoot;
+    document.documentElement.style.setProperty("--side-now", open ? "var(--side)" : "0px");
+    const main = document.querySelector("main");
+    if (shown !== null && shown !== open && main) {
+      const width = parseFloat(getComputedStyle(document.documentElement).getPropertyValue("--side")) || 0;
+      main.animate([{ transform: `translateX(${open ? -width : width}px)` }, { transform: "none" }], {
+        duration: 450,
+        easing: "cubic-bezier(0.2, 0.7, 0, 1)",
+      });
+    }
+    shown = open;
   });
 
   // New page starts at the top; views restore the old position on Back once they've loaded.
@@ -178,10 +191,9 @@
     min-height: 100vh;
     animation: fade 0.45s var(--ease);
   }
-  /* Room for the side panel, made as it slides in (see app.css). */
+  /* Room for the side panel (see app.css); the page glides over when it slides (see above). */
   main {
     padding-left: var(--side-now);
-    transition: padding-left 0.45s var(--ease);
   }
   /* Opacity only: a moving page would throw off covers flying onto it. */
   @keyframes fade {
