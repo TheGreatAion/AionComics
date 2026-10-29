@@ -553,6 +553,14 @@ fn cv_status(state: State<Shared>) -> CmdResult<cv::Status> {
     cv::status(&state.comicvine, &state.conn.lock().unwrap()).map_err(err)
 }
 
+/// Open Comic Vine's API page, where a free key is had, in the default browser. Only this one
+/// address: the page can't ask for anything else to be opened.
+#[tauri::command]
+fn cv_open_site() -> CmdResult<()> {
+    std::process::Command::new("explorer").arg("https://comicvine.gamespot.com/api/").spawn().map_err(err)?;
+    Ok(())
+}
+
 /// Save a Comic Vine API key after checking Comic Vine accepts it. An empty key removes it.
 #[tauri::command]
 async fn cv_set_key(state: State<'_, Shared>, key: String) -> CmdResult<()> {
@@ -1014,6 +1022,7 @@ pub fn run() {
             comic_meta,
             edit_comic_meta,
             cv_status,
+            cv_open_site,
             cv_set_key,
             cv_search,
             cv_plan,

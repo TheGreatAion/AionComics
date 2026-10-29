@@ -280,6 +280,7 @@ export const api = {
   editComicMeta: (id: number, changes: Partial<Record<MetaField, string | null>>) =>
     invoke<ComicMeta>("edit_comic_meta", { id, changes }),
   cvStatus: () => invoke<CvStatus>("cv_status"),
+  cvOpenSite: () => invoke<void>("cv_open_site"),
   cvSetKey: (key: string) => invoke<void>("cv_set_key", { key }),
   cvSearch: (seriesId: number, query?: string) =>
     invoke<{ query: string; volumes: CvVolume[] }>("cv_search", { seriesId, query: query ?? null }),

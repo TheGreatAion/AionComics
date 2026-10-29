@@ -165,7 +165,7 @@
         {#if cvError}<p class="err"><Icon name="alert" size={14} />{cvError}</p>{/if}
         <p class="stats mono">
           {#if cv?.queued}<span title="Credits and characters still coming from Comic Vine"><span class="spin inline"><Icon name="rescan" size={12} /></span> {cv.queued.toLocaleString()} queued</span> · {/if}
-          free key at <span class="url">comicvine.gamespot.com/api</span>
+          free key at <button type="button" class="url" title="Open in your browser" onclick={() => api.cvOpenSite()}>comicvine.gamespot.com/api</button>
         </p>
         {#if cv?.lastError}<p class="stats mono" title="Last problem"><Icon name="alert" size={12} /> {cv.lastError}</p>{/if}
       </section>
@@ -372,7 +372,18 @@
   }
   .url {
     color: var(--text-2);
-    user-select: text;
+    font: inherit;
+    text-decoration: underline;
+    text-decoration-color: var(--line);
+    text-underline-offset: 3px;
+    cursor: pointer;
+    transition:
+      color 0.2s,
+      text-decoration-color 0.2s;
+  }
+  .url:hover {
+    color: var(--text);
+    text-decoration-color: currentColor;
   }
   .spin.inline {
     display: inline-grid;
