@@ -196,6 +196,7 @@
       { label: "Mark earlier ones as read", action: () => act(() => api.markReadBefore(c.id)) },
       "separator",
       { label: "Edit details…", action: () => (sheets.editing = c.id) },
+      { label: "Find on Comic Vine…", action: () => data && (sheets.matching = { seriesId: data.id, isManga: data.isManga, name: data.name, comicId: c.id, label: c.label, count: data.editions.find((x) => x.kind === c.edition)?.sections.reduce((n, s) => n + s.comics.length, 0) }) },
       { label: "Show in Explorer", action: () => api.reveal(c.id) },
       "separator",
       // Its format, when its name gave the wrong idea. Kept in AionComics; the file isn't touched.

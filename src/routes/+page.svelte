@@ -173,7 +173,7 @@
 
 <SearchOverlay />
 {#if sheets.editing !== null}{#key sheets.editing}<MetaEditor id={sheets.editing} />{/key}{/if}
-{#if sheets.matching}<Matcher seriesId={sheets.matching.seriesId} isManga={sheets.matching.isManga} name={sheets.matching.name} />{/if}
+{#if sheets.matching}<Matcher seriesId={sheets.matching.seriesId} isManga={sheets.matching.isManga} name={sheets.matching.name} comicId={sheets.matching.comicId} label={sheets.matching.label} count={sheets.matching.count} />{/if}
 <ContextMenu />
 <DropZone />
 

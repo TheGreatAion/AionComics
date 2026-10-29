@@ -628,7 +628,25 @@ async fn cv_apply(state: State<'_, Shared>, series_id: i64, volume_id: String, p
         let conn = db::open(&state.db_path)?;
         let now = scan::now();
         cv::remember_choices(&conn, &pairs, now)?;
-        cv::apply(&state.comicvine, &conn, series_id, &volume_id, &pairs, now)
+        cv::apply(&state.comicvine, &conn, series_id, &volume_id, &pairs, true, now)
+    })
+    .await
+    .map_err(err)?
+    .map_err(err)
+}
+
+/// Match one book to a Comic Vine issue (None: leave it unmatched), without changing what the
+/// rest of its series is matched to.
+#[tauri::command]
+async fn cv_apply_book(state: State<'_, Shared>, comic_id: i64, volume_id: String, issue_id: Option<String>) -> CmdResult<usize> {
+    let state = state.inner().clone();
+    tauri::async_runtime::spawn_blocking(move || {
+        let conn = db::open(&state.db_path)?;
+        let now = scan::now();
+        let series_id: i64 = conn.query_row("SELECT series_id FROM comics WHERE id=?1", [comic_id], |r| r.get(0))?;
+        let pairs = [cv::Pair { comic_id, issue_id }];
+        cv::remember_choices(&conn, &pairs, now)?;
+        cv::apply(&state.comicvine, &conn, series_id, &volume_id, &pairs, false, now)
     })
     .await
     .map_err(err)?
@@ -1037,6 +1055,7 @@ pub fn run() {
             cv_search,
             cv_plan,
             cv_apply,
+            cv_apply_book,
             plan_add,
             add_comics,
             take_open_request

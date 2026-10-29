@@ -7,7 +7,16 @@
 
   // Match a series to Comic Vine in two steps: pick the series (best guess preselected), then check
   // which issue each book is. Confident pairs are filled in; only the uncertain ones need a look.
-  let { seriesId, isManga, name }: { seriesId: number; isManga: boolean; name: string } = $props();
+  // With `comicId`, just that one book: pick its Comic Vine series, then its issue from the list.
+  let {
+    seriesId,
+    isManga,
+    name,
+    comicId,
+    label,
+    count,
+  }: { seriesId: number; isManga: boolean; name: string; comicId?: number; label?: string; count?: number } = $props();
+  const single = untrack(() => comicId != null);
 
   let step = $state<"search" | "review" | "done">("search");
   // Start from the folder name without scene tags like "(2015) (Digital)".
@@ -40,6 +49,13 @@
     query = r.query;
     volumes = r.volumes;
     chosen = r.volumes[0] ?? null;
+    // One book: of the series named like the best match, the one about as long as this book's
+    // format is here. A trade among 12 volumes is in the 12-issue "Saga", not the 72-issue one.
+    if (single && count && chosen) {
+      const name = chosen.name.toLowerCase();
+      const same = r.volumes.filter((v) => v.name.toLowerCase() === name && v.count);
+      chosen = same.reduce((a, v) => (Math.abs(v.count! - count) < Math.abs(a.count! - count) ? v : a), same[0] ?? chosen);
+    }
   }
   // Search straight away with the starting name.
   search(untrack(() => query));
@@ -50,7 +66,17 @@
     const r = await run("Loading",() => api.cvPlan(seriesId, v.id));
     if (!r) return;
     issues = r.issues;
-    rows = r.proposals;
+    rows = single ? r.proposals.filter((p) => p.comicId === comicId) : r.proposals;
+    // One book whose folder kept it from being paired: offer the issue with its number.
+    const one = single ? rows[0] : null;
+    if (one && !one.issueId) {
+      const n = (label ?? one.label).match(/\d+(?:\.\d+)?/)?.[0];
+      const hit = n ? issues.find((i) => i.number && Number(i.number) === Number(n)) : undefined;
+      if (hit) {
+        one.issueId = hit.id;
+        one.confidence = "check";
+      }
+    }
     step = "review";
   }
 
@@ -58,7 +84,9 @@
     if (!chosen) return;
     const v = chosen;
     const pairs = rows.map((r) => ({ comicId: r.comicId, issueId: r.issueId }));
-    const n = await run("Saving",() => api.cvApply(seriesId, v.id, pairs));
+    const n = await run("Saving", () =>
+      single && comicId != null ? api.cvApplyBook(comicId, v.id, rows[0]?.issueId ?? null) : api.cvApply(seriesId, v.id, pairs),
+    );
     if (n === undefined) return;
     saved = n;
     step = "done";
@@ -94,8 +122,8 @@
 <div class="scrim" role="presentation" onclick={(e) => e.target === e.currentTarget && close()}>
   <div class="sheet" role="dialog" aria-label="Find on Comic Vine">
     <header>
-      <h2>{step === "review" && chosen ? chosen.name : "Find on Comic Vine"}</h2>
-      {#if step === "review"}
+      <h2>{step === "review" && chosen ? chosen.name : single ? `Find ${label ?? "this book"} on Comic Vine` : "Find on Comic Vine"}</h2>
+      {#if step === "review" && !single}
         <span class="sub mono">
           <span title="Matched"><Icon name="check" size={13} />{matched} / {rows.length}</span>
           {#if unsure}<span title="Worth a check"><Icon name="alert" size={13} />{unsure}</span>{/if}
@@ -127,6 +155,26 @@
           {:else if !error}<p class="empty">Nothing found. Try a shorter name.</p>{/if}
         {/each}
       </div>
+    {:else if step === "review" && single}
+      {@const row = rows[0]}
+      <!-- The one book, and the issues of the chosen series to say which it is. -->
+      <div class="one">
+        <div class="book">
+          {#if row}<Cover id={row.comicId} width={64} />{/if}
+          <span class="local">{label ?? row?.label}{#if row?.section}<span class="section">{row.section}</span>{/if}</span>
+        </div>
+        <div class="issues">
+          {#each issues as i (i.id)}
+            <button class="issue" class:on={row?.issueId === i.id} onclick={() => row && pick(row, row.issueId === i.id ? "" : i.id)}>
+              {#if i.image}<img src={i.image} alt="" loading="lazy" />{:else}<span class="noimg small"></span>{/if}
+              <span class="iname">{issueLabel(i)}</span>
+              {#if row?.issueId === i.id}<Icon name="check" size={14} />{/if}
+            </button>
+          {:else}
+            <p class="empty">This series has no issues on Comic Vine.</p>
+          {/each}
+        </div>
+      </div>
     {:else if step === "review"}
       <div class="pairs">
         {#each rows as r (r.comicId)}
@@ -150,7 +198,7 @@
       </div>
     {:else}
       <p class="done" title="Credits and characters follow in the background, a few a minute">
-        <Icon name="check" size={18} />{saved} {unit(saved)} saved
+        <Icon name="check" size={18} />{single ? (saved ? `${label ?? "Book"} saved` : "Left unmatched") : `${saved} ${unit(saved)} saved`}
       </p>
     {/if}
 
@@ -171,7 +219,11 @@
         </button>
       {:else if step === "review"}
         <button class="ico" title="Back" aria-label="Back" onclick={() => (step = "search")}><Icon name="back" size={17} /></button>
-        <button class="btn" disabled={!matched || !!busy} onclick={save}>Save {matched}</button>
+        {#if single}
+          <button class="btn" disabled={!matched || !!busy} onclick={save}>Save</button>
+        {:else}
+          <button class="btn" disabled={!matched || !!busy} onclick={save}>Save {matched}</button>
+        {/if}
       {:else}
         <button class="btn" onclick={close}>Done</button>
       {/if}
@@ -180,6 +232,56 @@
 </div>
 
 <style>
+  /* One book: it on the left, its series' issues to pick from on the right. */
+  .one {
+    flex: 1;
+    min-height: 0;
+    display: grid;
+    grid-template-columns: 150px 1fr;
+    gap: 24px;
+    padding: 18px 24px;
+  }
+  .one .book {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    font-size: 13px;
+  }
+  .issues {
+    overflow-y: auto;
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+  }
+  .issue {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 6px 10px;
+    border-radius: 4px;
+    text-align: left;
+    color: var(--text-2);
+    font-size: 13px;
+  }
+  .issue:hover {
+    background: rgb(var(--fg) / 0.05);
+    color: var(--text);
+  }
+  .issue.on {
+    background: rgb(var(--fg) / 0.1);
+    color: var(--text);
+  }
+  .issue img,
+  .issue .noimg {
+    width: 30px;
+    height: 45px;
+    object-fit: cover;
+    border-radius: 2px;
+    flex: none;
+  }
+  .iname {
+    flex: 1;
+  }
   .scrim {
     position: fixed;
     inset: 0;

@@ -571,7 +571,7 @@ pub fn auto_match(client: &Client, conn: &Connection, now: i64) -> Result<usize>
             })
             .collect();
         if !pairs.is_empty() {
-            n += apply(client, conn, series_id, &volume_id, &pairs, now)?;
+            n += apply(client, conn, series_id, &volume_id, &pairs, true, now)?;
         }
         for b in &fresh {
             conn.execute("INSERT OR REPLACE INTO cv_auto(comic_id, tried_at, settled) VALUES(?1, ?2, 0)", params![b.id, now])?;
@@ -582,7 +582,9 @@ pub fn auto_match(client: &Client, conn: &Connection, now: i64) -> Result<usize>
 
 /// Save a series match: the series' details, each book's issue details from the issue list, and a
 /// queue of books whose credits, characters and story arcs are fetched in the background.
-pub fn apply(client: &Client, conn: &Connection, series_id: i64, volume_id: &str, pairs: &[Pair], now: i64) -> Result<usize> {
+/// Save matched books. `link_series` also makes `volume_id` the series' own Comic Vine series; a
+/// single book matched on its own (a trade among issues) leaves that alone.
+pub fn apply(client: &Client, conn: &Connection, series_id: i64, volume_id: &str, pairs: &[Pair], link_series: bool, now: i64) -> Result<usize> {
     let vol = client.get(
         &format!("volume/4050-{volume_id}"),
         &[("field_list", "id,name,start_year,publisher,count_of_issues,image,description,deck".into())],
@@ -598,10 +600,12 @@ pub fn apply(client: &Client, conn: &Connection, series_id: i64, volume_id: &str
         "description": s(&v, "description").or_else(|| s(&v, "deck")),
         "image": image(&v),
     });
-    conn.execute(
-        "INSERT OR REPLACE INTO cv_series(series_id, volume_id, data, updated_at) VALUES(?1, ?2, ?3, ?4)",
-        params![series_id, volume_id, series.to_string(), now],
-    )?;
+    if link_series {
+        conn.execute(
+            "INSERT OR REPLACE INTO cv_series(series_id, volume_id, data, updated_at) VALUES(?1, ?2, ?3, ?4)",
+            params![series_id, volume_id, series.to_string(), now],
+        )?;
+    }
     let by_id: HashMap<String, Issue> = issues(client, volume_id, 7)?.into_iter().map(|i| (i.id.clone(), i)).collect();
     let single = by_id.len() < 2;
     let mut n = 0;

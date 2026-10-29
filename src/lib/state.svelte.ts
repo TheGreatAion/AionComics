@@ -73,7 +73,8 @@ export const search = $state({ open: false });
 /** The book whose details are being edited, and the series being matched on Comic Vine. */
 export const sheets = $state({
   editing: null as number | null,
-  matching: null as { seriesId: number; isManga: boolean; name: string } | null,
+  /** With `comicId`, just that one book is matched (`label` names it; `count`: how many books of its format the series has). */
+  matching: null as { seriesId: number; isManga: boolean; name: string; comicId?: number; label?: string; count?: number } | null,
 });
 
 export type MenuItem =

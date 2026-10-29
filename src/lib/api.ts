@@ -304,6 +304,8 @@ export const api = {
     invoke<{ issues: CvIssue[]; proposals: CvProposal[] }>("cv_plan", { seriesId, volumeId }),
   cvApply: (seriesId: number, volumeId: string, pairs: { comicId: number; issueId: string | null }[]) =>
     invoke<number>("cv_apply", { seriesId, volumeId, pairs }),
+  cvApplyBook: (comicId: number, volumeId: string, issueId: string | null) =>
+    invoke<number>("cv_apply_book", { comicId, volumeId, issueId }),
   setUserPanels: (id: number, page: number, panels: Panel[] | null) =>
     invoke<void>("set_user_panels", { id, page, panels }),
   toggleBookmark: (id: number, page: number) => invoke<boolean>("toggle_bookmark", { id, page }),
