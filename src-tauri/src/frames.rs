@@ -36,6 +36,9 @@ const FALLBACK_FRAMED: f32 = 0.3;
 const FALLBACK_DENSE: f32 = 0.8;
 /// And they are only looked for when black ones show at most this many lines.
 const FEW_LINES: usize = 20;
+/// Fewer lines than this at work size (both directions together), and borders are looked for again
+/// on the page at twice the size.
+const FINE_LINES: usize = 200;
 /// Solid black: art, background or a border too dark to tell apart.
 const BLACK: i16 = 48;
 /// ...and this many pixels thick. Thinner is an inked line in the art (a building, hatching);
@@ -56,6 +59,10 @@ const GAP: usize = 24;
 const MIN_LINE: f32 = 0.06;
 /// Lines kept per direction, longest first.
 const MAX_LINES: usize = 160;
+/// More possible frames than this and the lines are busy art (hatching, buildings, painted
+/// texture), not borders: no page with frames shows near this many, and judging them all takes
+/// seconds.
+const MAX_CANDIDATES: usize = 10_000;
 /// A side is drawn where evidence lies within this many pixels of it.
 const NEAR: i32 = 2;
 /// A side needs real evidence along at least this share of it: the rest may run through solid black
@@ -155,80 +162,110 @@ impl Evidence {
     fn new(img: &GrayImage, band: i16) -> Self {
         let (w, h) = (img.width() as usize, img.height() as usize);
         let px = img.as_raw();
-        let mark = |across: bool| {
-            // Smooth along the line: a running mean over ALONG pixels across x (lines across) or y.
-            let mut sm = vec![0i16; w * h];
-            let r = ALONG / 2;
-            if across {
-                for y in 0..h {
-                    let row = &px[y * w..(y + 1) * w];
-                    for x in 0..w {
-                        let (lo, hi) = (x.saturating_sub(r), (x + r).min(w - 1));
-                        let sum: u32 = row[lo..=hi].iter().map(|&v| v as u32).sum();
-                        sm[y * w + x] = (sum / (hi - lo + 1) as u32) as i16;
-                    }
-                }
-            } else {
-                for x in 0..w {
-                    for y in 0..h {
-                        let (lo, hi) = (y.saturating_sub(r), (y + r).min(h - 1));
-                        let sum: u32 = (lo..=hi).map(|yy| px[yy * w + x] as u32).sum();
-                        sm[y * w + x] = (sum / (hi - lo + 1) as u32) as i16;
-                    }
-                }
-            }
-            // Walk across the line direction (down each column for lines across) and mark every
-            // dark band of border thickness with brighter surroundings.
+        Evidence { w, h, px: px.to_vec(), across: marks(px, w, h, band, true, 1), down: marks(px, w, h, band, false, 1) }
+    }
+
+    /// The same, with the evidence read off `fine`, the page at about twice the size. Shrinking a
+    /// page blurs a border only a pixel or two wide into the art around it; at twice the size it's
+    /// still a dark line. The marks are then laid back onto the work-size grid.
+    fn new_fine(img: &GrayImage, fine: &GrayImage, band: i16) -> Self {
+        let (w, h) = (img.width() as usize, img.height() as usize);
+        let (fw, fh) = (fine.width() as usize, fine.height() as usize);
+        let pool = |m: Vec<bool>| {
             let mut out = vec![false; w * h];
-            let (n_lines, n_cross) = if across { (w, h) } else { (h, w) };
-            let idx = |line: usize, k: usize| if across { k * w + line } else { line * w + k };
-            for line in 0..n_lines {
-                let mut k = 0;
-                while k < n_cross {
-                    if sm[idx(line, k)] > band {
-                        k += 1;
-                        continue;
-                    }
-                    let start = k;
-                    while k < n_cross && sm[idx(line, k)] <= band {
-                        k += 1;
-                    }
-                    let (end, thick) = (k, k - start);
-                    if thick < MIN_BAND {
-                        continue;
-                    }
-                    let level = |from: usize, to: usize| (from..to).map(|j| sm[idx(line, j)]).max().unwrap_or(0);
-                    let before = (start > BESIDE).then(|| sm[idx(line, start - 1 - BESIDE)]);
-                    let after = (end + BESIDE < n_cross).then(|| sm[idx(line, end + BESIDE)]);
-                    if thick <= MAX_BAND {
-                        // A border band on its own: brighter both sides.
-                        let (Some(b), Some(a)) = (before, after) else { continue };
-                        let band = level(start, end);
-                        if b.max(a) - band >= STRONG && b.min(a) - band >= WEAK {
-                            for j in start..end {
-                                out[idx(line, j)] = true;
-                            }
-                        }
-                    } else {
-                        // A border running into dark art beside it merges with it: keep the edge
-                        // where a panel's brighter inside meets the black.
-                        if before.is_some_and(|b| b - level(start, start + MIN_BAND) >= STRONG) {
-                            for j in start..start + MIN_BAND {
-                                out[idx(line, j)] = true;
-                            }
-                        }
-                        if after.is_some_and(|a| a - level(end - MIN_BAND, end) >= STRONG) {
-                            for j in end - MIN_BAND..end {
-                                out[idx(line, j)] = true;
-                            }
-                        }
+            for y in 0..fh {
+                let sy = (y * h / fh).min(h - 1);
+                for x in 0..fw {
+                    if m[y * fw + x] {
+                        out[sy * w + (x * w / fw).min(w - 1)] = true;
                     }
                 }
             }
             out
         };
-        Evidence { w, h, px: px.to_vec(), across: mark(true), down: mark(false) }
+        let fpx = fine.as_raw();
+        Evidence { w, h, px: img.as_raw().to_vec(), across: pool(marks(fpx, fw, fh, band, true, 2)), down: pool(marks(fpx, fw, fh, band, false, 2)) }
     }
+}
+
+/// Border evidence for lines across (or down): pixels on every dark band of border thickness with
+/// brighter surroundings. `k`: how many times the work size the pixels are. Band sizes scale with
+/// it, except the thinnest band taken, which is what reading at twice the size is for.
+fn marks(px: &[u8], w: usize, h: usize, band: i16, across: bool, scale: usize) -> Vec<bool> {
+    let (along, beside, max_band) = (ALONG * scale - (scale - 1), BESIDE * scale, MAX_BAND * scale);
+    // Smooth along the line: a running mean over ALONG pixels across x (lines across) or y.
+    let mut sm = vec![0i16; w * h];
+    let r = along / 2;
+    if across {
+        for y in 0..h {
+            let row = &px[y * w..(y + 1) * w];
+            for x in 0..w {
+                let (lo, hi) = (x.saturating_sub(r), (x + r).min(w - 1));
+                let sum: u32 = row[lo..=hi].iter().map(|&v| v as u32).sum();
+                sm[y * w + x] = (sum / (hi - lo + 1) as u32) as i16;
+            }
+        }
+    } else {
+        for x in 0..w {
+            for y in 0..h {
+                let (lo, hi) = (y.saturating_sub(r), (y + r).min(h - 1));
+                let sum: u32 = (lo..=hi).map(|yy| px[yy * w + x] as u32).sum();
+                sm[y * w + x] = (sum / (hi - lo + 1) as u32) as i16;
+            }
+        }
+    }
+    // Walk across the line direction (down each column for lines across) and mark every dark band
+    // of border thickness with brighter surroundings.
+    let mut out = vec![false; w * h];
+    let (n_lines, n_cross) = if across { (w, h) } else { (h, w) };
+    let idx = |line: usize, k: usize| if across { k * w + line } else { line * w + k };
+    for line in 0..n_lines {
+        let mut k = 0;
+        while k < n_cross {
+            if sm[idx(line, k)] > band {
+                k += 1;
+                continue;
+            }
+            let start = k;
+            while k < n_cross && sm[idx(line, k)] <= band {
+                k += 1;
+            }
+            let (end, thick) = (k, k - start);
+            if thick < MIN_BAND {
+                continue;
+            }
+            let level = |from: usize, to: usize| (from..to).map(|j| sm[idx(line, j)]).max().unwrap_or(0);
+            let before = (start > beside).then(|| sm[idx(line, start - 1 - beside)]);
+            let after = (end + beside < n_cross).then(|| sm[idx(line, end + beside)]);
+            if thick <= max_band {
+                // A border band on its own: brighter both sides.
+                let (Some(b), Some(a)) = (before, after) else { continue };
+                let band = level(start, end);
+                if b.max(a) - band >= STRONG && b.min(a) - band >= WEAK {
+                    for j in start..end {
+                        out[idx(line, j)] = true;
+                    }
+                }
+            } else {
+                // A border running into dark art beside it merges with it: keep the edge where a
+                // panel's brighter inside meets the black.
+                if before.is_some_and(|b| b - level(start, start + MIN_BAND) >= STRONG) {
+                    for j in start..start + MIN_BAND {
+                        out[idx(line, j)] = true;
+                    }
+                }
+                if after.is_some_and(|a| a - level(end - MIN_BAND, end) >= STRONG) {
+                    for j in end - MIN_BAND..end {
+                        out[idx(line, j)] = true;
+                    }
+                }
+            }
+        }
+    }
+    out
+}
+
+impl Evidence {
 
     /// Evidence near (x, y) for a line running across (or down).
     fn near(&self, across: bool, x: f32, y: f32) -> bool {
@@ -258,48 +295,58 @@ impl Evidence {
         let max_lean = (len as f32 * MAX_LEAN) as i32;
         let min_len = (len as f32 * MIN_LINE) as usize;
         let map = if across { &self.across } else { &self.down };
-        let hit = |t: usize, s: i32| -> bool {
-            if s < 0 || s as usize >= depth {
-                return false;
+        // Evidence within two pixels across, laid out along the line (row s, position t), so each
+        // step along a line is one look.
+        let mut near = vec![false; len * depth];
+        for s in 0..depth {
+            for t in 0..len {
+                let at = |ss: usize| map[if across { ss * self.w + t } else { t * self.w + ss }];
+                near[s * len + t] = (s.saturating_sub(2)..=(s + 2).min(depth - 1)).any(at);
             }
-            let s = s as usize;
-            let i = if across { s * self.w + t } else { t * self.w + s };
-            let step = if across { self.w } else { 1 };
-            (-2i32..=2).any(|d| {
-                let ss = s as i32 + d;
-                ss >= 0 && (ss as usize) < depth && map[(i as i64 + d as i64 * step as i64) as usize]
-            })
-        };
-        let mut found: Vec<Line> = Vec::new();
-        for lean in (-max_lean..=max_lean).step_by(2) {
-            let slope = lean as f32 / len as f32;
-            for a in -max_lean..depth as i32 + max_lean {
-                let (mut start, mut last, mut gap, mut hits) = (None::<usize>, 0usize, 0usize, 0u32);
-                for t in 0..len {
-                    let s = (a as f32 + slope * t as f32).round() as i32;
-                    if hit(t, s) {
-                        if start.is_none() {
-                            start = Some(t);
-                            hits = 0;
-                        }
-                        last = t;
-                        gap = 0;
-                        hits += 1;
-                    } else if start.is_some() {
-                        gap += 1;
-                        if gap > GAP {
-                            let s0 = start.take().unwrap();
-                            if last - s0 >= min_len {
-                                found.push(Line { a: a as f32, s: slope, from: s0 as f32, to: last as f32, open: false, hits, span: (last - s0) as f32 });
+        }
+        let hit = |t: usize, s: i32| -> bool { s >= 0 && (s as usize) < depth && near[s as usize * len + t] };
+        // Every line through the page at every lean, the leans shared out between threads. Each
+        // thread's runs come back in order of lean, so the result is the same as one thread's.
+        let leans: Vec<i32> = (-max_lean..=max_lean).step_by(2).collect();
+        let threads = std::thread::available_parallelism().map_or(1, |n| n.get()).clamp(1, 8);
+        let chunk = leans.len().div_ceil(threads).max(1);
+        let runs = |leans: &[i32]| -> Vec<Line> {
+            let mut found: Vec<Line> = Vec::new();
+            for &lean in leans {
+                let slope = lean as f32 / len as f32;
+                for a in -max_lean..depth as i32 + max_lean {
+                    let (mut start, mut last, mut gap, mut hits) = (None::<usize>, 0usize, 0usize, 0u32);
+                    for t in 0..len {
+                        let s = (a as f32 + slope * t as f32).round() as i32;
+                        if hit(t, s) {
+                            if start.is_none() {
+                                start = Some(t);
+                                hits = 0;
+                            }
+                            last = t;
+                            gap = 0;
+                            hits += 1;
+                        } else if start.is_some() {
+                            gap += 1;
+                            if gap > GAP {
+                                let s0 = start.take().unwrap();
+                                if last - s0 >= min_len {
+                                    found.push(Line { a: a as f32, s: slope, from: s0 as f32, to: last as f32, open: false, hits, span: (last - s0) as f32 });
+                                }
                             }
                         }
                     }
-                }
-                if let Some(s0) = start.filter(|&s0| last - s0 >= min_len) {
-                    found.push(Line { a: a as f32, s: slope, from: s0 as f32, to: last as f32, open: false, hits, span: (last - s0) as f32 });
+                    if let Some(s0) = start.filter(|&s0| last - s0 >= min_len) {
+                        found.push(Line { a: a as f32, s: slope, from: s0 as f32, to: last as f32, open: false, hits, span: (last - s0) as f32 });
+                    }
                 }
             }
-        }
+            found
+        };
+        let mut found: Vec<Line> = std::thread::scope(|sc| {
+            let jobs: Vec<_> = leans.chunks(chunk).map(|part| sc.spawn(move || runs(part))).collect();
+            jobs.into_iter().flat_map(|j| j.join().unwrap()).collect()
+        });
         // The same border shows up at neighboring offsets and leans: keep the one that follows it
         // most closely (most samples on evidence).
         // A few pixels of slack across the line let slightly slanted lines through the same
@@ -828,8 +875,14 @@ fn all_lines(ev: &Evidence, w: f32, h: f32) -> (Vec<Line>, Vec<Line>) {
 
 /// The frames on a page and the art around them, as panels (normalized, unordered); empty when
 /// the page doesn't look framed.
-pub fn find(img: &GrayImage, log: &mut dyn FnMut(String)) -> Vec<Panel> {
+///
+/// `fine`: the same page at about twice the size, when the scan has the pixels for it. Borders a
+/// pixel or two wide don't survive shrinking the page, so when the page at work size shows few
+/// lines, its borders are read off this instead (see `Evidence::new_fine`). Not otherwise: on a
+/// page full of lines already, the thin ones it adds are hatching, and only slow the search.
+pub fn find(img: &GrayImage, fine: &dyn Fn() -> Option<GrayImage>, log: &mut dyn FnMut(String)) -> Vec<Panel> {
     let bg = light_tone(img);
+    let mut first = usize::MAX;
     for (k, band) in BANDS.into_iter().enumerate() {
         let (least, sure) = if k == 0 { (MIN_FRAMED, 0.0) } else { (FALLBACK_FRAMED, FALLBACK_DENSE) };
         let (found, lines) = find_at(img, &Evidence::new(img, band), bg, least, sure, log);
@@ -837,13 +890,20 @@ pub fn find(img: &GrayImage, log: &mut dyn FnMut(String)) -> Vec<Panel> {
             log(format!("frames: answered with {} panels", found.len()));
             return found;
         }
+        first = first.min(lines);
         // Dark colored borders leave black ones hardly any lines to show; plenty of lines that
         // made no frames are art, and dark colors would only add to it.
         if lines > FEW_LINES {
             break;
         }
     }
-    Vec::new()
+    let Some(fine) = (first < FINE_LINES).then(fine).flatten() else { return Vec::new() };
+    log("frames: twice the size".into());
+    let (found, _) = find_at(img, &Evidence::new_fine(img, &fine, BANDS[0]), bg, MIN_FRAMED, 0.0, log);
+    if !found.is_empty() {
+        log(format!("frames: answered with {} panels", found.len()));
+    }
+    found
 }
 
 /// `least`: the share of the page the frames must cover; `sure`: how dense every frame's sides
@@ -857,8 +917,31 @@ fn find_at(img: &GrayImage, ev: &Evidence, bg: i16, least: f32, sure: f32, log: 
         f.id = k;
     }
     log(format!("frames: {} across, {} down, {} candidates", across.len(), down.len(), cands.len()));
+    if cands.len() > MAX_CANDIDATES {
+        return (Vec::new(), lines);
+    }
     // Smallest first: a box around a whole row (or the page) gives way to the panels in it.
     cands.sort_by(|a, b| a.area.total_cmp(&b.area));
+    // What can be told of each frame on its own, worked out once and on every core: a gutter or
+    // one flat tone inside rules it out; and how much of it is drawn with nothing laid over it.
+    let alone: Vec<(Option<&str>, f32)> = {
+        let threads = std::thread::available_parallelism().map_or(1, |n| n.get()).clamp(1, 8);
+        let chunk = cands.len().div_ceil(threads).max(1);
+        let judge = |f: &Frame| {
+            let out = if f.crosses_gutter(ev, bg) {
+                Some("gutter inside")
+            } else if f.flat(ev) {
+                Some("flat inside")
+            } else {
+                None
+            };
+            (out, if out.is_none() { f.drawn(ev, &[]) } else { 0.0 })
+        };
+        std::thread::scope(|sc| {
+            let jobs: Vec<_> = cands.chunks(chunk).map(|part| sc.spawn(move || part.iter().map(judge).collect::<Vec<_>>())).collect();
+            jobs.into_iter().flat_map(|j| j.join().unwrap()).collect()
+        })
+    };
     let mut taken: Vec<Frame> = Vec::new();
     // Twice: frames drawn all round first, then ones partly hidden under those.
     // AION_TRACE=x,y (fractions, tests): say why frames with their top-left corner there are left out.
@@ -867,7 +950,7 @@ fn find_at(img: &GrayImage, ev: &Evidence, bg: i16, least: f32, sure: f32, log: 
         Some((x.parse().ok()?, y.parse().ok()?))
     });
     for hidden in [false, true] {
-        for f in &cands {
+        for (f, &(ruled_out, drawn_alone)) in cands.iter().zip(&alone) {
             let traced = trace.is_some_and(|(x, y)| (f.box_.0 / w - x).abs() < 0.015 && (f.box_.1 / h - y).abs() < 0.015);
             let mut why = |m: &str| {
                 if traced {
@@ -878,16 +961,12 @@ fn find_at(img: &GrayImage, ev: &Evidence, bg: i16, least: f32, sure: f32, log: 
                 why("same as one taken");
                 continue; // the same frame again
             }
-            if f.crosses_gutter(ev, bg) {
-                why("gutter inside");
+            if let Some(m) = ruled_out {
+                why(m);
                 continue;
             }
-            if f.flat(ev) {
-                why("flat inside");
-                continue;
-            }
-            let over: Vec<&Frame> = if hidden { taken.iter().collect() } else { Vec::new() };
-            if f.drawn(ev, &over) < DRAWN {
+            let drawn = if hidden { f.drawn(ev, &taken.iter().collect::<Vec<_>>()) } else { drawn_alone };
+            if drawn < DRAWN {
                 why("not drawn");
                 continue;
             }
@@ -1145,7 +1224,7 @@ mod tests {
         };
         frame(30, 300, 570, 430);
         frame(30, 470, 570, 600);
-        let found = find(&img, &mut |_| {});
+        let found = find(&img, &|| None, &mut |_| {});
         let strips = found.iter().filter(|p| p.w > 0.8 && p.h < 0.2).count();
         assert_eq!(strips, 2, "{found:?}");
         assert!(found.iter().any(|p| p.y < 0.05 && p.h > 0.2), "the page above: {found:?}");
@@ -1169,7 +1248,7 @@ mod tests {
         border(&mut img, 30, 380, 290, 870, 0); // bottom left
         border(&mut img, 310, 380, 570, 870, 0); // bottom right
         border(&mut img, 80, 320, 520, 520, 50); // laid across the tops of both
-        let found = find(&img, &mut |_| {});
+        let found = find(&img, &|| None, &mut |_| {});
         assert!(found.len() >= 4, "{found:?}");
         let near = |x: f32, y: f32| found.iter().any(|p| (p.x - x).abs() < 0.04 && (p.y - y).abs() < 0.04);
         assert!(near(0.05, 0.033) && near(0.133, 0.355), "{found:?}");

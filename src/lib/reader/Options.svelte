@@ -48,6 +48,14 @@
   </div>
 
   <div class="row">
+    <span>Tall panels</span>
+    <div class="choice">
+      <button class:on={prefs.guidedParts} onclick={() => set("guidedParts", true)}>Top to bottom</button>
+      <button class:on={!prefs.guidedParts} onclick={() => set("guidedParts", false)}>Whole</button>
+    </div>
+  </div>
+
+  <div class="row">
     <span>Around the panel</span>
     <div class="choice">
       <button class:on={prefs.guidedDim === "light"} onclick={() => set("guidedDim", "light")}>Dim</button>

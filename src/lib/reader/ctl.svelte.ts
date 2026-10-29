@@ -10,6 +10,8 @@ export type Dims = { w: number; h: number };
 /** One stop of Guided View: a panel on a page, or a whole page (a splash inside a spread). */
 export type Step = { page: number; panel: Panel | null };
 
+const LAST_PART = 99;
+
 export const FIT_LABEL: Record<Fit, string> = {
   height: "Fit height",
   width: "Fit width",
@@ -42,6 +44,10 @@ export class Ctl {
   /** Guided View stops for the pages on screen, in reading order. */
   steps = $state<Step[] | null>(null);
   step = $state(-1); // -1 = the whole page or spread, then each stop
+  /** A stop too tall to read whole at a good size is read in `parts` (set by Guided View), top to
+   *  bottom; this is the one shown. LAST_PART stands for its last, however many there are. */
+  part = $state(0);
+  parts = 1;
   fullscreen = $state(false);
   landOnLast = false; // stepping back into a page lands on its last panel
   /** A double-clicked point (page, and 0–1 across and down it) to zoom into once its panels load. */
@@ -103,6 +109,7 @@ export class Ctl {
     this.bookmarks = info.bookmarks;
     this.pairRtl = info.comic.isManga;
     this.step = -1;
+    this.part = 0;
     this.endCard = false;
     this.solo = false;
     this.page = this.align(info.startPage);
@@ -221,6 +228,7 @@ export class Ctl {
 
   goTo(p: number) {
     this.step = -1;
+    this.part = 0;
     this.endCard = false;
     this.solo = false;
     this.page = this.align(p);
@@ -235,13 +243,19 @@ export class Ctl {
       else this.hooks.close();
       return;
     }
+    if (this.mode === "guided" && this.step >= 0 && this.partShown < this.parts - 1) {
+      this.part = this.partShown + 1;
+      return;
+    }
     if (this.mode === "guided" && this.steps && this.step < this.steps.length - 1) {
       this.step++;
+      this.part = 0;
       return;
     }
     const n = this.page + this.shown.length;
     if (n <= this.last) {
       this.step = -1;
+      this.part = 0;
       this.solo = false;
       this.page = n;
       this.seek++;
@@ -254,13 +268,19 @@ export class Ctl {
       this.endCard = false;
       return;
     }
+    if (this.mode === "guided" && this.step >= 0 && this.partShown > 0) {
+      this.part = this.partShown - 1;
+      return;
+    }
     // Without the whole-page stop, stepping back from the first panel goes to the page before.
     if (this.mode === "guided" && this.step > (prefs.guidedOverview || !this.steps?.length ? -1 : 0)) {
       this.step--;
+      this.part = LAST_PART;
       return;
     }
     if (this.page > 0) {
       this.step = -1;
+      this.part = LAST_PART;
       this.landOnLast = this.mode === "guided";
       const from = this.page;
       const to = this.backFrom(from);
@@ -343,6 +363,11 @@ export class Ctl {
     this.goTo(this.page);
   }
 
+  /** The part of the current stop on screen. */
+  get partShown() {
+    return Math.min(this.part, this.parts - 1);
+  }
+
   /** The stop for a point on a page: the smallest panel holding it, else the nearest; -1 if none. */
   stopAt(page: number, x: number, y: number) {
     const steps = this.steps ?? [];
@@ -365,6 +390,7 @@ export class Ctl {
       const i = this.stopAt(page, x, y);
       // On the stop already shown, a double-click goes back out to the whole page.
       this.step = i === this.step ? -1 : i;
+      this.part = 0;
       return;
     }
     this.zoomAt = { page, x, y };
@@ -374,6 +400,7 @@ export class Ctl {
   toggleGuided() {
     this.guided = !this.guided;
     this.step = -1;
+    this.part = 0;
     if (this.guided) this.magnifier = false;
   }
 

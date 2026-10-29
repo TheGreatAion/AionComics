@@ -61,6 +61,7 @@ const MIN_PANEL_AREA: f32 = 0.012; // drop specks: page numbers, stray captions
 const SPLIT_DEPTH: u32 = 4; // at most 2^4 panels out of one blob
 const MAX_LEAN: f32 = 0.14; // tan 8°: how far a cut may slant
 const CUT_PAPER: f32 = 0.75; // share of a cut that must run over paper (balloons interrupt the rest)
+const DARK_MARGIN: i16 = 60; // gutter level at or below which the page's margins are dark
 const CLEAR_DELTA: i16 = 20; // "paper" for a cut: stricter than GUTTER_DELTA, so screentone isn't
 const CUT_FLANK: f32 = 0.5; // share of a cut with straight borders close by on both sides
 const FLANK_DIST: u8 = 18; // "close by", in work pixels (gutters up to ~36px)
@@ -367,6 +368,8 @@ struct Splitter {
     /// flood). Any edge of art flanks a gutter, not just border ink, and a cut may open onto
     /// paper anywhere, since gutters inside the blob aren't flooded.
     bleed: bool,
+    /// Gutter level (see `gutter_color`).
+    bg: i16,
 }
 
 impl Splitter {
@@ -396,7 +399,7 @@ impl Splitter {
         } else {
             Vec::new()
         };
-        Splitter { w, h, px, paper, clear, near, edges, mark: vec![0; w * h], stamp: 0, bleed }
+        Splitter { w, h, px, paper, clear, near, edges, mark: vec![0; w * h], stamp: 0, bleed, bg }
     }
 
     /// Bounding box of a blob's non-paper pixels.
@@ -681,10 +684,15 @@ impl Splitter {
                         let edge = if end.0 { t0 <= 1 } else { t1 + 2 >= t_dim };
                         open[end.1 as usize] |= !blocked && (!member || edge || self.bleed);
                     }
+                    // Borders flank a gutter: flooded, or the gutter's own color where the flood
+                    // didn't reach. A light sky inside a panel passes for paper too, and figures
+                    // standing in it can look like borders, so it isn't flanked. (Pages with dark
+                    // margins often have white gutters between the panels, though.)
+                    let sky = member && !self.bleed && self.bg > DARK_MARGIN && (self.px[i] as i16 - self.bg).abs() > CLEAR_DELTA;
                     let widen = |(lo, hi): (u8, u8), d: u8| (lo.min(d), hi.max(d));
                     let next = band.map(|[ra, rb]| [widen(ra, da), widen(rb, db)]);
                     let steady = next.is_none_or(|b| b.iter().all(|(lo, hi)| hi - lo <= FLANK_WOBBLE));
-                    if blocked || da > FLANK_DIST || db > FLANK_DIST || !steady {
+                    if blocked || sky || da > FLANK_DIST || db > FLANK_DIST || !steady {
                         count(run, k, &mut flanked);
                         run = 0;
                         band = None;
@@ -701,7 +709,7 @@ impl Splitter {
                         if bad > max_bad {
                             break;
                         }
-                    } else if da <= FLANK_DIST && db <= FLANK_DIST {
+                    } else if !sky && da <= FLANK_DIST && db <= FLANK_DIST {
                         band = Some(band.map_or([(da, da), (db, db)], |[ra, rb]| [widen(ra, da), widen(rb, db)]));
                         run += 1;
                     }
@@ -842,14 +850,31 @@ fn detect_with(bytes: &[u8], rtl: bool, log: &mut dyn FnMut(String)) -> Result<V
     .to_luma8();
     // A scan's dark rim around the paper would pass for the gutter color and stop the flood from
     // reaching the real gutters: analyze the paper inside it, then put the panels back in place.
+    // The page at twice the work size, for reading thin borders (see `frames::find`): only made
+    // if the last pass gets that far, and only when the scan is that big.
+    let fine = |crop: Option<(u32, u32, u32, u32)>| -> Option<GrayImage> {
+        #[cfg(test)]
+        if std::env::var("AION_NOFINE").is_ok() {
+            return None;
+        }
+        let big = crate::archive::decode_at_least(bytes, WORK_SIZE * 2).ok()?;
+        if big.width().max(big.height()) < WORK_SIZE * 3 / 2 {
+            return None;
+        }
+        let big = big.resize_exact(small.width() * 2, small.height() * 2, FilterType::Triangle).to_luma8();
+        Some(match crop {
+            Some((x0, y0, x1, y1)) => image::imageops::crop_imm(&big, x0 * 2, y0 * 2, (x1 - x0) * 2, (y1 - y0) * 2).to_image(),
+            None => big,
+        })
+    };
     let Some((x0, y0, x1, y1)) = rim(&small) else {
-        return detect_in(small, rtl, log);
+        return detect_in(small.clone(), &|| fine(None), rtl, log);
     };
     let (w, h) = (small.width() as f32, small.height() as f32);
     log(format!("rim cut: {x0},{y0} to {x1},{y1}"));
     let inner = image::imageops::crop_imm(&small, x0, y0, x1 - x0, y1 - y0).to_image();
     let (sx, sy, ox, oy) = ((x1 - x0) as f32 / w, (y1 - y0) as f32 / h, x0 as f32 / w, y0 as f32 / h);
-    let mut panels = detect_in(inner, rtl, log)?;
+    let mut panels = detect_in(inner, &|| fine(Some((x0, y0, x1, y1))), rtl, log)?;
     for p in &mut panels {
         (p.x, p.y, p.w, p.h) = (ox + p.x * sx, oy + p.y * sy, p.w * sx, p.h * sy);
         for v in p.poly.iter_mut().flatten() {
@@ -888,7 +913,7 @@ fn rim(img: &GrayImage) -> Option<(u32, u32, u32, u32)> {
     Some((cut(left), cut(top), w - cut(right), h - cut(bottom)))
 }
 
-fn detect_in(small: GrayImage, rtl: bool, log: &mut dyn FnMut(String)) -> Result<Vec<Panel>> {
+fn detect_in(small: GrayImage, fine: &dyn Fn() -> Option<GrayImage>, rtl: bool, log: &mut dyn FnMut(String)) -> Result<Vec<Panel>> {
     // Gutters around the panels: flood them from the page edge, then split what's enclosed.
     let bg = gutter_color(&small);
     let mut splitter = Splitter::new(&small, bg, false);
@@ -923,7 +948,7 @@ fn detect_in(small: GrayImage, rtl: bool, log: &mut dyn FnMut(String)) -> Result
     // No gutter runs between panels that overlap, or between framed panels laid over art that
     // fills the page; but each of them has a border drawn round what shows of it.
     // AION_NOFRAMES=1 (tests): leave this pass out, to compare.
-    let framed = if cfg!(test) && std::env::var("AION_NOFRAMES").is_ok() { Vec::new() } else { crate::frames::find(&small, log) };
+    let framed = if cfg!(test) && std::env::var("AION_NOFRAMES").is_ok() { Vec::new() } else { crate::frames::find(&small, fine, log) };
     let mut out = Vec::new();
     order(framed, rtl, true, 0, &mut out);
     Ok(out)
@@ -1264,6 +1289,73 @@ mod real_pages {
             page += 1;
         }
         flush(&sheet, first_page + (page - first_page).saturating_sub(1) / 12 * 12);
+    }
+
+    /// Pages listed in a file, one `path<TAB>rtl (0/1)<TAB>page (0-based)` per line:
+    /// `AION_PANELS_LIST=<file> cargo test --lib sample_panels -- --ignored --nocapture`. Contact
+    /// sheets of 8 go to %TEMP%/aion-panels-sample; each panel's place in the reading order is
+    /// marked by that many squares in its corner.
+    #[test]
+    #[ignore]
+    fn sample_panels() {
+        let list = std::fs::read_to_string(std::env::var("AION_PANELS_LIST").unwrap()).unwrap();
+        let out = std::env::temp_dir().join("aion-panels-sample");
+        let _ = std::fs::remove_dir_all(&out);
+        std::fs::create_dir_all(&out).unwrap();
+        let archives = Archives::new(&out);
+        let colors = [Rgb([230, 40, 40]), Rgb([40, 160, 240]), Rgb([40, 200, 90]), Rgb([240, 170, 30]), Rgb([200, 60, 220]), Rgb([30, 220, 220]), Rgb([255, 120, 0]), Rgb([120, 120, 255])];
+        let (tw, th, across) = (450u32, 692u32, 4u32);
+        let mut sheet = RgbImage::from_pixel(tw * across, th * 2, Rgb([128, 128, 128]));
+        let mut n = 0u32;
+        for (k, row) in list.lines().filter(|l| !l.trim().is_empty()).enumerate() {
+            let mut parts = row.split('\t');
+            let (path, rtl, page) = (parts.next().unwrap(), parts.next().unwrap() == "1", parts.next().unwrap().trim().parse::<usize>().unwrap());
+            // One id per book, so a RAR is unpacked once however many of its pages are listed.
+            let id = list.lines().position(|l| l.split('\t').next() == Some(path)).unwrap() as i64;
+            let Ok((bytes, _)) = archives.page(id, std::path::Path::new(path), page) else {
+                println!("{k:02}: can't read page {page} of {path}");
+                continue;
+            };
+            let t = std::time::Instant::now();
+            let mut notes = Vec::new();
+            let panels = detect_with(&bytes, rtl, &mut |s| notes.push(s)).unwrap();
+            println!("{k:02}: {} p{page}: {} panels in {:?}", path.rsplit('/').next().unwrap(), panels.len(), t.elapsed());
+            println!("     = {:?}", panels.iter().map(|p| format!("{:.2},{:.2} {:.2}x{:.2}", p.x, p.y, p.w, p.h)).collect::<Vec<_>>());
+            for note in notes {
+                println!("     {note}");
+            }
+            let full = image::load_from_memory(&bytes).unwrap().to_rgb8();
+            let mut img = image::imageops::resize(&full, 900, 900 * full.height() / full.width(), FilterType::Triangle);
+            for (j, p) in panels.iter().enumerate() {
+                let c = colors[j % colors.len()];
+                let (w, h) = (img.width() as f32, img.height() as f32);
+                let corners = [[p.x, p.y], [p.x + p.w, p.y], [p.x + p.w, p.y + p.h], [p.x, p.y + p.h]];
+                let shape = p.poly.clone().unwrap_or(corners.to_vec());
+                for q in 0..shape.len() {
+                    let (a, b) = (shape[q], shape[(q + 1) % shape.len()]);
+                    line(&mut img, (a[0] * w, a[1] * h), (b[0] * w, b[1] * h), 5, c);
+                }
+                for d in 0..=j as u32 {
+                    let (x0, y0) = ((p.x * w) as u32 + 10 + d * 18, (p.y * h) as u32 + 10);
+                    for y in y0..(y0 + 13).min(img.height()) {
+                        for x in x0..(x0 + 13).min(img.width()) {
+                            img.put_pixel(x, y, c);
+                        }
+                    }
+                }
+            }
+            let thumb = image::imageops::resize(&img, tw - 6, (th - 6).min((tw - 6) * img.height() / img.width()), FilterType::Triangle);
+            let slot = n % 8;
+            image::imageops::overlay(&mut sheet, &thumb, ((slot % across) * tw + 3) as i64, ((slot / across) * th + 3) as i64);
+            n += 1;
+            if n % 8 == 0 {
+                sheet.save(out.join(format!("sheet-{:02}.png", n / 8))).unwrap();
+                sheet = RgbImage::from_pixel(tw * across, th * 2, Rgb([128, 128, 128]));
+            }
+        }
+        if n % 8 != 0 {
+            sheet.save(out.join(format!("sheet-{:02}.png", n / 8 + 1))).unwrap();
+        }
     }
 
     #[test]

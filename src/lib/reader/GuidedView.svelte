@@ -1,10 +1,22 @@
 <script lang="ts">
   import { pageUrl, type Panel } from "$lib/api";
   import { untrack } from "svelte";
+  import { cubicOut } from "svelte/easing";
   import type { Ctl } from "./ctl.svelte";
   import { dimClip, outline } from "./outline";
   import PageStatus from "./PageStatus.svelte";
   import { DOUBLE_CLICK_MS, GUIDED_DIM, GUIDED_MS, prefs } from "./prefs.svelte";
+
+  // Tall panels (see `cam`): read in parts once the screen's width would show them this much
+  // closer than they fit whole; each part overlapping the last by this share; at most this many;
+  // and no closer than this many times the whole page (closer is art, not reading).
+  const TALL = 1.8;
+  const PART_ZOOM = 2.2;
+  const OVERLAP = 0.15;
+  const MAX_PARTS = 2;
+  // A new page slides this far in from the way you're reading, fading in, as the last one goes.
+  const TURN_MS = 300;
+  const TURN_PX = 56;
 
   let {
     c,
@@ -54,6 +66,24 @@
     for (const d of [0, 1, 2, 3, -1, -2]) c.measure(c.page + d);
   });
 
+  // Which way the pages last turned, for the slide between them.
+  let forward = true;
+  let lastPage = untrack(() => c.page);
+  $effect.pre(() => {
+    const p = c.page;
+    untrack(() => {
+      if (p !== lastPage) [forward, lastPage] = [p > lastPage, p];
+    });
+  });
+
+  /** The page coming in slides from the side you read toward (the right in comics, the left in
+   *  manga) and the page going slides out the other way, each fading. */
+  function turn(_: Element, _p: unknown, { direction }: { direction: "in" | "out" | "both" }) {
+    const toward = (forward ? 1 : -1) * (c.flipped ? -1 : 1);
+    const d = direction === "out" ? -toward : toward;
+    return { duration: TURN_MS, easing: cubicOut, css: (t: number, u: number) => `opacity: ${t}; transform: translateX(${d * u * TURN_PX}px)` };
+  }
+
   // A stop's panel in spread coordinates (0–1 across the whole spread), or a whole page.
   function inSpread(page: number, p: Panel | null, L: NonNullable<typeof layout>): Panel {
     const pg = L.pages[page];
@@ -76,7 +106,7 @@
     const fitScale = Math.min(vw / nw, vh / nh) * 0.98;
     const s0 = c.steps && c.step >= 0 ? c.steps[c.step] : null;
     if (!s0 || !L.pages[s0.page]) {
-      return { s: fitScale, tx: (vw - nw * fitScale) / 2, ty: (vh - nh * fitScale) / 2, clip: dimClip(outline(null, 0, 0)) };
+      return { s: fitScale, tx: (vw - nw * fitScale) / 2, ty: (vh - nh * fitScale) / 2, clip: dimClip(outline(null, 0, 0)), parts: 1 };
     }
     const p = inSpread(s0.page, s0.panel, L);
     const pad = 0.008 * Math.max(nw, nh);
@@ -84,12 +114,33 @@
     const y = Math.max(0, p.y * nh - pad);
     const w = Math.min(nw, (p.x + p.w) * nw + pad) - x;
     const h = Math.min(nh, (p.y + p.h) * nh + pad) - y;
-    const s = Math.min((vw * 0.94) / w, (vh * 0.9) / h, fitScale * 3.2);
+    const most = fitScale * 3.2;
+    const s = Math.min((vw * 0.94) / w, (vh * 0.9) / h, most);
     // Frame the box with some room; light just the stop's real outline (slanted panels included)
     // and its border line, so the gutter around it stays dim instead of framing it in white.
     const lit = 0.0025 * Math.max(nw, nh);
     const clip = dimClip(outline(p, lit / nw, lit / nh));
-    return { s, tx: vw / 2 - (x + w / 2) * s, ty: vh / 2 - (y + h / 2) * s, clip };
+    // A panel far taller than the screen shows no closer than the whole page. Read it in parts
+    // instead, top to bottom at the width of the screen, each overlapping the one before.
+    const across = Math.min((vw * 0.94) / w, fitScale * PART_ZOOM);
+    if (prefs.guidedParts && across >= s * TALL) {
+      let view = (vh * 0.9) / across; // page pixels down one part shows
+      let n = Math.ceil((h - view * OVERLAP) / (view * (1 - OVERLAP)));
+      if (n > MAX_PARTS) {
+        n = MAX_PARTS;
+        view = h / (n - (n - 1) * OVERLAP);
+      }
+      const sp = (vh * 0.9) / view;
+      const k = Math.min(c.part, n - 1);
+      const top = y + (k * (h - view)) / (n - 1);
+      return { s: sp, tx: vw / 2 - (x + w / 2) * sp, ty: vh / 2 - (top + view / 2) * sp, clip, parts: n };
+    }
+    return { s, tx: vw / 2 - (x + w / 2) * s, ty: vh / 2 - (y + h / 2) * s, clip, parts: 1 };
+  });
+
+  // Next and back move through the parts first (see `Ctl.next`).
+  $effect(() => {
+    c.parts = cam?.parts ?? 1;
   });
 
   // What's on screen. While the camera glides it scales the whole page with a transform, which is
@@ -172,9 +223,9 @@
     if (!c.dims[i]) c.dims[i] = { w: el.naturalWidth, h: el.naturalHeight };
   }
 
-  // ---------- pointer: tap zones, double-click a panel, drag and wheel to look around ----------
-  // Detection isn't always right, so the camera can be moved by hand: drag to pan, wheel to zoom.
-  // The next step glides back to the panels.
+  // ---------- pointer: tap zones, double-click a panel, drag and Ctrl+wheel to look around ----------
+  // Detection isn't always right, so the camera can be moved by hand: drag to pan, Ctrl+wheel to
+  // zoom. The next step glides back to the panels.
   let stageEl = $state<HTMLDivElement>();
   let clickTimer: ReturnType<typeof setTimeout> | undefined;
   let drag: { x: number; y: number; tx: number; ty: number; moved: boolean } | null = null;
@@ -207,10 +258,24 @@
     view = { ...view, tx: drag.tx + dx, ty: drag.ty + dy };
   }
 
+  // The wheel steps through the panels, one notch a step, as it turns pages outside Guided View.
+  let wheelAt = 0;
+  let wheelSum = 0;
   function wheel(e: WheelEvent) {
+    e.preventDefault();
+    if (!e.ctrlKey) {
+      const now = performance.now();
+      if (now - wheelAt > 400) wheelSum = 0;
+      wheelAt = now;
+      wheelSum += e.deltaY;
+      if (Math.abs(wheelSum) < 120) return;
+      wheelSum = 0;
+      if (e.deltaY > 0) c.next();
+      else c.prev();
+      return;
+    }
     const L = layout;
     if (!view || !L || !stageEl) return;
-    e.preventDefault();
     const fit = Math.min(vw / L.W, vh / L.H) * 0.98;
     const s = Math.max(fit * 0.6, Math.min(fit * 8, view.s * (e.deltaY < 0 ? 1.15 : 1 / 1.15)));
     const f = s / view.s;
@@ -255,31 +320,33 @@
   role="presentation"
 >
   {#key key}
-    <div
-      class="camera"
-      bind:this={camera}
-      class:ready={!!cam}
-      class:animate={moving}
-      style:--ms="{ms}ms"
-      style:width="{(layout?.W ?? 0) * k}px"
-      style:height="{(layout?.H ?? 0) * k}px"
-      style:transform={view ? `translate(${view.tx}px, ${view.ty}px)${crisp ? "" : ` scale(${view.s})`}` : "none"}
-    >
-      {#each order as i (i)}
-        <img
-          src={pageUrl(c.id, i) + (retry ? `?retry=${retry}` : "")}
-          decoding="async"
-          alt="Page {i + 1}"
-          draggable="false"
-          style:left="{(layout?.pages[i]?.x ?? 0) * k}px"
-          style:width="{(layout?.pages[i]?.w ?? 0) * k}px"
-          onload={(e) => loaded(i, e)}
-          onerror={() => (failed = i)}
-        />
-      {/each}
-      {#if view}
-        <div class="dim" style:--dim={dim} style:clip-path={view.clip}></div>
-      {/if}
+    <div class="turn" in:turn out:turn>
+      <div
+        class="camera"
+        bind:this={camera}
+        class:ready={!!cam}
+        class:animate={moving}
+        style:--ms="{ms}ms"
+        style:width="{(layout?.W ?? 0) * k}px"
+        style:height="{(layout?.H ?? 0) * k}px"
+        style:transform={view ? `translate(${view.tx}px, ${view.ty}px)${crisp ? "" : ` scale(${view.s})`}` : "none"}
+      >
+        {#each order as i (i)}
+          <img
+            src={pageUrl(c.id, i) + (retry ? `?retry=${retry}` : "")}
+            decoding="async"
+            alt="Page {i + 1}"
+            draggable="false"
+            style:left="{(layout?.pages[i]?.x ?? 0) * k}px"
+            style:width="{(layout?.pages[i]?.w ?? 0) * k}px"
+            onload={(e) => loaded(i, e)}
+            onerror={() => (failed = i)}
+          />
+        {/each}
+        {#if view}
+          <div class="dim" style:--dim={dim} style:clip-path={view.clip}></div>
+        {/if}
+      </div>
     </div>
   {/key}
   <PageStatus
@@ -297,6 +364,10 @@
   }
   .stage.panning {
     cursor: grabbing;
+  }
+  .turn {
+    position: absolute;
+    inset: 0;
   }
   .camera {
     position: absolute;

@@ -75,7 +75,7 @@ Every tool is in the **⋯** menu (or right-click the page), with its shortcut. 
 | Z | Magnifying glass (mouse wheel changes its strength) |
 | + / − / Ctrl+0 | Zoom in / out / reset (Ctrl+wheel too; drag to pan) |
 | Ctrl+M / M | Bookmark this page / show bookmarks |
-| V | Guided View |
+| V | Guided View (the mouse wheel steps through the panels) |
 | E | Edit the panels on this page |
 | I | Page number and clock |
 | C | Options (background, Guided View speed and dimming) |

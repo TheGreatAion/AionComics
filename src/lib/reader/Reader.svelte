@@ -81,8 +81,10 @@
       });
       c.steps = steps;
       const at = c.zoomAt;
-      if (at && pages.includes(at.page)) c.step = c.stopAt(at.page, at.x, at.y);
-      else if (c.landOnLast) c.step = steps.length - 1;
+      if (at && pages.includes(at.page)) {
+        c.step = c.stopAt(at.page, at.x, at.y);
+        c.part = 0;
+      } else if (c.landOnLast) c.step = steps.length - 1;
       else if (!prefs.guidedOverview && steps.length && c.step < 0) c.step = 0;
       c.zoomAt = null;
       c.landOnLast = false;
@@ -393,7 +395,7 @@
       </button>
     {/snippet}
 
-    <!-- The top strip drags the window; the tools float in one pill in the middle of it. -->
+    <!-- The top strip drags the window; the tools hang from its middle in one solid tab. -->
     <header
       class="toolbar"
       class:shown={showChrome}
@@ -403,7 +405,7 @@
       onpointerenter={() => bars(true)}
       onpointerleave={() => bars(false)}
     >
-      <div class="pill" data-tauri-drag-region>
+      <div class="tab" data-tauri-drag-region>
         <button class="tool back" onclick={close} title="Back to library (Esc)" aria-label="Back to library">
           <Icon name="back" />
         </button>
@@ -547,7 +549,8 @@
     }
   }
 
-  /* The tools and the page ticks float over the art in glass, with no bar across the page. */
+  /* The tools hang from the top edge and the page ticks rise from the bottom one, with no bar
+     across the page. */
   .toolbar,
   .bottom {
     position: absolute;
@@ -564,33 +567,40 @@
     transform: none;
     pointer-events: auto;
   }
-  .pill,
-  .bottom,
-  .win {
+  .bottom {
     background: rgba(16, 16, 16, 0.86);
     backdrop-filter: blur(24px) saturate(1.2);
     border: 1px solid rgba(255, 255, 255, 0.07);
   }
-  /* A full-width strip, so the window drags from anywhere along the top; only the pill shows. */
+  /* Solid, square at the top edge it hangs from. */
+  .tab,
+  .win {
+    background: #141414;
+    border: 1px solid #2a2a2a;
+    border-top: 0;
+    box-shadow:
+      inset 0 -1px 0 rgba(255, 255, 255, 0.04),
+      0 10px 26px rgba(0, 0, 0, 0.55);
+  }
+  /* A full-width strip, so the window drags from anywhere along the top; only the tab shows. */
   .toolbar {
     top: 0;
     left: 0;
     right: 0;
-    height: 58px;
+    height: 46px;
     display: flex;
     justify-content: center;
     align-items: flex-start;
-    padding-top: 10px;
     transform: translateY(-8px);
   }
-  .pill {
-    height: 40px;
+  .tab {
+    height: 46px;
     max-width: calc(100% - 300px);
     display: flex;
     align-items: center;
     gap: 6px;
-    padding: 0 6px 0 4px;
-    border-radius: 20px;
+    padding: 0 8px 0 6px;
+    border-radius: 0 0 8px 8px;
   }
   .sep {
     flex: none;
@@ -602,12 +612,13 @@
   .bottom {
     left: 16px;
     right: 16px;
-    bottom: 12px;
-    height: 34px;
+    bottom: 0;
+    height: 36px;
     display: flex;
     align-items: center;
     padding: 0 18px;
-    border-radius: 17px;
+    border-bottom: 0;
+    border-radius: 8px 8px 0 0;
     transform: translateY(8px);
   }
   .title {
@@ -647,7 +658,7 @@
     flex: none;
     display: grid;
     place-items: center;
-    border-radius: 16px;
+    border-radius: 4px;
     color: #9a9a9a;
     transition:
       background 0.15s,
@@ -687,7 +698,7 @@
     padding: 3px 5px;
     margin-right: -2px;
     border: 0;
-    border-radius: 6px;
+    border-radius: 4px;
     background: transparent;
     color: inherit;
     font: inherit;
@@ -705,15 +716,15 @@
   .clock {
     margin-left: 6px;
   }
-  /* The window buttons keep their corner, on glass of their own. */
+  /* The window buttons keep their corner, on a tab of their own. */
   .win {
     position: absolute;
     top: 0;
     right: 0;
-    height: 40px;
+    height: 46px;
     display: flex;
-    border-width: 0 0 1px 1px;
-    border-radius: 0 0 0 12px;
+    border-right: 0;
+    border-radius: 0 0 0 8px;
     overflow: hidden;
   }
   .panel {

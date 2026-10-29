@@ -18,6 +18,8 @@ const DEFAULTS = {
   guidedDim: "strong" as "light" | "strong" | "hidden",
   /** Guided View shows each page whole before its first panel. */
   guidedOverview: true,
+  /** A panel much taller than the screen is read in parts, top to bottom, closer up. */
+  guidedParts: true,
 };
 
 export type Prefs = typeof DEFAULTS;

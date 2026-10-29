@@ -12,7 +12,7 @@ mod stats;
 mod warm;
 
 /// Bump when panel detection changes so cached results are recomputed.
-const PANELS_VERSION: i64 = 9;
+const PANELS_VERSION: i64 = 11;
 
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
