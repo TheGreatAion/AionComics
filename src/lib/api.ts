@@ -16,6 +16,20 @@ export interface ComicCard {
   lastReadAt: number | null;
   /** The color the cover reads as, "#rrggbb", once worked out. */
   coverColor: string | null;
+  /** On the series page: the book's format, and the issues a collection holds ("#13–18"). */
+  edition?: EditionKind;
+  collects?: string;
+}
+
+export type EditionKind = "volume" | "issue" | "chapter" | "collection" | "deluxe" | "omnibus" | "annual" | "special";
+
+/** One format of a series ("Volumes", "Issues", "Annuals"…), its books in their subfolders. */
+export interface Edition {
+  kind: EditionKind;
+  name: string;
+  sections: { name: string; comics: ComicCard[] }[];
+  /** Issue numbers missing from the run, when only a few are. */
+  missing: number[];
 }
 
 export interface Home {
@@ -80,6 +94,7 @@ export interface SeriesView {
   years: string | null;
   synopsis: string | null;
   sections: { name: string; comics: ComicCard[] }[];
+  editions: Edition[];
   backfill: { beforeId: number; beforeLabel: string; count: number } | null;
   /** The Comic Vine series this one is matched to. */
   cvVolumeId: string | null;
@@ -281,6 +296,7 @@ export const api = {
     invoke<ComicMeta>("edit_comic_meta", { id, changes }),
   cvStatus: () => invoke<CvStatus>("cv_status"),
   cvOpenSite: () => invoke<void>("cv_open_site"),
+  setEdition: (id: number, kind: EditionKind | null) => invoke<void>("set_edition", { id, kind }),
   cvSetKey: (key: string) => invoke<void>("cv_set_key", { key }),
   cvSearch: (seriesId: number, query?: string) =>
     invoke<{ query: string; volumes: CvVolume[] }>("cv_search", { seriesId, query: query ?? null }),

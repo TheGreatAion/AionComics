@@ -5,6 +5,7 @@ use std::collections::HashMap;
 use std::path::Path;
 
 use anyhow::Result;
+use crate::editions;
 use rusqlite::{params, Connection, OptionalExtension, Row};
 use serde::Serialize;
 
@@ -134,6 +135,8 @@ fn migrate(conn: &Connection) -> Result<()> {
     crate::stats::migrate(conn)?;
     // Groups of books you've said aren't duplicates, by their sorted ids.
     conn.execute_batch("CREATE TABLE IF NOT EXISTS duplicate_ignored(key TEXT PRIMARY KEY);")?;
+    // Formats you've given books by hand, over the ones worked out from their names.
+    conn.execute_batch("CREATE TABLE IF NOT EXISTS edition_override(comic_id INTEGER PRIMARY KEY, kind TEXT NOT NULL);")?;
     // Books in a matched series that were tried for an automatic Comic Vine pairing. Settled ones
     // are left alone for good: you left them unpaired in the matcher.
     let fresh: bool = conn.query_row("SELECT COUNT(*) FROM sqlite_master WHERE name='cv_auto'", [], |r| r.get::<_, i64>(0))? == 0;
@@ -196,6 +199,12 @@ pub struct ComicCard {
     pub last_read_at: Option<i64>,
     /// The color the cover reads as, "#rrggbb", once it's been worked out.
     pub cover_color: Option<String>,
+    /// On the series page: the book's format (see editions.rs).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub edition: Option<String>,
+    /// On the series page: the issues a collection holds, "#13–18", when its description says.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub collects: Option<String>,
 }
 
 const CARD_COLS: &str = "c.id, c.label, c.title, c.year, s.id, s.name, c.current_page, c.num_pages, c.read,
@@ -217,6 +226,8 @@ fn card(r: &Row) -> rusqlite::Result<ComicCard> {
         cover_ratio: r.get(10)?,
         last_read_at: r.get(11)?,
         cover_color: r.get(12)?,
+        edition: None,
+        collects: None,
     })
 }
 
@@ -392,6 +403,17 @@ pub struct Section {
     pub comics: Vec<ComicCard>,
 }
 
+/// One format of a series ("Volumes", "Issues", "Annuals"…), its books in their subfolders.
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Edition {
+    pub kind: String,
+    pub name: String,
+    pub sections: Vec<Section>,
+    /// Issue numbers missing from the run, when only a few are.
+    pub missing: Vec<i64>,
+}
+
 /// "You're on Vol. 12 — mark the 11 before it as read?"
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -415,7 +437,9 @@ pub struct SeriesView {
     pub publisher: Option<String>,
     pub years: Option<String>,
     pub synopsis: Option<String>,
+    /// Every book, format by format (see `editions`), in the order the page lists them.
     pub sections: Vec<Section>,
+    pub editions: Vec<Edition>,
     pub backfill: Option<Backfill>,
     /// The Comic Vine series this one is matched to, if any.
     pub cv_volume_id: Option<String>,
@@ -598,16 +622,8 @@ pub fn series_view(conn: &Connection, id: i64) -> Result<SeriesView> {
         [id],
         |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?)),
     )?;
-    let mut sec_names = conn.prepare("SELECT section FROM comics WHERE series_id=?1 ORDER BY sort_key")?;
-    let names: Vec<String> = sec_names.query_map([id], |r| r.get(0))?.collect::<rusqlite::Result<_>>()?;
-    let rows = cards(conn, "WHERE c.series_id=?1 ORDER BY c.sort_key", [id])?;
-    let mut sections: Vec<Section> = Vec::new();
-    for (sec, c) in names.into_iter().zip(rows) {
-        match sections.last_mut() {
-            Some(s) if s.name == sec => s.comics.push(c),
-            _ => sections.push(Section { name: sec, comics: vec![c] }),
-        }
-    }
+    let editions = editions_of(conn, id, is_manga)?;
+    let sections = editions.iter().flat_map(|e| e.sections.iter()).map(|s| Section { name: s.name.clone(), comics: s.comics.clone() }).collect();
     let meta = |col: &str| -> Result<Option<String>> {
         Ok(conn
             .query_row(
@@ -651,9 +667,86 @@ pub fn series_view(conn: &Connection, id: i64) -> Result<SeriesView> {
             None => cv.as_ref().and_then(|(_, d)| d.get("description").and_then(|v| v.as_str()).map(str::to_string)),
         },
         sections,
+        editions,
         backfill: backfill(conn, id)?,
         cv_volume_id: cv.map(|(v, _)| v),
     })
+}
+
+/// A series' books sorted into their formats, each labeled and ordered within it.
+fn editions_of(conn: &Connection, id: i64, manga: bool) -> Result<Vec<Edition>> {
+    let mut st = conn.prepare(
+        "SELECT c.section, c.file_name, COALESCE(c.num_pages, 0), COALESCE(c.synopsis, ''), o.kind
+         FROM comics c LEFT JOIN edition_override o ON o.comic_id=c.id WHERE c.series_id=?1 ORDER BY c.sort_key",
+    )?;
+    let extra: Vec<(String, String, i64, String, Option<String>)> =
+        st.query_map([id], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?, r.get(4)?)))?.collect::<rusqlite::Result<_>>()?;
+    let rows = cards(conn, "WHERE c.series_id=?1 ORDER BY c.sort_key", [id])?;
+    // (format, subfolder, number, place in the old order, book)
+    let mut books: Vec<(&'static str, String, Option<f64>, usize, ComicCard)> = Vec::new();
+    for (i, (mut c, (sec, file, pages, synopsis, own))) in rows.into_iter().zip(extra).enumerate() {
+        let kind = own
+            .as_deref()
+            .and_then(|k| editions::KINDS.iter().copied().find(|x| *x == k))
+            .unwrap_or_else(|| editions::kind(manga, &sec, &file, pages));
+        let n = editions::number(kind, &file);
+        c.label = editions::label(kind, n, &c.label);
+        if matches!(kind, "volume" | "collection" | "deluxe" | "omnibus") {
+            c.collects = editions::collects(&synopsis);
+        }
+        c.edition = Some(kind.to_string());
+        books.push((kind, sec, n, i, c));
+    }
+    let mut out = Vec::new();
+    for kind in editions::KINDS {
+        let mut mine: Vec<_> = books.iter().filter(|b| b.0 == kind).collect();
+        if mine.is_empty() {
+            continue;
+        }
+        let missing = if kind == "issue" { editions::gaps(&mine.iter().filter_map(|b| b.2).collect::<Vec<_>>()) } else { vec![] };
+        // Subfolders in the order they first come; numbered books in number order within each.
+        let mut folders: Vec<&str> = Vec::new();
+        for b in &mine {
+            if !folders.contains(&b.1.as_str()) {
+                folders.push(&b.1);
+            }
+        }
+        mine.sort_by(|a, b| {
+            let fa = folders.iter().position(|f| *f == a.1).unwrap_or(0);
+            let fb = folders.iter().position(|f| *f == b.1).unwrap_or(0);
+            fa.cmp(&fb).then_with(|| match (a.2, b.2) {
+                (Some(x), Some(y)) => x.total_cmp(&y).then(a.3.cmp(&b.3)),
+                (Some(_), None) => std::cmp::Ordering::Less,
+                (None, Some(_)) => std::cmp::Ordering::Greater,
+                (None, None) => a.3.cmp(&b.3),
+            })
+        });
+        // A subfolder named for the format itself ("Issues", "TPB") goes without saying.
+        let shown = |f: &str| {
+            let last = f.rsplit('/').next().unwrap_or("").trim().to_lowercase();
+            let plain = ["", "issues", "chapters", "volumes", "tpb", "tpbs", "trades", "omnibus", "annuals", "specials"];
+            if plain.contains(&last.as_str()) { String::new() } else { f.to_string() }
+        };
+        let mut sections: Vec<Section> = Vec::new();
+        for b in mine {
+            let name = shown(&b.1);
+            match sections.last_mut() {
+                Some(s) if s.name == name => s.comics.push(b.4.clone()),
+                _ => sections.push(Section { name, comics: vec![b.4.clone()] }),
+            }
+        }
+        out.push(Edition { kind: kind.to_string(), name: editions::name(kind).to_string(), sections, missing });
+    }
+    Ok(out)
+}
+
+/// Give a book a format by hand (None: back to the one worked out from its name).
+pub fn set_edition(conn: &Connection, comic: i64, kind: Option<&str>) -> Result<()> {
+    match kind {
+        Some(k) => conn.execute("INSERT OR REPLACE INTO edition_override(comic_id, kind) VALUES(?1, ?2)", params![comic, k])?,
+        None => conn.execute("DELETE FROM edition_override WHERE comic_id=?1", [comic])?,
+    };
+    Ok(())
 }
 
 fn backfill(conn: &Connection, series: i64) -> Result<Option<Backfill>> {

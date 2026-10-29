@@ -3,6 +3,7 @@ mod backup;
 mod comicinfo;
 mod cv;
 mod db;
+mod editions;
 mod frames;
 mod intake;
 mod panels;
@@ -672,6 +673,8 @@ fn external_card(path: &Path, id: i64, pages: usize) -> db::ComicCard {
         cover_ratio: None,
         last_read_at: None,
         cover_color: None,
+        edition: None,
+        collects: None,
     }
 }
 
@@ -777,6 +780,12 @@ fn reading_stats(state: State<Shared>, tz_minutes: i64) -> CmdResult<stats::Stat
 #[tauri::command]
 fn set_read(state: State<Shared>, id: i64, read: bool) -> CmdResult<()> {
     db::set_read(&state.conn.lock().unwrap(), id, read, scan::now()).map_err(err)
+}
+
+/// Give a book a format by hand, or (None) let it be worked out from its name again.
+#[tauri::command]
+fn set_edition(state: State<Shared>, id: i64, kind: Option<String>) -> CmdResult<()> {
+    db::set_edition(&state.conn.lock().unwrap(), id, kind.as_deref()).map_err(err)
 }
 
 // ---------- image protocol: aion://localhost/cover/{id}, /page/{id}/{n} ----------
@@ -1023,6 +1032,7 @@ pub fn run() {
             edit_comic_meta,
             cv_status,
             cv_open_site,
+            set_edition,
             cv_set_key,
             cv_search,
             cv_plan,

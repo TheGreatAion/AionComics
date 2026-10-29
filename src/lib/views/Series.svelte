@@ -1,6 +1,6 @@
 <script lang="ts">
   import { tick } from "svelte";
-  import { api, listText, plainText, storyTitle, unitWord, type ComicCard, type ComicMeta, type MetaField, type SeriesView } from "$lib/api";
+  import { api, listText, plainText, storyTitle, unitWord, type ComicCard, type ComicMeta, type EditionKind, type MetaField, type SeriesView } from "$lib/api";
   import { lib, nav, openReader, reader, search, sheets, showMenu } from "$lib/state.svelte";
   import Cover from "$lib/components/Cover.svelte";
   import Icon from "$lib/components/Icon.svelte";
@@ -23,13 +23,19 @@
 
   const all = $derived(data?.sections.flatMap((s) => s.comics) ?? []);
   const first = $derived(all[0]);
-  // The count by the series name is the main run; other editions and extras ("Annuals") are
-  // labeled in the strip.
-  const main = $derived(data?.sections.find((s) => !s.name) ?? data?.sections[0]);
-  const mainRead = $derived(main?.comics.filter((c) => c.read).length ?? 0);
-  const mainCount = $derived(main?.comics.length ?? 0);
-  // The book shown first: what's in progress, else the first unread, else the first.
-  const target = $derived(all.find((c) => !c.read && c.currentPage > 0) ?? all.find((c) => !c.read) ?? first);
+  // Where to start in a list of books: what's in progress, else the first unread, else the first.
+  const startOf = (books: ComicCard[]) =>
+    books.filter((c) => !c.read && c.currentPage > 0).sort((a, b) => (b.lastReadAt ?? 0) - (a.lastReadAt ?? 0))[0] ??
+    books.find((c) => !c.read) ??
+    books[0];
+  const count = (e: { sections: { comics: ComicCard[] }[] }) => e.sections.reduce((n, s) => n + s.comics.length, 0);
+  // The book shown first: the one you're reading, else where to start the biggest format.
+  const target = $derived.by(() => {
+    const going = startOf(all);
+    if (going && going.currentPage > 0 && !going.read) return going;
+    const biggest = [...(data?.editions ?? [])].sort((a, b) => count(b) - count(a))[0];
+    return biggest ? startOf(biggest.sections.flatMap((s) => s.comics)) : going;
+  });
   // "Makoto Yukimura · Kodansha Comics USA · 2013–2026", with the artist when it isn't the writer.
   const by = $derived.by(() => {
     if (!data) return "";
@@ -48,6 +54,26 @@
     picked = startBook ?? null;
   });
   const book = $derived<ComicCard | undefined>(all.find((c) => c.id === picked) ?? target);
+
+  /* ---- Formats (issues, volumes, omnibus, annuals…), one at a time in the strip. */
+  let chosen = $state<EditionKind | null>(null);
+  $effect(() => {
+    void id;
+    chosen = null;
+  });
+  // Until a format is picked, the strip shows the one the chosen book is in.
+  const edition = $derived(data?.editions.find((e) => e.kind === (chosen ?? book?.edition)) ?? data?.editions[0]);
+  const inView = $derived(edition?.sections.flatMap((s) => s.comics) ?? all);
+  function choose(kind: EditionKind) {
+    const e = data?.editions.find((x) => x.kind === kind);
+    if (!e) return;
+    chosen = kind;
+    const start = startOf(e.sections.flatMap((s) => s.comics));
+    if (start) pick(start);
+  }
+  // The count by the series name is the format in view.
+  const mainRead = $derived(inView.filter((c) => c.read).length);
+  const mainCount = $derived(inView.length);
   let meta = $state<ComicMeta | null>(null);
   $effect(() => {
     void lib.version;
@@ -171,8 +197,23 @@
       "separator",
       { label: "Edit details…", action: () => (sheets.editing = c.id) },
       { label: "Show in Explorer", action: () => api.reveal(c.id) },
+      "separator",
+      // Its format, when its name gave the wrong idea. Kept in AionComics; the file isn't touched.
+      ...KINDS.map((k) => ({ label: KIND_NAME[k], checked: c.edition === k, action: () => act(() => api.setEdition(c.id, k)) })),
+      { label: "Sort automatically", action: () => act(() => api.setEdition(c.id, null)) },
     ]);
   }
+  const KINDS: EditionKind[] = ["volume", "issue", "chapter", "collection", "deluxe", "omnibus", "annual", "special"];
+  const KIND_NAME: Record<EditionKind, string> = {
+    volume: "Volume",
+    issue: "Issue",
+    chapter: "Chapter",
+    collection: "Collection",
+    deluxe: "Deluxe edition",
+    omnibus: "Omnibus",
+    annual: "Annual",
+    special: "Special",
+  };
 
   /* ---- The strip of covers along the bottom. */
   let strip = $state<HTMLElement>();
@@ -199,10 +240,10 @@
     if (e.ctrlKey || e.metaKey || e.altKey || e.shiftKey) return;
     if ((e.target as HTMLElement)?.closest?.("input, textarea, select, [contenteditable]")) return;
     if (!book || (e.key !== "ArrowLeft" && e.key !== "ArrowRight")) return;
-    const i = all.indexOf(book) + (e.key === "ArrowRight" ? 1 : -1);
-    if (i < 0 || i >= all.length) return;
+    const i = inView.indexOf(book) + (e.key === "ArrowRight" ? 1 : -1);
+    if (i < 0 || i >= inView.length) return;
     e.preventDefault();
-    pick(all[i]);
+    pick(inView[i]);
   }
 
   const shape = (c: ComicCard | undefined) => (c?.coverRatio && c.coverRatio > 0.9 && c.coverRatio < 2.1 ? c.coverRatio : 1.5);
@@ -315,11 +356,24 @@
       </section>
     {/if}
 
-    <!-- Every book in the series; click one to see it above, ← → to step through. -->
-    <nav class="strip" bind:this={strip} bind:offsetHeight={stripH} aria-label="Books in this series">
-      {#each data.sections as s (s.name)}
+    <!-- One format's books at a time; click one to see it above, ← → to step through. -->
+    <div class="shelf" bind:offsetHeight={stripH}>
+      {#if data.editions.length > 1}
+        <div class="tabs" role="tablist" aria-label="Formats">
+          {#each data.editions as e (e.kind)}
+            <button class="tab" class:on={e.kind === edition?.kind} role="tab" aria-selected={e.kind === edition?.kind} onclick={() => choose(e.kind)}>
+              {e.name}<span class="n mono">{count(e)}</span>
+            </button>
+          {/each}
+          {#if edition?.missing.length}
+            <span class="missing mono" title="Not in your library">{edition.missing.map((n) => `#${n}`).join(", ")} missing</span>
+          {/if}
+        </div>
+      {/if}
+    <nav class="strip" bind:this={strip} aria-label="Books in this series">
+      {#each edition?.sections ?? data.sections as s, i (i)}
         <div class="group">
-          {#if data.sections.length > 1 || s.name}<div class="gname">{s.name || (data.isManga ? "Volumes" : "Issues")}</div>{/if}
+          {#if s.name}<div class="gname">{s.name}</div>{/if}
           <div class="row">
             {#each s.comics as c (c.id)}
               <button
@@ -334,6 +388,7 @@
               >
                 <Cover id={c.id} ratio={c.coverRatio} width={64} pages={c.numPages} />
                 <span class="cap mono">{c.label}</span>
+                {#if c.collects}<span class="holds mono">{c.collects}</span>{/if}
                 {#if !c.read && c.currentPage > 0 && c.numPages}
                   <span class="line"><i style:width="{((c.currentPage + 1) / c.numPages) * 100}%"></i></span>
                 {/if}
@@ -343,6 +398,7 @@
         </div>
       {/each}
     </nav>
+    </div>
   </div>
 
 {/if}
@@ -563,14 +619,54 @@
   }
 
   /* A band along the bottom, scrolling sideways in a long series. */
-  .strip {
+  .shelf {
     flex: none;
+    background: rgb(var(--fg) / 0.025);
+    border-top: 1px solid rgb(var(--fg) / 0.05);
+  }
+  /* One tab a format: "Volumes 12  Issues 72  Omnibus 1". */
+  .tabs {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    padding: 14px var(--pad) 0;
+  }
+  .tab {
+    display: inline-flex;
+    align-items: baseline;
+    gap: 8px;
+    padding: 6px 14px;
+    border-radius: 4px;
+    color: var(--text-2);
+    font-size: 13.5px;
+    transition:
+      background 0.15s,
+      color 0.15s;
+  }
+  .tab:hover {
+    color: var(--text);
+  }
+  .tab.on {
+    background: rgb(var(--fg) / 0.07);
+    color: var(--text);
+  }
+  .tab .n {
+    font-size: 11px;
+    color: var(--text-3);
+  }
+  .tab.on .n {
+    color: var(--text-2);
+  }
+  .missing {
+    margin-left: auto;
+    font-size: 11px;
+    color: var(--text-3);
+  }
+  .strip {
     display: flex;
     gap: 36px;
     overflow-x: auto;
     padding: 18px var(--pad) 16px;
-    background: rgb(var(--fg) / 0.025);
-    border-top: 1px solid rgb(var(--fg) / 0.05);
   }
   .group {
     flex: none;
@@ -617,6 +713,12 @@
   }
   .pick.on .cap {
     color: var(--text);
+  }
+  /* What a collection holds: "#13–18". */
+  .holds {
+    font-size: 10.5px;
+    color: var(--text-3);
+    opacity: 0.8;
   }
   .line {
     position: absolute;
