@@ -3,8 +3,9 @@
   import { coverUrl } from "$lib/api";
 
   // A name set huge, each letter cut out of a cover. Covers take the letters in turn, so with fewer
-  // books than letters they repeat; with none the letters are only outlined. The name spans the
-  // width unless that would make it taller than `tallest` (short names), and then `aside`, when
+  // books than letters they repeat; with none the letters are only outlined. Behind the covers the
+  // name is printed again, a little down and right, as if slightly off register: white on a dark
+  // theme, black on a light one. The name spans the width unless that would make it taller than `tallest` (short names), and then `aside`, when
   // given, sits beside it if there's room (`beside` says whether it did).
   let {
     text,
@@ -51,7 +52,9 @@
       const w = ctx.measureText(word.slice(0, i + 1)).width - x;
       return [{ ch, x, w, cover: covers.length ? covers[k++ % covers.length] : null }];
     });
-    return { fs, H, w: Math.ceil(ctx.measureText(word).width), side, letters };
+    // How far the second print sits off the first, in step with the letters' size.
+    const off = { x: fs * 0.021, y: fs * 0.019 };
+    return { fs, H, w: Math.ceil(ctx.measureText(word).width), side, letters, off };
   });
   $effect(() => {
     beside = layout?.side ?? false;
@@ -69,6 +72,11 @@
             </clipPath>
           {/each}
         </defs>
+        {#if covers.length}
+          {#each layout.letters as l, i (i)}
+            <text class="print" x={l.x + layout.off.x} y={layout.H - 2 + layout.off.y} font-size={layout.fs}>{l.ch}</text>
+          {/each}
+        {/if}
         {#each layout.letters as l, i (i)}
           {#if l.cover !== null}
             <!-- The letter in a dark tone first, so it shows before its cover has loaded. -->
@@ -113,6 +121,9 @@
   }
   .under {
     fill: #161616;
+  }
+  .print {
+    fill: var(--print);
   }
   .outline {
     fill: none;

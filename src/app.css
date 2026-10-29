@@ -9,6 +9,9 @@
   --cap: #cfcfcf;
   --line: #222;
   --track: #2a2a2a;
+  /* The collection name's second print (see LetterHeadline): paper white on this dark theme; a
+     light theme sets it to ink black. */
+  --print: #f4f1ea;
   --font: "Geist Variable", system-ui, sans-serif;
   --mono: "Geist Mono", ui-monospace, monospace;
   /* Big titles only: series, books, collections. Tall capitals with a comic-logo heritage. */
