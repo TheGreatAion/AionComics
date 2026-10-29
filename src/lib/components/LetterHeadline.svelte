@@ -52,9 +52,11 @@
       const w = ctx.measureText(word.slice(0, i + 1)).width - x;
       return [{ ch, x, w, cover: covers.length ? covers[k++ % covers.length] : null }];
     });
-    // How far the second print sits off the first, in step with the letters' size.
-    const off = { x: fs * 0.021, y: fs * 0.019 };
-    return { fs, H, w: Math.ceil(ctx.measureText(word).width), side, letters, off };
+    // How far the second print sits off the first, and how heavy the ink line round each letter
+    // is, in step with the letters' size.
+    const off = { x: fs * 0.014, y: fs * 0.0125 };
+    const line = Math.max(2, fs * 0.006);
+    return { fs, H, w: Math.ceil(ctx.measureText(word).width), side, letters, off, line };
   });
   $effect(() => {
     beside = layout?.side ?? false;
@@ -90,6 +92,8 @@
               preserveAspectRatio="xMidYMid slice"
               clip-path="url(#{uid}-{i})"
             />
+            <!-- An ink line round the letter keeps its shape on a pale cover. -->
+            <text class="line" x={l.x} y={layout.H - 2} font-size={layout.fs} stroke-width={layout.line}>{l.ch}</text>
           {:else}
             <text class="outline" x={l.x} y={layout.H - 2} font-size={layout.fs}>{l.ch}</text>
           {/if}
@@ -124,6 +128,11 @@
   }
   .print {
     fill: var(--print);
+  }
+  .line {
+    fill: none;
+    stroke: var(--ink);
+    stroke-linejoin: round;
   }
   .outline {
     fill: none;

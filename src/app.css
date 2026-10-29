@@ -11,7 +11,9 @@
   --track: #2a2a2a;
   /* The collection name's second print (see LetterHeadline): paper white on this dark theme; a
      light theme sets it to ink black. */
-  --print: #f4f1ea;
+  --print: #e6dfd1;
+  /* The collection name's ink line, between each letter's cover and its second print. */
+  --ink: #0d0c0b;
   --font: "Geist Variable", system-ui, sans-serif;
   --mono: "Geist Mono", ui-monospace, monospace;
   /* Big titles only: series, books, collections. Tall capitals with a comic-logo heritage. */
@@ -22,6 +24,10 @@
   --side: 248px;
   --side-now: 0px;
   color-scheme: dark;
+}
+/* A collection page sits on a warm charcoal rather than the near-black. */
+:root:has(.page.collection) {
+  --bg: #1d1b19;
 }
 
 * {
@@ -40,6 +46,8 @@ html {
 body {
   margin: 0;
   min-height: 100vh;
+  /* Takes over from app.html's first-paint black, so pages can change it. */
+  background: var(--bg);
   overflow-x: hidden;
   user-select: none;
   cursor: default;

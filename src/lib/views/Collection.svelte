@@ -4,7 +4,6 @@
   import { lib, nav, openReader } from "$lib/state.svelte";
   import Cover from "$lib/components/Cover.svelte";
   import LetterHeadline from "$lib/components/LetterHeadline.svelte";
-  import Wash from "$lib/components/Wash.svelte";
   import { tone } from "$lib/color";
   import Icon, { type IconName } from "$lib/components/Icon.svelte";
 
@@ -44,8 +43,6 @@
     return list;
   });
   const total = $derived(data?.series.reduce((n, s) => n + s.count, 0) ?? 0);
-  // The page takes the color of the series you read last.
-  const recent = $derived(data?.series.reduce<SeriesSummary | null>((a, s) => ((s.lastReadAt ?? 0) > (a?.lastReadAt ?? 0) ? s : a), null));
 
   function status(s: SeriesSummary) {
     if (s.readCount === s.count) return "Read";
@@ -119,8 +116,7 @@
 {/snippet}
 
 {#if data}
-  <div class="page">
-  <Wash color={recent?.coverColor} height={560} />
+  <div class="page collection">
   <div class="top">
     {#if data.series.length === 1 && features[0]}
       <LetterHeadline text={data.name} covers={letterCovers} bind:beside>
