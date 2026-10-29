@@ -58,17 +58,19 @@
     nav.go({ name: "series", id: s.id });
   }
 
-  // The headline's letters are cut from covers: books being read first, then the ones read lately,
-  // then the newest. One cover a letter at most; fewer series than letters and they go round again.
+  // The headline's letters are cut from covers picked at random, a fresh pick each visit. The pick
+  // holds while you're here, even as a scan refreshes the page. One cover a letter at most; fewer
+  // series than letters and they go round again.
   const letters = $derived(data ? [...data.name].filter((ch) => ch !== " ").length : 0);
-  const letterCovers = $derived.by(() => {
-    const rank = (s: SeriesSummary) => (s.inProgress ? 2 : s.lastReadAt ? 1 : 0);
-    return (data?.series ?? [])
+  const seed = Math.floor(Math.random() * 2 ** 32);
+  const shuffled = (n: number) => Math.imul(n ^ seed, 2654435761) >>> 0;
+  const letterCovers = $derived.by(() =>
+    (data?.series ?? [])
       .filter((s) => s.coverId != null)
-      .sort((a, b) => rank(b) - rank(a) || (b.lastReadAt ?? 0) - (a.lastReadAt ?? 0) || (b.lastAddedAt ?? 0) - (a.lastAddedAt ?? 0))
+      .sort((a, b) => shuffled(a.id) - shuffled(b.id))
       .slice(0, letters)
-      .map((s) => s.coverId!);
-  });
+      .map((s) => s.coverId!),
+  );
 
   // With only one or two series there's room to tell each one properly instead of a grid.
   const few = $derived(!!data && data.series.length > 0 && data.series.length <= 2 && !filter.trim());
