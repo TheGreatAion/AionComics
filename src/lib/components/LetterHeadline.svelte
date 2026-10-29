@@ -124,7 +124,7 @@
     font-family: var(--display);
   }
   .under {
-    fill: #161616;
+    fill: var(--raised);
   }
   .print {
     fill: var(--print);

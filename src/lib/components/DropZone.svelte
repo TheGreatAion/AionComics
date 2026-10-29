@@ -117,7 +117,7 @@
     padding: 34px 40px;
     border-radius: 14px;
     box-shadow: 0 0 0 1px var(--line);
-    background: #111;
+    background: var(--raised);
     display: flex;
     flex-direction: column;
     align-items: center;
@@ -158,7 +158,7 @@
     gap: 8px;
     padding: 10px 18px;
     border-radius: 999px;
-    background: #1a1a1a;
+    background: var(--menu);
     box-shadow: 0 0 0 1px var(--line), 0 12px 40px rgba(0, 0, 0, 0.6);
     font-size: 13px;
   }

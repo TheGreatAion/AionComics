@@ -2,7 +2,6 @@
   import { api, duration, type ReadingPeriod, type ReadingStats } from "$lib/api";
   import { lib, nav, openReader } from "$lib/state.svelte";
   import Cover from "$lib/components/Cover.svelte";
-  import Wash from "$lib/components/Wash.svelte";
 
   // What your reading adds up to: recorded from the first sitting on, never guessed before that.
   let data = $state<ReadingStats | null>(null);
@@ -34,7 +33,6 @@
 
 {#if data}
   <div class="page">
-    <Wash color={data.finished[0]?.coverColor} height={480} />
     <header>
       <h1>Your reading</h1>
       <div class="since mono">{since ? `Recorded since ${since}` : "Nothing recorded yet"}</div>

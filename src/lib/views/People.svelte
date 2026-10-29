@@ -2,7 +2,6 @@
   import { api, storyTitle, type PeopleView } from "$lib/api";
   import { lib, nav, openReader } from "$lib/state.svelte";
   import Cover from "$lib/components/Cover.svelte";
-  import Wash from "$lib/components/Wash.svelte";
 
   // Everything in the library by one creator, or with one character or team in it, one row of
   // books per series, the series they're most in first.
@@ -31,7 +30,6 @@
 
 {#if data}
   <div class="page">
-    <Wash color={first?.coverColor} height={520} />
     <header>
       <div class="kind">{kind === "creator" ? "Creator" : "Character"}</div>
       <h1>{data.name}</h1>

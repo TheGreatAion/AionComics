@@ -323,7 +323,7 @@
     position: absolute;
     inset: 0;
     border-radius: 2px;
-    background: color-mix(in srgb, var(--tint) 50%, #141414);
+    background: color-mix(in srgb, var(--tint) 50%, var(--raised));
     transform: translate(5px, -5px);
     filter: brightness(0.75);
     transition: transform 0.5s var(--ease);

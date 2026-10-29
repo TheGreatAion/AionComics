@@ -145,8 +145,8 @@
   // make that the reader's too.
   const readerBg = $derived(prefs.background === "gray" ? "#1b1b1b" : "#000");
   $effect(() => {
-    document.documentElement.style.background = readerBg;
-    return () => (document.documentElement.style.background = "");
+    document.documentElement.style.background = document.body.style.background = readerBg;
+    return () => (document.documentElement.style.background = document.body.style.background = "");
   });
 
   function arrive(img: HTMLImageElement) {

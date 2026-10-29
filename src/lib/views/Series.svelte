@@ -3,7 +3,6 @@
   import { api, listText, plainText, storyTitle, unitWord, type ComicCard, type ComicMeta, type MetaField, type SeriesView } from "$lib/api";
   import { lib, nav, openReader, reader, search, sheets, showMenu } from "$lib/state.svelte";
   import Cover from "$lib/components/Cover.svelte";
-  import Wash from "$lib/components/Wash.svelte";
   import Icon from "$lib/components/Icon.svelte";
 
   let { id, book: startBook }: { id: number; book?: number } = $props();
@@ -222,7 +221,6 @@
 {#if data}
   <div class="screen">
     <!-- The chosen book tints the page in its cover's color, changing with it. -->
-    <Wash color={book?.coverColor} height={600} />
     <!-- The series: its name, who made it, how far you are. -->
     <header class="series" bind:clientHeight={headH}>
       <div class="names">

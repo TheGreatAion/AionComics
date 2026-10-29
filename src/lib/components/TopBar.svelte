@@ -83,7 +83,7 @@
     left: var(--side);
   }
   header.solid {
-    background: rgba(10, 10, 10, 0.86);
+    background: color-mix(in srgb, var(--bg) 86%, transparent);
     backdrop-filter: blur(24px);
     border-color: var(--line);
   }

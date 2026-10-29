@@ -1,14 +1,15 @@
-/* AionComics: the art is the interface. Monochrome, one typeface, no accent color. */
+/* AionComics: the art is the interface. Monochrome, one typeface, no accent color. Dark mode is
+   a warm charcoal, one flat color under every page. */
 :root {
-  --bg: #0a0a0a;
-  --raised: #161616;
-  --menu: #1a1a1a;
+  --bg: #1d1b19;
+  --raised: #282623;
+  --menu: #2d2b28;
   --text: #ececec;
-  --text-2: #8f8f8f;
-  --text-3: #555;
+  --text-2: #94908a;
+  --text-3: #66625c;
   --cap: #cfcfcf;
-  --line: #222;
-  --track: #2a2a2a;
+  --line: #34312d;
+  --track: #3a3733;
   /* The collection name's second print (see LetterHeadline): paper white on this dark theme; a
      light theme sets it to ink black. */
   --print: #e6dfd1;
@@ -24,10 +25,6 @@
   --side: 248px;
   --side-now: 0px;
   color-scheme: dark;
-}
-/* A collection page sits on a warm charcoal rather than the near-black. */
-:root:has(.page.collection) {
-  --bg: #1d1b19;
 }
 
 * {

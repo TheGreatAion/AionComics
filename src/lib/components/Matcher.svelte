@@ -202,7 +202,7 @@
     flex-direction: column;
     padding: 26px 30px 20px;
     border-radius: 12px;
-    background: #121212;
+    background: var(--raised);
     box-shadow: 0 0 0 1px var(--line), 0 30px 80px rgba(0, 0, 0, 0.7);
   }
   header {
@@ -346,7 +346,7 @@
   select {
     width: 100%;
     min-width: 0;
-    background: #1a1a1a;
+    background: var(--menu);
     border: 1px solid #262626;
     border-radius: 6px;
     padding: 6px 8px;

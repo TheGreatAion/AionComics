@@ -180,7 +180,7 @@
     overflow-y: auto;
     padding: 28px 32px 22px;
     border-radius: 12px;
-    background: #121212;
+    background: var(--raised);
     box-shadow: 0 0 0 1px var(--line), 0 30px 80px rgba(0, 0, 0, 0.7);
     user-select: text;
   }
@@ -259,7 +259,7 @@
   input,
   textarea {
     width: 100%;
-    background: #1a1a1a;
+    background: var(--menu);
     border: 1px solid #262626;
     border-radius: 6px;
     padding: 8px 10px;
