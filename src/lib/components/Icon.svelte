@@ -1,5 +1,7 @@
 <script lang="ts" module>
-  // Thin line icons on a 24px grid, drawn for AionComics so the reader's toolbar reads as one family.
+  // Solid icons on a 24px grid, drawn for AionComics so the reader's toolbar reads as one family:
+  // each closed shape (a page, the bookmark, the play button) is filled, everything else is a
+  // heavy line.
   const PATHS = {
     back: "M19 12H5M11 18l-6-6 6-6",
     strip: "M3 6h4v12H3zM10 6h4v12h-4zM17 6h4v12h-4z",
@@ -48,10 +50,24 @@
     sidebar: "M4 4.5h16v15H4zM9.5 4.5v15",
   } as const;
   export type IconName = keyof typeof PATHS;
+
+  // Shapes with lines drawn inside them (a panel divider, the "!" of a warning, a window frame)
+  // stay outlines: filled, the inside would vanish.
+  const OUTLINE = new Set<string>(["sidebar", "editPanels", "alert", "maximize", "doubleRtl"]);
+
+  // Each icon's pieces, and which are closed shapes to fill (curved ones, like a lens, stay lines).
+  const PIECES = Object.fromEntries(
+    Object.entries(PATHS).map(([name, d]) => [
+      name,
+      (d.match(/[Mm][^Mm]*/g) ?? []).map((p) => ({ d: p, fill: !OUTLINE.has(name) && /z\s*$/i.test(p.trim()) && !/a/i.test(p) })),
+    ]),
+  ) as Record<IconName, { d: string; fill: boolean }[]>;
 </script>
 
 <script lang="ts">
+  // `stroke` is the line weight the icon was drawn at; solid icons carry half as much again.
   let { name, size = 18, stroke = 1.5 }: { name: IconName; size?: number; stroke?: number } = $props();
+  const weight = $derived(name === "more" ? Math.max(2.6, stroke * 1.5 + 1.2) : stroke * 1.5);
 </script>
 
 <svg
@@ -60,10 +76,16 @@
   viewBox="0 0 24 24"
   fill="none"
   stroke="currentColor"
-  stroke-width={name === "more" ? 2.6 : stroke}
+  stroke-width={weight}
   stroke-linecap="round"
   stroke-linejoin="round"
   aria-hidden="true"
 >
-  <path d={PATHS[name]} />
+  {#each PIECES[name] as p, i (i)}
+    {#if p.fill}
+      <path d={p.d} fill="currentColor" stroke-width={weight * 0.6} />
+    {:else}
+      <path d={p.d} />
+    {/if}
+  {/each}
 </svg>
