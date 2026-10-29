@@ -676,20 +676,25 @@ pub fn series_view(conn: &Connection, id: i64) -> Result<SeriesView> {
 /// A series' books sorted into their formats, each labeled and ordered within it.
 fn editions_of(conn: &Connection, id: i64, manga: bool) -> Result<Vec<Edition>> {
     let mut st = conn.prepare(
-        "SELECT c.section, c.file_name, COALESCE(c.num_pages, 0), COALESCE(c.synopsis, ''), o.kind
+        "SELECT c.section, c.file_name, COALESCE(c.num_pages, 0), COALESCE(c.synopsis, ''), o.kind, c.number,
+           (SELECT json_extract(m.data, '$.number') FROM meta_layer m WHERE m.comic_id=c.id AND m.source='user')
          FROM comics c LEFT JOIN edition_override o ON o.comic_id=c.id WHERE c.series_id=?1 ORDER BY c.sort_key",
     )?;
-    let extra: Vec<(String, String, i64, String, Option<String>)> =
-        st.query_map([id], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?, r.get(4)?)))?.collect::<rusqlite::Result<_>>()?;
+    type Extra = (String, String, i64, String, Option<String>, Option<String>, Option<String>);
+    let extra: Vec<Extra> = st
+        .query_map([id], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?, r.get(4)?, r.get(5)?, r.get(6)?)))?
+        .collect::<rusqlite::Result<_>>()?;
     let rows = cards(conn, "WHERE c.series_id=?1 ORDER BY c.sort_key", [id])?;
     // (format, subfolder, number, place in the old order, book)
     let mut books: Vec<(&'static str, String, Option<f64>, usize, ComicCard)> = Vec::new();
-    for (i, (mut c, (sec, file, pages, synopsis, own))) in rows.into_iter().zip(extra).enumerate() {
+    for (i, (mut c, (sec, file, pages, synopsis, own, stored, typed))) in rows.into_iter().zip(extra).enumerate() {
         let kind = own
             .as_deref()
             .and_then(|k| editions::KINDS.iter().copied().find(|x| *x == k))
             .unwrap_or_else(|| editions::kind(manga, &sec, &file, pages));
-        let n = editions::number(kind, &file);
+        // A number you typed in wins; then the file name's; then whatever the book's details say.
+        let parse = |v: Option<String>| v.and_then(|s| s.trim().trim_start_matches('#').parse::<f64>().ok());
+        let n = parse(typed).or_else(|| editions::number(kind, &file)).or_else(|| parse(stored));
         c.label = editions::label(kind, n, &c.label);
         if matches!(kind, "volume" | "collection" | "deluxe" | "omnibus") {
             c.collects = editions::collects(&synopsis);

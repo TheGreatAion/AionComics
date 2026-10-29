@@ -620,9 +620,14 @@
   }
 
   /* A band along the bottom, scrolling sideways in a long series. */
+  /* Held at the bottom of the window: a book with a lot to say scrolls up behind it rather than
+     pushing the strip out of sight. */
   .shelf {
     flex: none;
-    background: rgb(var(--fg) / 0.025);
+    position: sticky;
+    bottom: 0;
+    z-index: 2;
+    background: linear-gradient(rgb(var(--fg) / 0.025), rgb(var(--fg) / 0.025)), var(--bg);
     border-top: 1px solid rgb(var(--fg) / 0.05);
   }
   /* One tab a format: "Volumes 12  Issues 72  Omnibus 1". */
