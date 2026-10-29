@@ -107,11 +107,15 @@
 </div>
 
 <style>
+  /* The name centered; with its aside beside it, the two share the width. */
   .headline {
     display: flex;
     align-items: flex-start;
-    justify-content: space-between;
+    justify-content: center;
     gap: 64px;
+  }
+  .headline.side {
+    justify-content: space-between;
   }
   h1 {
     margin: 0;
