@@ -106,7 +106,7 @@
     user-select: text;
   }
   input::placeholder {
-    color: #3e3e3e;
+    color: var(--text-3);
   }
   ul {
     list-style: none;
@@ -132,6 +132,6 @@
   }
   .hint {
     margin-top: 20px;
-    color: #3e3e3e;
+    color: var(--text-3);
   }
 </style>

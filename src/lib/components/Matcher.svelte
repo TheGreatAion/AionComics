@@ -275,10 +275,10 @@
     transition: background 0.15s;
   }
   .volume:hover {
-    background: #191919;
+    background: var(--raised);
   }
   .volume.on {
-    background: #222;
+    background: var(--line);
   }
   .volume img,
   .noimg {
@@ -286,7 +286,7 @@
     aspect-ratio: 2 / 3;
     object-fit: cover;
     border-radius: 2px;
-    background: #1c1c1c;
+    background: var(--menu);
     flex: none;
   }
   .info {
@@ -337,7 +337,7 @@
     aspect-ratio: 2 / 3;
     object-fit: cover;
     border-radius: 2px;
-    background: #1c1c1c;
+    background: var(--menu);
   }
   .pair.none img,
   .pair.none .noimg {
@@ -347,7 +347,7 @@
     width: 100%;
     min-width: 0;
     background: var(--menu);
-    border: 1px solid #262626;
+    border: 1px solid var(--line);
     border-radius: 6px;
     padding: 6px 8px;
     color: var(--text);
@@ -356,7 +356,7 @@
     outline: none;
   }
   .pair.check select {
-    border-color: #6a6a6a;
+    border-color: var(--text-3);
   }
   .state {
     color: var(--text-3);

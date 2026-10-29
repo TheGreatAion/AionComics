@@ -267,7 +267,7 @@
   }
   .sorts .ico.on {
     color: var(--text);
-    background: rgba(255, 255, 255, 0.08);
+    background: rgb(var(--fg) / 0.08);
   }
   .az {
     font-size: 11px;

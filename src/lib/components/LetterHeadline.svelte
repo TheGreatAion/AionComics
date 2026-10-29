@@ -136,7 +136,7 @@
   }
   .outline {
     fill: none;
-    stroke: #3a3a3a;
+    stroke: var(--track);
     stroke-width: 2;
   }
   .aside {

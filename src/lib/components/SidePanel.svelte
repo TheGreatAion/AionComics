@@ -191,9 +191,9 @@
     z-index: 25;
     display: flex;
     flex-direction: column;
-    background: rgba(10, 10, 10, 0.5);
+    background: var(--side-bg);
     backdrop-filter: blur(28px);
-    box-shadow: inset -1px 0 0 rgba(255, 255, 255, 0.04);
+    box-shadow: inset -1px 0 0 rgb(var(--fg) / 0.04);
     transform: translateX(-100%);
     transition: transform 0.45s var(--ease);
   }
@@ -279,7 +279,7 @@
   .on > .row,
   .row.on {
     color: var(--text);
-    background: rgba(255, 255, 255, 0.07);
+    background: rgb(var(--fg) / 0.07);
   }
   .home {
     font-size: 15px;

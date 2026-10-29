@@ -85,7 +85,7 @@
     color: var(--cap);
   }
   button:hover:not(:disabled) {
-    background: #262626;
+    background: rgb(var(--fg) / 0.08);
     color: var(--text);
   }
   button:disabled {

@@ -3,6 +3,12 @@
   import { api, type Backup, type CvStatus, type Settings } from "$lib/api";
   import Icon from "$lib/components/Icon.svelte";
   import { lib, nav } from "$lib/state.svelte";
+  import { setTheme, theme, type Theme } from "$lib/theme.svelte";
+
+  const THEMES: { key: Theme; label: string }[] = [
+    { key: "dark", label: "Dark" },
+    { key: "light", label: "Light" },
+  ];
 
   let { welcome = false }: { welcome?: boolean } = $props();
   let s = $state<Settings | null>(null);
@@ -100,6 +106,23 @@
   <div class="page">
     <h1>Settings</h1>
     {#if s}
+      <section>
+        <h2>Appearance</h2>
+        <div class="row themes" role="radiogroup" aria-label="Theme">
+          {#each THEMES as t (t.key)}
+            <button
+              class="theme"
+              class:on={theme.current === t.key}
+              role="radio"
+              aria-checked={theme.current === t.key}
+              onclick={() => setTheme(t.key)}
+            >
+              <span class="swatch {t.key}"></span>{t.label}
+            </button>
+          {/each}
+        </div>
+      </section>
+
       <section>
         <h2>Library</h2>
         <div class="row">
@@ -241,6 +264,43 @@
     display: flex;
     align-items: center;
     gap: 6px;
+  }
+  .themes {
+    gap: 10px;
+  }
+  .theme {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    height: 40px;
+    padding: 0 16px 0 10px;
+    border-radius: 4px;
+    border: 1px solid var(--line);
+    color: var(--text-2);
+    font-size: 13px;
+    transition:
+      border-color 0.2s,
+      color 0.2s;
+  }
+  .theme:hover {
+    color: var(--text);
+  }
+  .theme.on {
+    border-color: var(--text-2);
+    color: var(--text);
+  }
+  /* Each theme's own page color, with a line of its text. */
+  .swatch {
+    width: 22px;
+    height: 22px;
+    border-radius: 3px;
+    box-shadow: inset 0 0 0 1px rgb(var(--fg) / 0.15);
+  }
+  .swatch.dark {
+    background: linear-gradient(#ececec, #ececec) 5px 10px / 12px 2px no-repeat, #1d1b19;
+  }
+  .swatch.light {
+    background: linear-gradient(#1a1815, #1a1815) 5px 10px / 12px 2px no-repeat, #ebe5da;
   }
   .path {
     color: var(--text);

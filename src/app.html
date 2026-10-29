@@ -5,7 +5,8 @@
     <link rel="icon" href="%sveltekit.assets%/favicon.png" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>AionComics</title>
-    <style>html,body{background:#1d1b19;margin:0}</style>
+    <script>try{if(localStorage.getItem("aion.theme")==="light")document.documentElement.dataset.theme="light"}catch(e){}</script>
+    <style>html,body{background:#1d1b19;margin:0}html[data-theme=light],html[data-theme=light] body{background:#ebe5da}</style>
     %sveltekit.head%
   </head>
   <body>

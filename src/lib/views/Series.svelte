@@ -510,14 +510,14 @@
     transition: color 0.15s;
   }
   .person:hover {
-    color: #fff;
+    color: var(--strong);
     text-decoration: underline;
     text-underline-offset: 4px;
     text-decoration-color: var(--text-3);
   }
   .chip:hover {
     color: var(--text);
-    border-color: rgba(255, 255, 255, 0.32);
+    border-color: rgb(var(--fg) / 0.32);
   }
   .credits em {
     font-style: normal;
@@ -532,14 +532,14 @@
   }
   .chip {
     padding: 3px 11px;
-    border: 1px solid rgba(255, 255, 255, 0.12);
+    border: 1px solid rgb(var(--fg) / 0.12);
     border-radius: 999px;
     color: var(--text-2);
     font-size: 12px;
   }
   .more-chips:hover {
     color: var(--text);
-    border-color: rgba(255, 255, 255, 0.3);
+    border-color: rgb(var(--fg) / 0.3);
   }
   .actions {
     margin-top: 24px;
@@ -569,8 +569,8 @@
     gap: 36px;
     overflow-x: auto;
     padding: 18px var(--pad) 16px;
-    background: rgba(255, 255, 255, 0.025);
-    border-top: 1px solid rgba(255, 255, 255, 0.05);
+    background: rgb(var(--fg) / 0.025);
+    border-top: 1px solid rgb(var(--fg) / 0.05);
   }
   .group {
     flex: none;
@@ -624,12 +624,12 @@
     right: 0;
     bottom: -6px;
     height: 2px;
-    background: rgba(255, 255, 255, 0.1);
+    background: rgb(var(--fg) / 0.1);
   }
   .line i {
     position: absolute;
     inset: 0 auto 0 0;
-    background: #e6e6e6;
+    background: var(--text);
   }
 
 </style>

@@ -1,6 +1,8 @@
-/* AionComics: the art is the interface. Monochrome, one typeface, no accent color. Dark mode is
-   a warm charcoal, one flat color under every page. */
-:root {
+/* AionComics: the art is the interface. Monochrome, one typeface, no accent color. Two themes,
+   each one flat color under every page: a warm charcoal (dark) and Paper, comic-page cream
+   (light). The reader stays dark whichever is chosen. */
+:root,
+.reader {
   --bg: #1d1b19;
   --raised: #282623;
   --menu: #2d2b28;
@@ -10,11 +12,36 @@
   --cap: #cfcfcf;
   --line: #34312d;
   --track: #3a3733;
-  /* The collection name's second print (see LetterHeadline): paper white on this dark theme; a
-     light theme sets it to ink black. */
+  /* Hover and pressed tints, faint borders and empty bars: the text's own channel at low
+     strength, as in rgb(var(--fg) / 0.07). */
+  --fg: 255 255 255;
+  /* Text that brightens on hover. */
+  --strong: #fff;
+  --side-bg: rgba(10, 10, 10, 0.5);
+  /* The collection name's second print (see LetterHeadline): paper white on the dark theme, ink
+     black on the light one. */
   --print: #e6dfd1;
   /* The collection name's ink line, between each letter's cover and its second print. */
   --ink: #0d0c0b;
+  color-scheme: dark;
+}
+:root[data-theme="light"] {
+  --bg: #ebe5da;
+  --raised: #e0d9cb;
+  --menu: #f4f0e8;
+  --text: #1a1815;
+  --text-2: #6b655b;
+  --text-3: #9a9387;
+  --cap: #2a2622;
+  --line: #d3cab9;
+  --track: #cdc4b3;
+  --fg: 26 24 21;
+  --strong: #000;
+  --side-bg: rgba(0, 0, 0, 0.035);
+  --print: #141414;
+  color-scheme: light;
+}
+:root {
   --font: "Geist Variable", system-ui, sans-serif;
   --mono: "Geist Mono", ui-monospace, monospace;
   /* Big titles only: series, books, collections. Tall capitals with a comic-logo heritage. */
@@ -24,7 +51,6 @@
   /* The side panel's width, and how much of it is taking room now (0 when it's hidden). */
   --side: 248px;
   --side-now: 0px;
-  color-scheme: dark;
 }
 
 * {
@@ -93,12 +119,12 @@ img {
   height: 0;
 }
 ::-webkit-scrollbar-thumb {
-  background: #262626;
+  background: rgb(var(--fg) / 0.12);
   border: 3px solid var(--bg);
   border-radius: 6px;
 }
 ::-webkit-scrollbar-thumb:hover {
-  background: #3a3a3a;
+  background: rgb(var(--fg) / 0.2);
 }
 
 .mono {
@@ -118,7 +144,7 @@ img {
     background 0.2s;
 }
 .btn:hover {
-  background: #fff;
+  background: var(--strong);
   transform: translateY(-1px);
 }
 
@@ -172,7 +198,7 @@ img {
     color 0.15s;
 }
 .ico:hover:not(:disabled) {
-  background: rgba(255, 255, 255, 0.07);
+  background: rgb(var(--fg) / 0.07);
   color: var(--text);
 }
 .ico > span {

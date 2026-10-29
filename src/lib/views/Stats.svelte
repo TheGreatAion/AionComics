@@ -168,8 +168,8 @@
   .tile {
     padding: 18px 20px;
     border-radius: 10px;
-    background: rgba(255, 255, 255, 0.035);
-    border: 1px solid rgba(255, 255, 255, 0.05);
+    background: rgb(var(--fg) / 0.035);
+    border: 1px solid rgb(var(--fg) / 0.05);
   }
   .label {
     font-size: 13px;
@@ -205,10 +205,10 @@
     width: 100%;
     min-height: 2px;
     border-radius: 3px 3px 0 0;
-    background: rgba(255, 255, 255, 0.18);
+    background: rgb(var(--fg) / 0.18);
   }
   .week i.now {
-    background: #e8e8e8;
+    background: var(--text);
   }
   .week .n,
   .week .d {
@@ -276,17 +276,17 @@
     white-space: nowrap;
   }
   li button:hover .who {
-    color: #fff;
+    color: var(--strong);
   }
   .bar {
     height: 2px;
-    background: rgba(255, 255, 255, 0.08);
+    background: rgb(var(--fg) / 0.08);
     position: relative;
   }
   .bar i {
     position: absolute;
     inset: 0 auto 0 0;
-    background: rgba(255, 255, 255, 0.6);
+    background: rgb(var(--fg) / 0.6);
   }
   li .mono {
     text-align: right;

@@ -260,7 +260,7 @@
   textarea {
     width: 100%;
     background: var(--menu);
-    border: 1px solid #262626;
+    border: 1px solid var(--line);
     border-radius: 6px;
     padding: 8px 10px;
     font: inherit;
@@ -272,11 +272,11 @@
   }
   input:focus,
   textarea:focus {
-    border-color: #4a4a4a;
+    border-color: var(--text-3);
   }
   input::placeholder,
   textarea::placeholder {
-    color: #4a4a4a;
+    color: var(--text-3);
   }
   footer {
     display: flex;

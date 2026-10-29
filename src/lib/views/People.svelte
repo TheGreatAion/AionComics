@@ -116,7 +116,7 @@
     color: var(--text);
   }
   .name:hover {
-    color: #fff;
+    color: var(--strong);
   }
   .dim {
     color: var(--text-3);

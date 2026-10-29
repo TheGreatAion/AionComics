@@ -38,10 +38,10 @@
       color 0.15s;
   }
   button:hover {
-    background: rgba(255, 255, 255, 0.08);
+    background: rgb(var(--fg) / 0.08);
     color: var(--text);
   }
   .close:hover {
-    background: rgba(255, 255, 255, 0.16);
+    background: rgb(var(--fg) / 0.16);
   }
 </style>

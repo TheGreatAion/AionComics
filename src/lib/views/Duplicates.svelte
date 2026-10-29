@@ -86,7 +86,7 @@
   }
   .chip {
     padding: 2px 10px;
-    border: 1px solid rgba(255, 255, 255, 0.12);
+    border: 1px solid rgb(var(--fg) / 0.12);
     border-radius: 999px;
     color: var(--text-2);
     font-size: 12px;
