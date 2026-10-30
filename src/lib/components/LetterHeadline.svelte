@@ -122,10 +122,13 @@
     font-weight: 400;
     line-height: 0;
   }
+  /* Clicks go through: a letter's text box reaches well past its shape, over whatever is below
+     (a collection's filter and sort buttons). */
   svg {
     display: block;
     overflow: visible;
     font-family: var(--display);
+    pointer-events: none;
   }
   .under {
     fill: var(--raised);
