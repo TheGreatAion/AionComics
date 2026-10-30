@@ -72,6 +72,8 @@ export interface SeriesSummary {
   lastAddedAt: number | null;
   /** The first book's cover color, "#rrggbb". */
   coverColor: string | null;
+  /** Whether that cover's print (for behind the collection's name) is made yet. */
+  printed: boolean;
 }
 
 export interface CollectionView {
@@ -332,6 +334,7 @@ const base = navigator.userAgent.includes("Windows") ? "http://aion.localhost" :
 export const coverUrl = (id: number) => `${base}/cover/${id}`;
 export const pageUrl = (id: number, n: number) => `${base}/page/${id}/${n}`;
 export const thumbUrl = (id: number, n: number) => `${base}/thumb/${id}/${n}`;
+export const printUrl = (id: number) => `${base}/print/${id}`;
 /** The screen's height in pixels, rounded up to a multiple of 120: big pages get copies this tall. */
 export const screenHeight = Math.ceil((screen.height * devicePixelRatio) / 120) * 120;
 /** A page to show whole: its copy at screen height if one's been made, else the page itself. */

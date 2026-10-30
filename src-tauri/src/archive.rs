@@ -837,6 +837,16 @@ pub fn cover_color(bytes: &[u8]) -> Result<String> {
     Ok(format!("#{r:02x}{g:02x}{b:02x}"))
 }
 
+/// A cover blown up behind a collection's name: in gray (the page inks it in the cover's color)
+/// and 1100 pixels across at most, a small fraction of the full page's weight.
+pub fn make_print(bytes: &[u8]) -> Result<Vec<u8>> {
+    let img = decode_at_least(bytes, 1800)?;
+    let print = img.thumbnail(1100, 1800).to_luma8();
+    let mut out = Vec::new();
+    image::codecs::jpeg::JpegEncoder::new_with_quality(&mut out, 72).encode_image(&print)?;
+    Ok(out)
+}
+
 /// Small JPEG of a page for the reader's page strip and bookmarks.
 pub fn make_page_thumb(bytes: &[u8]) -> Result<Vec<u8>> {
     let img = decode_at_least(bytes, 480)?;

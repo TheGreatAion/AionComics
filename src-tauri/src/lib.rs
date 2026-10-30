@@ -140,6 +140,24 @@ fn watch_library(state: &Shared) {
     *state.watcher.lock().unwrap() = watcher;
 }
 
+/// Make the prints (see `print`) of series covers that don't have one yet, a cover at a time,
+/// giving way to reading and to a rescan.
+fn make_prints(state: &Shared, conn: &Connection) {
+    let Ok(covers) = db::series_covers(conn) else { return };
+    for id in covers {
+        if print_path(state, id).exists() {
+            continue;
+        }
+        while now_ms() - state.last_page.load(Ordering::SeqCst) < 5000 {
+            std::thread::sleep(std::time::Duration::from_secs(1));
+        }
+        if state.scanning.load(Ordering::SeqCst) {
+            return;
+        }
+        let _ = print(state, id);
+    }
+}
+
 /// Read the ComicInfo.xml of books not checked yet, a few at a time, on a connection of its own.
 fn read_comic_info(app: &AppHandle, state: &Shared, conn: Connection, root: &Path) {
     if state.reading_info.swap(true, Ordering::SeqCst) {
@@ -214,6 +232,9 @@ fn start_scan(app: &AppHandle, state: &Shared) {
                         let _ = app.emit("library-changed", ());
                     }
                 }
+                // Every series' cover printed for behind its collection's name, so those pages
+                // never wait on one.
+                make_prints(&state, &c);
                 // Then the details stored inside the files themselves.
                 read_comic_info(&app, &state, c, &root);
             }
@@ -428,7 +449,11 @@ fn set_series_read(state: State<Shared>, series_id: i64, read: bool) -> CmdResul
 
 #[tauri::command]
 fn collection(state: State<Shared>, id: i64) -> CmdResult<db::CollectionView> {
-    db::collection_view(&state.conn.lock().unwrap(), id).map_err(err)
+    let mut view = db::collection_view(&state.conn.lock().unwrap(), id).map_err(err)?;
+    for s in &mut view.series {
+        s.printed = s.cover_id.is_some_and(|c| print_path(&state, c).exists());
+    }
+    Ok(view)
 }
 
 #[tauri::command]
@@ -806,7 +831,7 @@ fn set_edition(state: State<Shared>, id: i64, kind: Option<String>) -> CmdResult
     db::set_edition(&state.conn.lock().unwrap(), id, kind.as_deref()).map_err(err)
 }
 
-// ---------- image protocol: aion://localhost/cover/{id}, /page/{id}/{n} ----------
+// ---------- image protocol: aion://localhost/cover/{id}, /print/{id}, /page/{id}/{n} ----------
 
 fn respond(status: StatusCode, mime: &str, body: Vec<u8>, cache: bool) -> Response<Vec<u8>> {
     let mut b = Response::builder()
@@ -848,6 +873,26 @@ fn cover(state: &AppState, id: i64) -> anyhow::Result<Vec<u8>> {
     Ok(thumb)
 }
 
+/// Where a cover's print is kept (see `archive::make_print`).
+fn print_path(state: &AppState, id: i64) -> PathBuf {
+    state.thumbs_dir.join("prints").join(format!("{id}.jpg"))
+}
+
+/// A cover's print for behind a collection's name, made once and kept. Made from the first page
+/// alone, so a CBR isn't unpacked for it.
+fn print(state: &AppState, id: i64) -> anyhow::Result<Vec<u8>> {
+    anyhow::ensure!(id > 0, "prints are kept for library books only");
+    let cached = print_path(state, id);
+    if let Ok(b) = std::fs::read(&cached) {
+        return Ok(b);
+    }
+    let (path, _) = state.comic_path(id)?;
+    let print = archive::make_print(&state.archives.first_page(id, &path)?)?;
+    let _ = std::fs::create_dir_all(cached.parent().unwrap());
+    let _ = std::fs::write(&cached, &print);
+    Ok(print)
+}
+
 fn handle_image(state: &AppState, req: &Request<Vec<u8>>) -> Response<Vec<u8>> {
     let parts: Vec<&str> = req.uri().path().trim_matches('/').split('/').collect();
     let result = match parts.as_slice() {
@@ -855,6 +900,11 @@ fn handle_image(state: &AppState, req: &Request<Vec<u8>>) -> Response<Vec<u8>> {
             .parse()
             .map_err(anyhow::Error::from)
             .and_then(|id| cover(state, id))
+            .map(|b| (b, "image/jpeg")),
+        ["print", id] => id
+            .parse()
+            .map_err(anyhow::Error::from)
+            .and_then(|id| print(state, id))
             .map(|b| (b, "image/jpeg")),
         ["thumb", id, n] => (|| {
             let id: i64 = id.parse()?;

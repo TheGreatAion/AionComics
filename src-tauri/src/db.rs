@@ -336,6 +336,8 @@ pub struct SeriesSummary {
     pub last_added_at: Option<i64>,
     /// The first book's cover color, "#rrggbb".
     pub cover_color: Option<String>,
+    /// Whether that cover's print is made (see `print` in lib.rs); filled in there.
+    pub printed: bool,
 }
 
 const SERIES_SELECT: &str = "SELECT s.id, s.name, col.is_manga, COUNT(c.id), COALESCE(SUM(c.read),0),
@@ -359,7 +361,31 @@ fn series_summary(r: &Row) -> rusqlite::Result<SeriesSummary> {
         last_read_at: r.get(8)?,
         last_added_at: r.get(9)?,
         cover_color: r.get(10)?,
+        printed: false,
     })
+}
+
+/// Every series' cover (its first book) with enough color to print behind its collection's name,
+/// for making those prints ahead of time. The same test as the collection page's (Collection.svelte):
+/// some color, and never teal.
+pub fn series_covers(conn: &Connection) -> Result<Vec<i64>> {
+    let mut stmt = conn.prepare(
+        "SELECT c.id, c.cover_color FROM series s
+           JOIN comics c ON c.id = (SELECT c2.id FROM comics c2 WHERE c2.series_id=s.id ORDER BY c2.sort_key LIMIT 1)",
+    )?;
+    let rows: Vec<(i64, Option<String>)> = stmt.query_map([], |r| Ok((r.get(0)?, r.get(1)?)))?.collect::<rusqlite::Result<_>>()?;
+    Ok(rows.into_iter().filter(|(_, c)| c.as_deref().is_some_and(printable)).map(|(id, _)| id).collect())
+}
+
+fn printable(hex: &str) -> bool {
+    let Ok(n) = u32::from_str_radix(hex.trim_start_matches('#'), 16) else { return false };
+    let [r, g, b] = [n >> 16, (n >> 8) & 255, n & 255].map(|v| v as f64 / 255.0);
+    let (hi, d) = (r.max(g).max(b), r.max(g).max(b) - r.min(g).min(b));
+    if d <= 0.12 {
+        return false;
+    }
+    let h = 60.0 * if hi == r { ((g - b) / d).rem_euclid(6.0) } else if hi == g { (b - r) / d + 2.0 } else { (r - g) / d + 4.0 };
+    !(150.0..=200.0).contains(&h.round())
 }
 
 #[derive(Serialize)]

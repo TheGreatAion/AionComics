@@ -1,10 +1,12 @@
 <script lang="ts">
-  import { api, listText, plainText, unitWord, type CollectionView, type SeriesSummary, type SeriesView } from "$lib/api";
+  import { untrack } from "svelte";
+  import { api, listText, plainText, printUrl, unitWord, type CollectionView, type SeriesSummary, type SeriesView } from "$lib/api";
   import { launch } from "$lib/flight";
   import { lib, nav, openReader } from "$lib/state.svelte";
   import Cover from "$lib/components/Cover.svelte";
   import LetterHeadline from "$lib/components/LetterHeadline.svelte";
-  import { tone } from "$lib/color";
+  import { hue, rgb, tone } from "$lib/color";
+  import { theme } from "$lib/theme.svelte";
   import Icon, { type IconName } from "$lib/components/Icon.svelte";
 
   type Sort = "name" | "read" | "added";
@@ -69,6 +71,43 @@
       .map((s) => s.coverId!),
   );
 
+  // Behind the headline, one more cover, blown up and printed in a single ink of its own color: a
+  // fresh one each visit, like the letters, and one the letters aren't using when there's a choice.
+  // Only ever a cover (a page from inside a book could give the story away), and never a teal one.
+  // A cover already printed (made smaller and kept, see `print` in lib.rs; every series' cover gets
+  // one after a scan) comes first, so it's there with the page. The pick then holds while you're
+  // here, even as a refresh brings news of more prints.
+  let backdrop = $state<{ id: number; hue: number; at: number } | null>(null);
+  $effect(() => {
+    const pool = (data?.series ?? [])
+      .filter((s) => {
+        const c = hue(s.coverColor);
+        return s.coverId != null && !!c && c.chroma > 0.12 && !(c.h >= 150 && c.h <= 200);
+      })
+      .sort((a, b) => shuffled(a.id) - shuffled(b.id));
+    const free = pool.filter((s) => !letterCovers.includes(s.coverId!));
+    const choice = free.length ? free : pool;
+    const kept = untrack(() => backdrop);
+    if (!choice.length || (kept && choice.some((s) => s.coverId === kept.id))) return;
+    const s = choice.find((s) => s.printed) ?? choice[0];
+    backdrop = { id: s.coverId!, hue: hue(s.coverColor)!.h, at: 20 + (shuffled(s.id) % 61) };
+  });
+  // The ink: the art's shadows to its lights. Near-black to a deep shade of the cover's color on
+  // the dark theme; a soft shade of it to paper on the light one.
+  const ink = $derived.by(() => {
+    if (!backdrop) return null;
+    const near = (hex: string) => [1, 3, 5].map((i) => parseInt(hex.slice(i, i + 2), 16) / 255);
+    const [from, to] =
+      theme.current === "light" ? [rgb(backdrop.hue, 0.38, 0.66), near("#e4ddd0")] : [near("#12100e"), rgb(backdrop.hue, 0.46, 0.33)];
+    return [0, 1, 2].map((i) => `${from[i].toFixed(3)} ${to[i].toFixed(3)}`);
+  });
+  // The grid's caption box: what's shown, in what order.
+  const section = $derived(
+    filter.trim()
+      ? `Matching “${filter.trim()}”`
+      : { name: "Every series, A to Z", read: "Recently read", added: "Recently added" }[sort],
+  );
+
   // With only one or two series there's room to tell each one properly instead of a grid.
   const few = $derived(!!data && data.series.length > 0 && data.series.length <= 2 && !filter.trim());
   let features = $state<SeriesView[]>([]);
@@ -117,7 +156,37 @@
 
 {#if data}
   <div class="page collection">
+  <!-- The headline as a comic panel: inked frame, the collection's counts in a caption box on its
+       corner, and a cover printed behind the letters. -->
   <div class="top">
+  <div class="caption count">
+    {#if data.series.length}
+      {data.series.length.toLocaleString()} series · {total.toLocaleString()}
+      {data.isManga ? unitWord(true, total) : total === 1 ? "book" : "books"}
+    {:else}
+      Nothing here yet
+    {/if}
+  </div>
+  {#if backdrop && ink}
+    <div class="backdrop" aria-hidden="true">
+      <svg width="0" height="0">
+        <filter id="ink-{seed}" color-interpolation-filters="sRGB">
+          <feColorMatrix type="matrix" values=".3 .59 .11 0 0 .3 .59 .11 0 0 .3 .59 .11 0 0 0 0 0 1 0" />
+          <feComponentTransfer>
+            <feFuncR type="table" tableValues={ink[0]} />
+            <feFuncG type="table" tableValues={ink[1]} />
+            <feFuncB type="table" tableValues={ink[2]} />
+          </feComponentTransfer>
+        </filter>
+      </svg>
+      <img
+        src={printUrl(backdrop.id)}
+        alt=""
+        style:object-position="50% {backdrop.at}%"
+        style:filter="url(#ink-{seed})"
+      />
+    </div>
+  {/if}
     {#if data.series.length === 1 && features[0]}
       <LetterHeadline text={data.name} covers={letterCovers} bind:beside>
         {#snippet aside()}{@render feature(features[0], data!.series[0], 160)}{/snippet}
@@ -127,14 +196,6 @@
     {/if}
   </div>
   <div class="head">
-    <div class="meta mono">
-      {#if data.series.length}
-        {data.series.length.toLocaleString()} series · {total.toLocaleString()}
-        {data.isManga ? unitWord(true, total) : total === 1 ? "book" : "books"}
-      {:else}
-        Nothing here yet
-      {/if}
-    </div>
     <div class="tools" class:gone={!data.series.length}>
       <label class="filter" title="Filter">
         <Icon name="search" size={15} />
@@ -159,6 +220,7 @@
   {:else if few}
     <!-- The one series is beside the headline already. -->
   {:else if shown.length}
+    <div class="caption section">{section}</div>
     <div class="grid">
       {#each shown as s (s.id)}
         <!-- Each series' cover on the page, a run of books standing as a small pile behind it. Under
@@ -187,18 +249,59 @@
 {/if}
 
 <style>
-  /* The name, huge, its letters cut from the collection's covers (see LetterHeadline). */
+  /* The headline's panel: the name, huge, its letters cut from the collection's covers (see
+     LetterHeadline), over a cover printed in one ink (see backdrop above). */
   .top {
-    padding: 112px var(--pad) 0;
+    position: relative;
+    margin: 64px var(--pad) 0;
+    padding: 44px 24px 40px;
+    border: 4px solid var(--ink);
+    background: var(--raised);
+  }
+  .top > :global(.headline) {
+    position: relative;
+    z-index: 1;
+  }
+  .backdrop {
+    position: absolute;
+    inset: 0;
+    overflow: hidden;
+    pointer-events: none;
+  }
+  .backdrop svg {
+    position: absolute;
+  }
+  .backdrop img {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+  }
+  /* Caption boxes, as a comic's narration: paper, ink border, tall capitals. */
+  .caption {
+    width: fit-content;
+    background: #e6dfd1;
+    color: #141414;
+    border: 3px solid var(--ink);
+    padding: 8px 14px 5px;
+    font: 400 23px/1 var(--display);
+    letter-spacing: 0.05em;
+    text-transform: uppercase;
+    white-space: nowrap;
+  }
+  .caption.count {
+    position: absolute;
+    left: -4px;
+    top: -4px;
+    z-index: 2;
+  }
+  .caption.section {
+    margin: 40px var(--pad) 0;
   }
   .head {
-    padding: 22px var(--pad) 0;
+    padding: 18px var(--pad) 0;
     display: flex;
     align-items: center;
     gap: 40px;
-  }
-  .meta {
-    color: var(--text-3);
   }
 
   /* One or two series: each told properly, cover beside its details. */
@@ -293,7 +396,7 @@
   }
 
   .grid {
-    padding: 72px var(--pad) 0;
+    padding: 36px var(--pad) 0;
   }
   .page {
     position: relative;
