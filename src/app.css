@@ -28,6 +28,20 @@
   --ink: #0d0c0b;
   color-scheme: dark;
 }
+/* How long a new screen takes to fade in, as chosen under Settings › Look › Animations. */
+:root {
+  --page-fade: 0.15s;
+}
+:root[data-motion="full"] {
+  --page-fade: 0.45s;
+}
+/* Animations off: everything lands at once (a spinning icon still says something is working). */
+:root[data-motion="off"] *:not(.spin),
+:root[data-motion="off"] *::before,
+:root[data-motion="off"] *::after {
+  animation: none !important;
+  transition: none !important;
+}
 :root[data-theme="light"] {
   --bg: #ebe5da;
   --raised: #e0d9cb;

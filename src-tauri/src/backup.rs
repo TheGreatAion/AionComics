@@ -12,8 +12,13 @@ use anyhow::{bail, Result};
 use rusqlite::Connection;
 use serde::Serialize;
 
-/// How many copies are kept; older ones are deleted as new ones are made.
+/// How many copies are kept unless Settings says otherwise; older ones are deleted as new ones are made.
 pub const KEEP: usize = 10;
+
+/// How many copies to keep, as chosen in Settings.
+pub fn keep(conn: &Connection) -> usize {
+    crate::db::get_setting(conn, "backups_keep").ok().flatten().and_then(|v| v.parse().ok()).filter(|&n| n > 0).unwrap_or(KEEP)
+}
 /// How old the newest copy may get before another is made.
 pub const EVERY_SECS: i64 = 86_400;
 const PENDING: &str = "restore-pending";
@@ -58,7 +63,7 @@ pub fn make(conn: &Connection, dir: &Path, now: i64) -> Result<Backup> {
     let path = dir.join(&name);
     conn.execute("VACUUM INTO ?1", [path.to_string_lossy()])?;
     let size = std::fs::metadata(&path)?.len();
-    for old in list(dir)?.into_iter().skip(KEEP) {
+    for old in list(dir)?.into_iter().skip(keep(conn)) {
         let _ = std::fs::remove_file(dir.join(old.name));
     }
     Ok(Backup { name, made_at: at, size })

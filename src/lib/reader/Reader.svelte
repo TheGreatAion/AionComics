@@ -4,7 +4,7 @@
   import Icon, { type IconName } from "$lib/components/Icon.svelte";
   import WindowControls from "$lib/components/WindowControls.svelte";
   import Wash from "$lib/components/Wash.svelte";
-  import { fly, FLIGHT_MS, visible } from "$lib/flight";
+  import { fly, flightMs, visible } from "$lib/flight";
   import { menu, reader, showMenu } from "$lib/state.svelte";
   import { ACTIONS, keysFor, menuItems } from "./actions";
   import Bookmarks from "./Bookmarks.svelte";
@@ -322,7 +322,7 @@
   class="reader"
   class:hide-cursor={!chrome && !c.magnifier}
   class:leaving
-  style:--fade="{FLIGHT_MS}ms"
+  style:--fade="{flightMs()}ms"
   style:--reader-bg={readerBg}
   onmousemove={(e) => bars(!!(e.target as Element).closest?.(".toolbar.shown, .bottom.shown"))}
   oncontextmenu={openMenu}

@@ -20,7 +20,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 
 use rusqlite::Connection;
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use tauri::http::{header, Request, Response, StatusCode};
 use tauri::{AppHandle, Emitter, Manager, State};
 
@@ -113,14 +113,46 @@ impl AppState {
 /// has the database to itself.
 const STARTUP_QUIET: std::time::Duration = std::time::Duration::from_secs(3);
 
-/// A book not opened for this long has its cache cleared.
-const CACHE_DAYS: u64 = 30;
+/// Choices on the Settings page that the engine acts on, kept in the database's settings.
+#[derive(Serialize, Deserialize, Clone, Copy)]
+#[serde(rename_all = "camelCase")]
+struct Options {
+    /// Rescan by itself when the comics folder changes.
+    watch_folder: bool,
+    /// Read the details stored inside the comic files (ComicInfo.xml).
+    read_file_details: bool,
+    /// A book not opened for this many days has its cache cleared.
+    cache_days: u64,
+    /// How many backups are kept.
+    backups_keep: usize,
+}
+
+impl Options {
+    fn load(conn: &Connection) -> Options {
+        let get = |k: &str| db::get_setting(conn, k).ok().flatten();
+        Options {
+            watch_folder: get("watch_folder").is_none_or(|v| v != "0"),
+            read_file_details: get("read_file_details").is_none_or(|v| v != "0"),
+            cache_days: get("cache_days").and_then(|v| v.parse().ok()).unwrap_or(30),
+            backups_keep: backup::keep(conn),
+        }
+    }
+
+    fn save(&self, conn: &Connection) -> anyhow::Result<()> {
+        let flag = |b: bool| if b { "1" } else { "0" };
+        db::set_setting(conn, "watch_folder", flag(self.watch_folder))?;
+        db::set_setting(conn, "read_file_details", flag(self.read_file_details))?;
+        db::set_setting(conn, "cache_days", &self.cache_days.max(1).to_string())?;
+        db::set_setting(conn, "backups_keep", &self.backups_keep.max(1).to_string())
+    }
+}
 
 /// Keep the page cache to what's likely to be read again: a book you've finished, or haven't opened
-/// for CACHE_DAYS, is cleared (all of it comes back if it's opened again), and a CBR keeps no
-/// unpacked pages it can do without. `keep`: the book being opened, left as it is.
+/// for the days chosen in Settings, is cleared (all of it comes back if it's opened again), and a
+/// CBR keeps no unpacked pages it can do without. `keep`: the book being opened, left as it is.
 fn tidy_cache(state: &AppState, keep: Option<i64>) {
-    let month = std::time::Duration::from_secs(CACHE_DAYS * 24 * 3600);
+    let days = Options::load(&state.conn.lock().unwrap()).cache_days;
+    let month = std::time::Duration::from_secs(days * 24 * 3600);
     for (id, used) in state.archives.cached_books() {
         if Some(id) == keep {
             continue;
@@ -140,7 +172,8 @@ fn now_ms() -> i64 {
 
 /// Watch the comics folder, so books added or removed outside AionComics show up by themselves.
 fn watch_library(state: &Shared) {
-    let watcher = state.root().and_then(|root| intake::watch(&root, state.changes.clone()).ok());
+    let on = Options::load(&state.conn.lock().unwrap()).watch_folder;
+    let watcher = state.root().filter(|_| on).and_then(|root| intake::watch(&root, state.changes.clone()).ok());
     *state.watcher.lock().unwrap() = watcher;
 }
 
@@ -240,7 +273,9 @@ fn start_scan(app: &AppHandle, state: &Shared) {
                 // never wait on one.
                 make_prints(&state, &c);
                 // Then the details stored inside the files themselves.
-                read_comic_info(&app, &state, c, &root);
+                if Options::load(&c).read_file_details {
+                    read_comic_info(&app, &state, c, &root);
+                }
             }
             Err(e) => {
                 let _ = app.emit("scan-failed", e.to_string());
@@ -257,6 +292,9 @@ struct Settings {
     library_root: Option<String>,
     last_scan: Option<serde_json::Value>,
     scanning: bool,
+    options: Options,
+    /// Where the library database and backups are kept.
+    data_dir: String,
 }
 
 #[tauri::command(async)]
@@ -268,7 +306,104 @@ fn get_settings(state: State<Shared>) -> CmdResult<Settings> {
             .map_err(err)?
             .and_then(|s| serde_json::from_str(&s).ok()),
         scanning: state.scanning.load(Ordering::SeqCst),
+        options: Options::load(&conn),
+        data_dir: state.data_dir.display().to_string(),
     })
+}
+
+/// Save the Settings page's choices, and act on the ones that change something now.
+#[tauri::command]
+fn set_options(app: AppHandle, state: State<Shared>, options: Options) -> CmdResult<()> {
+    let before = {
+        let conn = state.conn.lock().unwrap();
+        let before = Options::load(&conn);
+        options.save(&conn).map_err(err)?;
+        before
+    };
+    if options.watch_folder != before.watch_folder {
+        watch_library(&state);
+    }
+    if options.read_file_details && !before.read_file_details {
+        if let Some(root) = state.root() {
+            let (app, state) = (app.clone(), state.inner().clone());
+            std::thread::spawn(move || {
+                if let Ok(c) = db::open(&state.db_path) {
+                    read_comic_info(&app, &state, c, &root);
+                }
+            });
+        }
+    }
+    if options.cache_days < before.cache_days {
+        let state = state.inner().clone();
+        std::thread::spawn(move || tidy_cache(&state, None));
+    }
+    Ok(())
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct Storage {
+    /// Pages kept so books open at once: unpacked CBR pages, screen copies, page previews.
+    pages: u64,
+    /// The covers printed behind collections' names.
+    prints: u64,
+    /// Books' page lists and Comic Vine answers.
+    lists: u64,
+}
+
+fn dir_size(dir: &Path) -> u64 {
+    std::fs::read_dir(dir)
+        .into_iter()
+        .flatten()
+        .flatten()
+        .map(|e| match e.file_type() {
+            Ok(t) if t.is_dir() => dir_size(&e.path()),
+            _ => e.metadata().map(|m| m.len()).unwrap_or(0),
+        })
+        .sum()
+}
+
+/// How much room AionComics' cache takes, by kind.
+#[tauri::command]
+async fn storage(state: State<'_, Shared>) -> CmdResult<Storage> {
+    let state = state.inner().clone();
+    tauri::async_runtime::spawn_blocking(move || {
+        let cache = state.thumbs_dir.parent().unwrap_or(&state.thumbs_dir).to_path_buf();
+        Storage {
+            pages: dir_size(&cache.join("pages")),
+            // Covers mostly come from YACReader's cache in the comics folder: next to nothing here.
+            prints: dir_size(&state.thumbs_dir),
+            lists: dir_size(&cache.join("listings")) + dir_size(&cache.join("comicvine")),
+        }
+    })
+    .await
+    .map_err(err)
+}
+
+/// Clear every book's kept pages, except the book being read. They come back as books are opened.
+#[tauri::command]
+async fn clear_pages(state: State<'_, Shared>) -> CmdResult<()> {
+    let state = state.inner().clone();
+    tauri::async_runtime::spawn_blocking(move || {
+        let reading = state.reading.lock().unwrap().map(|(book, _)| book);
+        for (id, _) in state.archives.cached_books() {
+            if Some(id) != reading {
+                state.archives.forget_book(id);
+            }
+        }
+    })
+    .await
+    .map_err(err)
+}
+
+/// Show the folder with the library database and backups in Explorer.
+#[tauri::command]
+fn open_data_folder(state: State<Shared>) -> CmdResult<()> {
+    #[cfg(windows)]
+    std::process::Command::new("explorer").arg(&state.data_dir).spawn().map_err(err)?;
+    #[cfg(not(windows))]
+    let _ = &state;
+    Ok(())
 }
 
 #[tauri::command]
@@ -1113,6 +1248,10 @@ pub fn run() {
             set_user_panels,
             comic_meta,
             casts,
+            set_options,
+            storage,
+            clear_pages,
+            open_data_folder,
             edit_comic_meta,
             cv_status,
             cv_open_site,

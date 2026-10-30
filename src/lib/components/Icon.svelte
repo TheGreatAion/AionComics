@@ -48,12 +48,16 @@
     readRtl: "M12 6.5 6.5 12l5.5 5.5M18.5 6.5 13 12l5.5 5.5",
     order: "M10 6h10M10 12h10M10 18h10M4 4.5l1.5-1v5M4 13.5a1.5 1.5 0 1 1 2.6 1L4 17.5h3",
     sidebar: "M4 4.5h16v15H4zM9.5 4.5v15",
+    fullSize: "M4 4h16v16H4zM9 9h6v6H9z",
+    theme: "M12 21a9 9 0 1 0 0-18 9 9 0 0 0 0 18zM12 3v18",
+    keyboard: "M3 6h18v12H3zM7 10h.01M11 10h.01M15 10h.01M8 14h8",
+    storage: "M4 4h16v6H4zM4 14h16v6H4zM8 7h.01M8 17h.01",
   } as const;
   export type IconName = keyof typeof PATHS;
 
   // Shapes with lines drawn inside them (a panel divider, the "!" of a warning, a window frame)
   // stay outlines: filled, the inside would vanish.
-  const OUTLINE = new Set<string>(["sidebar", "editPanels", "alert", "maximize", "doubleRtl"]);
+  const OUTLINE = new Set<string>(["sidebar", "editPanels", "alert", "maximize", "doubleRtl", "fullSize", "keyboard", "storage"]);
 
   // Each icon's pieces, and which are closed shapes to fill (curved ones, like a lens, stay lines).
   const PIECES = Object.fromEntries(

@@ -6,6 +6,7 @@
   import Cover from "$lib/components/Cover.svelte";
   import LetterHeadline from "$lib/components/LetterHeadline.svelte";
   import { hue, rgb, tone } from "$lib/color";
+  import { look } from "$lib/look.svelte";
   import { theme } from "$lib/theme.svelte";
   import Icon, { type IconName } from "$lib/components/Icon.svelte";
 
@@ -167,7 +168,7 @@
       Nothing here yet
     {/if}
   </div>
-  {#if backdrop && ink}
+  {#if look.backdrop && backdrop && ink}
     <div class="backdrop" aria-hidden="true">
       <svg width="0" height="0">
         <filter id="ink-{seed}" color-interpolation-filters="sRGB">

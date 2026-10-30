@@ -218,6 +218,9 @@ export interface CvProposal {
 export interface CvStatus {
   hasKey: boolean;
   queued: number;
+  /** Books matched to Comic Vine, of all `books`. */
+  matched: number;
+  books: number;
   lastError: string | null;
 }
 
@@ -260,6 +263,24 @@ export interface Settings {
   libraryRoot: string | null;
   lastScan: ScanStats | null;
   scanning: boolean;
+  options: Options;
+  /** Where the library database and backups are kept. */
+  dataDir: string;
+}
+
+/** Choices on the Settings page that the engine acts on. */
+export interface Options {
+  watchFolder: boolean;
+  readFileDetails: boolean;
+  cacheDays: number;
+  backupsKeep: number;
+}
+
+/** Bytes AionComics' cache takes, by kind. */
+export interface Storage {
+  pages: number;
+  prints: number;
+  lists: number;
 }
 
 /** Where a comic file dropped on the window would be copied. */
@@ -273,6 +294,10 @@ export type Placement = {
 
 export const api = {
   settings: () => invoke<Settings>("get_settings"),
+  setOptions: (options: Options) => invoke<void>("set_options", { options }),
+  storage: () => invoke<Storage>("storage"),
+  clearPages: () => invoke<void>("clear_pages"),
+  openDataFolder: () => invoke<void>("open_data_folder"),
   setLibraryRoot: (path: string) => invoke<void>("set_library_root", { path }),
   rescan: () => invoke<void>("rescan"),
   backups: () => invoke<Backup[]>("backups"),

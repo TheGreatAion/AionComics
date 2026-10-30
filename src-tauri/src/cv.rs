@@ -730,6 +730,9 @@ fn details(client: &Client, issue_id: &str) -> Result<Meta> {
 pub struct Status {
     pub has_key: bool,
     pub queued: i64,
+    /// Books matched to Comic Vine, of all the books there are.
+    pub matched: i64,
+    pub books: i64,
     pub last_error: Option<String>,
 }
 
@@ -737,6 +740,8 @@ pub fn status(client: &Client, conn: &Connection) -> Result<Status> {
     Ok(Status {
         has_key: client.has_key(),
         queued: conn.query_row("SELECT COUNT(*) FROM cv_queue", [], |r| r.get(0))?,
+        matched: conn.query_row("SELECT COUNT(*) FROM comics WHERE cv_id IS NOT NULL", [], |r| r.get(0))?,
+        books: conn.query_row("SELECT COUNT(*) FROM comics", [], |r| r.get(0))?,
         last_error: conn
             .query_row("SELECT last_error FROM cv_queue WHERE last_error IS NOT NULL ORDER BY added_at DESC LIMIT 1", [], |r| r.get(0))
             .optional()?,

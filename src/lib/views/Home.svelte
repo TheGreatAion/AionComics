@@ -5,6 +5,7 @@
   import { lib, nav, openReader, reader, search, sheets } from "$lib/state.svelte";
   import Cover from "$lib/components/Cover.svelte";
   import Icon from "$lib/components/Icon.svelte";
+  import { motionMs } from "$lib/look.svelte";
 
   let data = $state<Home | null>(null);
 
@@ -128,7 +129,7 @@
               { ...out, zIndex: high, offset: 0.41, easing: settle },
               { ...q, zIndex: high },
             ];
-      return el.animate(frames as Keyframe[], { duration: 680, delay: j * 80, fill: "backwards" }).finished.catch(() => {});
+      return el.animate(frames as Keyframe[], { duration: motionMs(680, 820), delay: motionMs(j * 80, j * 80), fill: "backwards" }).finished.catch(() => {});
     });
     await Promise.all(runs);
     flying = [];
@@ -206,7 +207,7 @@
     {#if hero}
       <section class="hero">
         {#key hero.id}
-          <div class="text" in:fly={{ y: 10, duration: 200 }}>
+          <div class="text" in:fly={{ y: 10, duration: motionMs(200, 420) }}>
             <div class="when">{ago(hero.lastReadAt)}</div>
             <h1>{hero.seriesName.trim()}</h1>
             <div class="vol">{hero.label}{#if sub}&ensp;&mdash;&ensp;{sub}{/if}</div>
