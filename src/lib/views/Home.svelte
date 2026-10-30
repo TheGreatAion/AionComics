@@ -206,7 +206,7 @@
     {#if hero}
       <section class="hero">
         {#key hero.id}
-          <div class="text" in:fly={{ y: 10, duration: 420 }}>
+          <div class="text" in:fly={{ y: 10, duration: 200 }}>
             <div class="when">{ago(hero.lastReadAt)}</div>
             <h1>{hero.seriesName.trim()}</h1>
             <div class="vol">{hero.label}{#if sub}&ensp;&mdash;&ensp;{sub}{/if}</div>

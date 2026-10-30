@@ -3,7 +3,7 @@
 type Box = { left: number; top: number; width: number; height: number };
 
 const EASE = "cubic-bezier(.2,.7,0,1)";
-export const FLIGHT_MS = 620;
+export const FLIGHT_MS = 360;
 
 let pending: { src: string; from: Box; key: string; at: number } | null = null;
 

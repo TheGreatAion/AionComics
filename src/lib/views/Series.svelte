@@ -119,15 +119,13 @@
     void lib.version;
     const sid = id;
     const ids = all.slice(0, 200).map((c) => c.id);
-    Promise.all(ids.map((i) => api.comicMeta(i).catch(() => null))).then((list) => {
+    api.casts(ids).then((list) => {
       if (sid !== id) return;
       const seen = new Map<string, number>();
-      for (const m of list) {
-        if (!m) continue;
-        for (const n of new Set([...lines(m.fields.teams), ...lines(m.fields.characters)])) seen.set(n, (seen.get(n) ?? 0) + 1);
-      }
+      for (const [teams, characters] of list)
+        for (const n of new Set([...lines(teams), ...lines(characters)])) seen.set(n, (seen.get(n) ?? 0) + 1);
       cast = seen;
-    });
+    }, () => {});
   });
   const characters = $derived.by(() => {
     const name = data?.name.toLowerCase() ?? "";

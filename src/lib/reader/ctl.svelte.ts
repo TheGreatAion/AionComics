@@ -173,7 +173,7 @@ export class Ctl {
   /** The reader settled on page p: stop loading pages around where it was before. */
   settleAt(p: number) {
     this.warm = this.warm.filter((w) => {
-      if (w.img.complete || Math.abs(w.i - p) <= 3) return true;
+      if (w.img.complete || (w.i - p <= 5 && p - w.i <= 3)) return true;
       w.img.src = "";
       this.measuring.delete(w.i);
       return false;

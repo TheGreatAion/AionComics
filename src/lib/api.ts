@@ -294,6 +294,8 @@ export const api = {
   /** Guided View: work out the book's panels in the background, from page `from` on. */
   panelsAhead: (id: number, from: number, rtl: boolean) => invoke<void>("panels_ahead", { id, from, rtl }),
   comicMeta: (id: number) => invoke<ComicMeta>("comic_meta", { id }),
+  /** Who's in each of these books: [teams, characters]. */
+  casts: (ids: number[]) => invoke<[string | null, string | null][]>("casts", { ids }),
   editComicMeta: (id: number, changes: Partial<Record<MetaField, string | null>>) =>
     invoke<ComicMeta>("edit_comic_meta", { id, changes }),
   cvStatus: () => invoke<CvStatus>("cv_status"),

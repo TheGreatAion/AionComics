@@ -189,7 +189,7 @@
   }
   main {
     min-height: 100vh;
-    animation: fade 0.45s var(--ease);
+    animation: fade 0.15s var(--ease);
   }
   /* Room for the side panel (see app.css); the page glides over when it slides (see above). */
   main {

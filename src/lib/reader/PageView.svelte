@@ -91,8 +91,9 @@
   });
   const live = (i: number) => quiet || !!c.dims[i];
 
-  // Once the pages themselves are on screen (not just their previews), look one spread ahead and
-  // behind so pairing and page turns are instant. Not before: they'd hold up the page itself.
+  // Once the pages themselves are on screen (not just their previews), look a few pages ahead and
+  // one spread behind so pairing and page turns are instant, even turning quickly. Not before:
+  // they'd hold up the page itself.
   let painted = $state<Record<number, boolean>>({});
   $effect(() => {
     void c.id;
@@ -102,7 +103,7 @@
     if (!quiet || !order.every((i) => painted[i])) return;
     const p = c.page;
     c.settleAt(p);
-    for (const d of [1, 2, 3, -1, -2]) c.measure(p + d);
+    for (const d of [1, 2, 3, 4, 5, -1, -2]) c.measure(p + d);
   });
 
   // New page: back to the top, and to the right-hand edge when reading right to left.

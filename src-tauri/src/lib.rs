@@ -109,6 +109,10 @@ impl AppState {
 
 // ---------- scanning ----------
 
+/// How long after launch the library scan, cache tidying and backup wait, so the first screen
+/// has the database to itself.
+const STARTUP_QUIET: std::time::Duration = std::time::Duration::from_secs(3);
+
 /// A book not opened for this long has its cache cleared.
 const CACHE_DAYS: u64 = 30;
 
@@ -255,7 +259,7 @@ struct Settings {
     scanning: bool,
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 fn get_settings(state: State<Shared>) -> CmdResult<Settings> {
     let conn = state.conn.lock().unwrap();
     Ok(Settings {
@@ -376,7 +380,7 @@ struct Home {
     pick_up_again: Vec<db::ComicCard>,
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 fn home(state: State<Shared>) -> CmdResult<Home> {
     let conn = state.conn.lock().unwrap();
     let now = scan::now();
@@ -396,7 +400,7 @@ struct Nav {
 }
 
 /// Everything the sidebar needs.
-#[tauri::command]
+#[tauri::command(async)]
 fn nav(state: State<Shared>) -> CmdResult<Nav> {
     let conn = state.conn.lock().unwrap();
     (|| -> anyhow::Result<Nav> {
@@ -407,7 +411,7 @@ fn nav(state: State<Shared>) -> CmdResult<Nav> {
     .map_err(err)
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 fn search(state: State<Shared>, q: String) -> CmdResult<Vec<db::SeriesSummary>> {
     if q.trim().is_empty() {
         return Ok(vec![]);
@@ -447,7 +451,7 @@ fn set_series_read(state: State<Shared>, series_id: i64, read: bool) -> CmdResul
     db::set_series_read(&state.conn.lock().unwrap(), series_id, read, scan::now()).map_err(err)
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 fn collection(state: State<Shared>, id: i64) -> CmdResult<db::CollectionView> {
     let mut view = db::collection_view(&state.conn.lock().unwrap(), id).map_err(err)?;
     for s in &mut view.series {
@@ -456,13 +460,13 @@ fn collection(state: State<Shared>, id: i64) -> CmdResult<db::CollectionView> {
     Ok(view)
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 fn series(state: State<Shared>, id: i64) -> CmdResult<db::SeriesView> {
     db::series_view(&state.conn.lock().unwrap(), id).map_err(err)
 }
 
 /// Books that look like copies of one another.
-#[tauri::command]
+#[tauri::command(async)]
 fn duplicates(state: State<Shared>) -> CmdResult<Vec<db::DupGroup>> {
     db::duplicates(&state.conn.lock().unwrap()).map_err(err)
 }
@@ -474,7 +478,7 @@ fn ignore_duplicate(state: State<Shared>, key: String) -> CmdResult<()> {
 }
 
 /// Every book by a creator, or with a character or team in it.
-#[tauri::command]
+#[tauri::command(async)]
 fn people(state: State<Shared>, kind: String, name: String) -> CmdResult<db::PeopleView> {
     db::people_view(&state.conn.lock().unwrap(), &kind, &name).map_err(err)
 }
@@ -558,9 +562,15 @@ async fn extract_pages(state: State<'_, Shared>, id: i64, from: usize, to: usize
 // ---------- metadata ----------
 
 /// Everything known about one book, and which fields were edited by hand or came from Comic Vine.
-#[tauri::command]
+#[tauri::command(async)]
 fn comic_meta(state: State<Shared>, id: i64) -> CmdResult<db::ComicMeta> {
     db::comic_meta(&state.conn.lock().unwrap(), id).map_err(err)
+}
+
+/// Who's in each of these books: teams, then characters.
+#[tauri::command(async)]
+fn casts(state: State<Shared>, ids: Vec<i64>) -> CmdResult<Vec<(Option<String>, Option<String>)>> {
+    db::casts(&state.conn.lock().unwrap(), &ids).map_err(err)
 }
 
 /// Hand edits: each field given is saved; `null` drops your edit for that field.
@@ -809,13 +819,13 @@ fn save_progress(state: State<Shared>, id: i64, page: i64, page_count: i64) -> C
 }
 
 /// One book's reading so far, for the end card.
-#[tauri::command]
+#[tauri::command(async)]
 fn book_stats(state: State<Shared>, id: i64) -> CmdResult<stats::BookStats> {
     stats::book(&state.conn.lock().unwrap(), id).map_err(err)
 }
 
 /// Everything for the stats page. `tz_minutes` is the reader's offset from UTC.
-#[tauri::command]
+#[tauri::command(async)]
 fn reading_stats(state: State<Shared>, tz_minutes: i64) -> CmdResult<stats::Stats> {
     stats::stats(&state.conn.lock().unwrap(), scan::now(), tz_minutes * 60).map_err(err)
 }
@@ -1047,6 +1057,7 @@ pub fn run() {
             {
                 let state = state.clone();
                 std::thread::spawn(move || loop {
+                    std::thread::sleep(STARTUP_QUIET);
                     let dir = backup::dir(&state.data_dir);
                     if backup::due(&dir, scan::now()) {
                         match db::open(&state.db_path).and_then(|c| backup::make(&c, &dir, scan::now())) {
@@ -1054,14 +1065,18 @@ pub fn run() {
                             Err(e) => eprintln!("backup failed: {e}"),
                         }
                     }
-                    std::thread::sleep(std::time::Duration::from_secs(3600));
+                    std::thread::sleep(std::time::Duration::from_secs(3600) - STARTUP_QUIET);
                 });
             }
-            // Pick up anything added or moved since last launch.
-            start_scan(app.handle(), &state);
+            // Pick up anything added or moved since last launch, and tidy the cache, once the first
+            // screen is up: both work the database and the drive, and would hold it up.
             {
-                let state = state.clone();
-                std::thread::spawn(move || tidy_cache(&state, None));
+                let (app, state) = (app.handle().clone(), state.clone());
+                std::thread::spawn(move || {
+                    std::thread::sleep(STARTUP_QUIET);
+                    start_scan(&app, &state);
+                    tidy_cache(&state, None);
+                });
             }
             Ok(())
         })
@@ -1097,6 +1112,7 @@ pub fn run() {
             toggle_bookmark,
             set_user_panels,
             comic_meta,
+            casts,
             edit_comic_meta,
             cv_status,
             cv_open_site,

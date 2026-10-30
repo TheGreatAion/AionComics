@@ -1126,6 +1126,18 @@ pub fn comic_meta(conn: &Connection, id: i64) -> Result<ComicMeta> {
     })
 }
 
+/// Who's in each of these books (teams, characters), in one go for the series page's cast order.
+pub fn casts(conn: &Connection, ids: &[i64]) -> Result<Vec<(Option<String>, Option<String>)>> {
+    let mut st = conn.prepare_cached("SELECT teams, characters FROM comics WHERE id=?1")?;
+    let mut out = Vec::with_capacity(ids.len());
+    for &id in ids {
+        if let Some(row) = st.query_row([id], |r| Ok((r.get(0)?, r.get(1)?))).optional()? {
+            out.push(row);
+        }
+    }
+    Ok(out)
+}
+
 /// Save hand edits: each field given replaces any earlier edit; `null` drops the edit so the
 /// fetched or imported value shows again.
 pub fn edit_meta(conn: &Connection, id: i64, changes: &Meta, now: i64) -> Result<()> {
