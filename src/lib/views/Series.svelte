@@ -46,6 +46,7 @@
   });
   const findOnCv = () => data && (sheets.matching = { seriesId: data.id, isManga: data.isManga, name: data.name });
   const seriesAbout = $derived(plainText(data?.synopsis ?? null));
+  const cvLabel = $derived(data?.cvVolumeId ? "Get details again from Comic Vine" : "Find details on Comic Vine");
 
   /* ---- The chosen book: picked in the strip, or the one you're on. */
   let picked = $state<number | null>(null);
@@ -272,11 +273,10 @@
         <span class="mono count" title="{mainRead} of {mainCount} {unitWord(data.isManga, mainCount)} read">
           <Icon name="check" size={13} />{mainRead} / {mainCount}
         </span>
-        {#if !data.cvVolumeId && !seriesAbout}
-          <button class="ico" title="Find details on Comic Vine" aria-label="Find details on Comic Vine" onclick={findOnCv}>
-            <Icon name="fetch" size={18} />
-          </button>
-        {/if}
+        <!-- Always here, so a series can fetch its details again (a new issue, a wrong match). -->
+        <button class="ico" title={cvLabel} aria-label={cvLabel} onclick={findOnCv}>
+          <Icon name="fetch" size={18} />
+        </button>
         <button class="ico" title="More" aria-label="More" onclick={seriesMenu} oncontextmenu={seriesMenu}><Icon name="more" size={18} /></button>
       </div>
     </header>
