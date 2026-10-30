@@ -12,6 +12,9 @@
   --cap: #cfcfcf;
   --line: #34312d;
   --track: #3a3733;
+  /* The paper backs of books stacked behind a cover. */
+  --edge: #3a3733;
+  --edge-far: #2f2c29;
   /* Hover and pressed tints, faint borders and empty bars: the text's own channel at low
      strength, as in rgb(var(--fg) / 0.07). */
   --fg: 255 255 255;
@@ -35,6 +38,8 @@
   --cap: #2a2622;
   --line: #d3cab9;
   --track: #cdc4b3;
+  --edge: #d6cdbd;
+  --edge-far: #cbc1ae;
   --fg: 26 24 21;
   --strong: #000;
   --side-bg: rgba(0, 0, 0, 0.035);

@@ -161,18 +161,17 @@
   {:else if shown.length}
     <div class="grid">
       {#each shown as s (s.id)}
-        <!-- Each series on a tile of its own color; a run of books stands as a small pile. -->
-        <button class="series" style:--tint={tone(s.coverColor, 0.4, 0.5) ?? "transparent"} onclick={(e) => open(e, s)}>
+        <!-- Each series' cover on the page, a run of books standing as a small pile behind it. Under
+             it, a bar of the cover's own color that fills in as you read. -->
+        <button class="series" style:--tint={tone(s.coverColor, 0.4, 0.5) ?? "var(--track)"} onclick={(e) => open(e, s)}>
           <span class="art">
             {#if s.count > 2}<span class="sheet far"></span>{/if}
             {#if s.count > 1}<span class="sheet"></span>{/if}
             <Cover id={s.coverId} ratio={s.coverRatio} pages={null} />
           </span>
-          {#if s.readCount > 0 && s.readCount < s.count}
-            <span class="prog"><i style:width="{(s.readCount / s.count) * 100}%"></i></span>
-          {:else}
-            <span class="prog blank"></span>
-          {/if}
+          <span class="mark" title={s.readCount ? `${s.readCount} of ${s.count} read` : undefined}>
+            {#if s.readCount > 0}<i style:width="{(s.readCount / s.count) * 100}%"></i>{/if}
+          </span>
           <span class="cap">
             <span class="name">{s.name}</span>
             <span class="detail">{status(s)}</span>
@@ -306,31 +305,25 @@
     min-width: 0;
     padding: 18px 10px 4px;
     margin: -18px -10px -4px;
-    border-radius: 12px;
-    background: color-mix(in srgb, var(--tint) 9%, transparent);
-    transition: background 0.3s;
-  }
-  .series:hover {
-    background: color-mix(in srgb, var(--tint) 17%, transparent);
   }
   .art {
     position: relative;
     display: block;
     transition: transform 0.5s var(--ease);
   }
-  /* The books behind the first: plain backs in the series' color, stepping up and to the right. */
+  /* The books behind the first: plain paper backs, stepping up and to the right. */
   .sheet {
     position: absolute;
     inset: 0;
     border-radius: 2px;
-    background: color-mix(in srgb, var(--tint) 50%, var(--raised));
+    background: var(--edge);
+    box-shadow: 0 0 0 1px rgb(var(--fg) / 0.06);
     transform: translate(5px, -5px);
-    filter: brightness(0.75);
     transition: transform 0.5s var(--ease);
   }
   .sheet.far {
+    background: var(--edge-far);
     transform: translate(10px, -10px);
-    filter: brightness(0.5);
   }
   .series:hover .sheet {
     transform: translate(7px, -7px);
@@ -347,9 +340,20 @@
   .series:hover .art :global(.cover) {
     box-shadow: 0 18px 40px -12px rgba(0, 0, 0, 0.9);
   }
-  .prog {
+  /* The series' color, a slim printer's mark; what you've read of it fills in from the left. */
+  .mark {
+    position: relative;
     display: block;
+    height: 3px;
     margin-top: 10px;
+    border-radius: 1px;
+    background: var(--tint);
+    overflow: hidden;
+  }
+  .mark i {
+    position: absolute;
+    inset: 0 auto 0 0;
+    background: var(--text);
   }
   .cap {
     display: block;
