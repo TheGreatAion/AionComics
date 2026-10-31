@@ -2,7 +2,7 @@
   import { tick, untrack } from "svelte";
   import { fly } from "svelte/transition";
   import { ago, api, pageUrl, progressOf, storyTitle, unitWord, type ComicCard, type Home } from "$lib/api";
-  import { lib, nav, openReader, reader, search, sheets } from "$lib/state.svelte";
+  import { lib, nav, openReader, reader, search, sheets, showMenu } from "$lib/state.svelte";
   import Cover from "$lib/components/Cover.svelte";
   import Icon from "$lib/components/Icon.svelte";
   import { motionMs } from "$lib/look.svelte";
@@ -30,6 +30,19 @@
 
   const pages = new Map<number, HTMLImageElement>();
   const resume = () => hero && openReader(hero.id, pages.get(hero.id) ?? null);
+
+  // Off the pile, with the page you're on kept; reading the book again brings it back.
+  async function remove(c: ComicCard) {
+    await api.hideFromReading(c.id);
+    lib.version++;
+  }
+  const bookMenu = (e: MouseEvent, c: ComicCard) =>
+    showMenu(e, [
+      { label: "Resume", action: () => openReader(c.id, pages.get(c.id) ?? null) },
+      { label: `All ${unitWord(c.isManga, 2)}`, action: () => nav.go({ name: "series", id: c.seriesId }) },
+      "separator",
+      { label: "Remove from Continue reading", action: () => remove(c) },
+    ]);
 
   // How deep a book sits in the pile (0 = on top).
   const depth = (i: number, top = at) => (i - top + pile.length) % pile.length;
@@ -225,6 +238,9 @@
               >
                 <Icon name="strip" size={18} />
               </button>
+              <button class="ico" title="Remove from Continue reading" aria-label="Remove from Continue reading" onclick={() => remove(hero)}>
+                <Icon name="close" size={16} />
+              </button>
             </div>
           </div>
         {/key}
@@ -257,6 +273,7 @@
                   style:z-index={p.zIndex}
                   style:pointer-events={p.opacity ? undefined : "none"}
                   onclick={() => (d === 0 ? resume() : flip(d))}
+                  oncontextmenu={(e) => bookMenu(e, c)}
                 >
                   <Cover id={c.id} ratio={COVER_RATIO} width={fit.coverW} />
                   <div class="leaf" style:width="{fit.h / ratioOf(c.id)}px">

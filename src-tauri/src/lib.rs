@@ -970,6 +970,11 @@ fn set_read(state: State<Shared>, id: i64, read: bool) -> CmdResult<()> {
     db::set_read(&state.conn.lock().unwrap(), id, read, scan::now()).map_err(err)
 }
 
+#[tauri::command]
+fn hide_from_reading(state: State<Shared>, id: i64) -> CmdResult<()> {
+    db::hide_from_reading(&state.conn.lock().unwrap(), id, scan::now()).map_err(err)
+}
+
 /// Give a book a format by hand, or (None) let it be worked out from its name again.
 #[tauri::command]
 fn set_edition(state: State<Shared>, id: i64, kind: Option<String>) -> CmdResult<()> {
@@ -1241,6 +1246,7 @@ pub fn run() {
             panels_ahead,
             save_progress,
             set_read,
+            hide_from_reading,
             open_path,
             save_page,
             extract_pages,

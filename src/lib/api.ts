@@ -350,6 +350,8 @@ export const api = {
   saveProgress: (id: number, page: number, pageCount: number) =>
     invoke<void>("save_progress", { id, page, pageCount }),
   setRead: (id: number, read: boolean) => invoke<void>("set_read", { id, read }),
+  /** Off Continue reading, with the page you're on kept. Reading it again puts it back. */
+  hideFromReading: (id: number) => invoke<void>("hide_from_reading", { id }),
   markReadBefore: (id: number) => invoke<void>("mark_read_before", { id }),
   dismissBackfill: (seriesId: number) => invoke<void>("dismiss_backfill", { seriesId }),
   setSeriesRead: (seriesId: number, read: boolean) => invoke<void>("set_series_read", { seriesId, read }),

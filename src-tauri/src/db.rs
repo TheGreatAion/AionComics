@@ -137,6 +137,8 @@ fn migrate(conn: &Connection) -> Result<()> {
     conn.execute_batch("CREATE TABLE IF NOT EXISTS duplicate_ignored(key TEXT PRIMARY KEY);")?;
     // Formats you've given books by hand, over the ones worked out from their names.
     conn.execute_batch("CREATE TABLE IF NOT EXISTS edition_override(comic_id INTEGER PRIMARY KEY, kind TEXT NOT NULL);")?;
+    // Books you took off Continue reading, and when. Reading one again puts it back.
+    conn.execute_batch("CREATE TABLE IF NOT EXISTS reading_hidden(comic_id INTEGER PRIMARY KEY, at INTEGER NOT NULL);")?;
     // Books in a matched series that were tried for an automatic Comic Vine pairing. Settled ones
     // are left alone for good: you left them unpaired in the matcher.
     let fresh: bool = conn.query_row("SELECT COUNT(*) FROM sqlite_master WHERE name='cv_auto'", [], |r| r.get::<_, i64>(0))? == 0;
@@ -237,10 +239,14 @@ fn cards(conn: &Connection, tail: &str, p: impl rusqlite::Params) -> Result<Vec<
     Ok(v)
 }
 
+/// Leaves out books you took off Continue reading and haven't read since.
+const NOT_HIDDEN: &str =
+    "NOT EXISTS (SELECT 1 FROM reading_hidden h WHERE h.comic_id=c.id AND h.at>=COALESCE(c.last_read_at, 0))";
+
 pub fn continue_reading(conn: &Connection, now: i64, limit: i64) -> Result<Vec<ComicCard>> {
     cards(
         conn,
-        "WHERE c.read=0 AND c.current_page>0 AND c.last_read_at>=?1 ORDER BY c.last_read_at DESC LIMIT ?2",
+        &format!("WHERE c.read=0 AND c.current_page>0 AND c.last_read_at>=?1 AND {NOT_HIDDEN} ORDER BY c.last_read_at DESC LIMIT ?2"),
         params![now - RECENT_SECS, limit],
     )
 }
@@ -248,10 +254,21 @@ pub fn continue_reading(conn: &Connection, now: i64, limit: i64) -> Result<Vec<C
 pub fn pick_up_again(conn: &Connection, now: i64, limit: i64) -> Result<Vec<ComicCard>> {
     cards(
         conn,
-        "WHERE c.read=0 AND c.current_page>0 AND (c.last_read_at<?1 OR c.last_read_at IS NULL)
-         ORDER BY c.last_read_at DESC NULLS LAST LIMIT ?2",
+        &format!(
+            "WHERE c.read=0 AND c.current_page>0 AND (c.last_read_at<?1 OR c.last_read_at IS NULL) AND {NOT_HIDDEN}
+             ORDER BY c.last_read_at DESC NULLS LAST LIMIT ?2"
+        ),
         params![now - RECENT_SECS, limit],
     )
+}
+
+/// Take a book off Continue reading (and Pick up again). Its place in the book is kept.
+pub fn hide_from_reading(conn: &Connection, id: i64, now: i64) -> Result<()> {
+    conn.execute(
+        "INSERT INTO reading_hidden(comic_id, at) VALUES(?1, ?2) ON CONFLICT(comic_id) DO UPDATE SET at=excluded.at",
+        params![id, now],
+    )?;
+    Ok(())
 }
 
 /// The next untouched book after the one most recently read in each series.
@@ -1228,6 +1245,30 @@ mod meta_tests {
         assert!(!read(&conn), "turning pages starts a re-read");
         set_progress(&conn, 1, 37, 38, 4).unwrap();
         assert!(read(&conn));
+        drop(conn);
+        let _ = std::fs::remove_file(&path);
+    }
+
+    #[test]
+    fn taking_a_book_off_continue_reading() {
+        let path = std::env::temp_dir().join(format!("aion-hidden-test-{}.db", std::process::id()));
+        let _ = std::fs::remove_file(&path);
+        let conn = open(&path).unwrap();
+        conn.execute("INSERT INTO collections(id, name, is_manga) VALUES(1, 'DC', 0)", []).unwrap();
+        conn.execute("INSERT INTO series(id, collection_id, name, rel_path) VALUES(1, 1, 'Absolute Batman', 'DC/AB')", []).unwrap();
+        conn.execute("INSERT INTO comics(id, series_id, rel_path, file_name, label) VALUES(1, 1, 'DC/AB/15.cbz', '15.cbz', '#15')", []).unwrap();
+        let day = 86_400;
+        let shown = |c: &Connection, now| continue_reading(c, now, 10).unwrap().len() + pick_up_again(c, now, 10).unwrap().len();
+        let page = |c: &Connection| c.query_row("SELECT current_page FROM comics WHERE id=1", [], |r| r.get::<_, i64>(0)).unwrap();
+
+        set_progress(&conn, 1, 12, 38, day).unwrap();
+        assert_eq!(shown(&conn, day), 1);
+        hide_from_reading(&conn, 1, day).unwrap();
+        assert_eq!(shown(&conn, day), 0, "gone from Continue reading");
+        assert_eq!(shown(&conn, day + RECENT_SECS + 1), 0, "and from Pick up again");
+        assert_eq!(page(&conn), 12, "its place is kept");
+        set_progress(&conn, 1, 13, 38, 2 * day).unwrap();
+        assert_eq!(shown(&conn, 2 * day), 1, "reading it again brings it back");
         drop(conn);
         let _ = std::fs::remove_file(&path);
     }

@@ -193,6 +193,7 @@
         ? { label: "Mark as unread", action: () => act(() => api.setRead(c.id, false)) }
         : { label: "Mark as read", action: () => act(() => api.setRead(c.id, true)) },
       { label: "Mark earlier ones as read", action: () => act(() => api.markReadBefore(c.id)) },
+      ...(!c.read && c.currentPage > 0 ? [{ label: "Remove from Continue reading", action: () => act(() => api.hideFromReading(c.id)) }] : []),
       "separator",
       { label: "Edit details…", action: () => (sheets.editing = c.id) },
       { label: "Find on Comic Vine…", action: () => data && (sheets.matching = { seriesId: data.id, isManga: data.isManga, name: data.name, comicId: c.id, label: c.label, count: data.editions.find((x) => x.kind === c.edition)?.sections.reduce((n, s) => n + s.comics.length, 0) }) },

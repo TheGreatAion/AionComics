@@ -25,7 +25,7 @@
   // lately, and every collection opening into its series, with a filter over all of them. While
   // it's open it is the app's navigation: the top bar keeps only back, search, stats and settings.
   import { api, progressOf, type ComicCard, type SeriesSummary } from "$lib/api";
-  import { lib, nav, openReader } from "$lib/state.svelte";
+  import { lib, nav, openReader, showMenu } from "$lib/state.svelte";
   import Icon from "./Icon.svelte";
 
   const READING = 8;
@@ -123,7 +123,17 @@
         </button>
         {#if opened.reading}
           {#each reading as c (c.id)}
-            <div class="book" class:on={seriesHere(c.seriesId)}>
+            <div
+              class="book"
+              class:on={seriesHere(c.seriesId)}
+              role="group"
+              oncontextmenu={(e) =>
+                showMenu(e, [
+                  { label: "Read", action: () => openReader(c.id) },
+                  "separator",
+                  { label: "Remove from Continue reading", action: () => api.hideFromReading(c.id).then(() => lib.version++) },
+                ])}
+            >
               <button class="row" title="{c.seriesName.trim()} {c.label}" onclick={() => nav.go({ name: "series", id: c.seriesId, book: c.id })}>
                 <span class="name">{c.seriesName.trim()}</span>
                 <span class="sub">{c.label}</span>
