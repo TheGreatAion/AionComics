@@ -222,7 +222,8 @@
         {#if single}
           <button class="btn" disabled={!matched || !!busy} onclick={save}>Save</button>
         {:else}
-          <button class="btn" disabled={!matched || !!busy} onclick={save}>Save {matched}</button>
+          <!-- Saving with nothing paired is how a wrong match is undone. -->
+          <button class="btn" disabled={!rows.length || !!busy} onclick={save}>Save {matched}</button>
         {/if}
       {:else}
         <button class="btn" onclick={close}>Done</button>

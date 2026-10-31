@@ -783,7 +783,7 @@ async fn cv_plan(state: State<'_, Shared>, series_id: i64, volume_id: String) ->
     let state = state.inner().clone();
     tauri::async_runtime::spawn_blocking(move || {
         let conn = db::open(&state.db_path)?;
-        cv::plan(&state.comicvine, &conn, series_id, &volume_id)
+        cv::plan(&state.comicvine, &conn, series_id, &volume_id, true)
     })
     .await
     .map_err(err)?
@@ -798,7 +798,7 @@ async fn cv_apply(state: State<'_, Shared>, series_id: i64, volume_id: String, p
         let conn = db::open(&state.db_path)?;
         let now = scan::now();
         cv::remember_choices(&conn, &pairs, now)?;
-        cv::apply(&state.comicvine, &conn, series_id, &volume_id, &pairs, true, now)
+        cv::apply(&state.comicvine, &conn, series_id, &volume_id, &pairs, true, true, now)
     })
     .await
     .map_err(err)?
@@ -816,7 +816,7 @@ async fn cv_apply_book(state: State<'_, Shared>, comic_id: i64, volume_id: Strin
         let series_id: i64 = conn.query_row("SELECT series_id FROM comics WHERE id=?1", [comic_id], |r| r.get(0))?;
         let pairs = [cv::Pair { comic_id, issue_id }];
         cv::remember_choices(&conn, &pairs, now)?;
-        cv::apply(&state.comicvine, &conn, series_id, &volume_id, &pairs, false, now)
+        cv::apply(&state.comicvine, &conn, series_id, &volume_id, &pairs, false, true, now)
     })
     .await
     .map_err(err)?

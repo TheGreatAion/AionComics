@@ -281,12 +281,13 @@ fn label_for(file_name: &str, series: &str, is_manga: bool, yac: Option<&Yac>) -
             return format!("Vol. {v}");
         }
     }
-    // A number right after the series name ("Saga 054 - …") or at the end.
-    let rest = clean
-        .strip_prefix(series)
-        .map(str::trim_start)
-        .unwrap_or(&clean);
-    if let Some(c) = TRAILING_NUM.captures(&clean).or_else(|| ISSUE_NUM.captures(rest)) {
+    // A number right after the series name ("Saga 054 - …") or at the end, but not one that's
+    // part of the series' own name ("Marvel 1985", "Ben 10 001").
+    let rest = crate::editions::without_series(&clean, series).trim_start();
+    if rest.is_empty() {
+        return clean;
+    }
+    if let Some(c) = TRAILING_NUM.captures(rest).or_else(|| ISSUE_NUM.captures(rest)) {
         let n = trim_num(&c[1]);
         return if is_manga { format!("Vol. {n}") } else { format!("#{n}") };
     }
@@ -596,6 +597,12 @@ mod tests {
         );
         assert_eq!(label_for("Doctor Strange - The Oath.cbr", "Doctor Strange - The Oath", false, None), "Doctor Strange - The Oath");
         assert_eq!(label_for("Saga 054 (2018).cbz", "Saga", false, None), "#54");
+        assert_eq!(label_for("Ben 10 004 (2026) (digital) (Pyrate-DCP).cbz", "Ben 10", false, None), "#4");
+        assert_eq!(label_for("Marvel 1985 (2009) (Digital) (Asgard-Empire).cbz", "Marvel 1985", false, None), "Marvel 1985");
+        assert_eq!(
+            label_for("Hellboy and the B.P.R.D.- 1952 - 1954 (2021) (digital).cbz", "Hellboy and the B.P.R.D. - 1952 – 1954", false, None),
+            "Hellboy and the B.P.R.D.- 1952 - 1954"
+        );
     }
 }
 

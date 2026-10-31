@@ -84,18 +84,55 @@ pub fn kind(manga: bool, section: &str, file_name: &str, pages: i64) -> &'static
     }
 }
 
-static YEAR: LazyLock<Regex> = LazyLock::new(|| re(r"\((?:19|20)\d\d\)"));
+static YEAR: LazyLock<Regex> = LazyLock::new(|| re(r"\((?:19|20)\d\d\)|\b(?:19|20)\d\d-\d\d-\d\d\b"));
+static TAGS: LazyLock<Regex> = LazyLock::new(|| re(r"\s*[(\[][^)\]]*[)\]]"));
+static NON_WORD: LazyLock<Regex> = LazyLock::new(|| re(r"[^\p{L}\p{N}]+"));
+static WORD: LazyLock<Regex> = LazyLock::new(|| re(r"[\p{L}\p{N}]+"));
+static LEADING: LazyLock<Regex> = LazyLock::new(|| re(r"^0*(\d{1,4})\s+\D"));
 static VOL_NUM: LazyLock<Regex> = LazyLock::new(|| re(r"(?:\b|_)(?:vol(?:ume)?|v|book|part|omnibus|tpb)[\s._]*0*(\d{1,3})(?:\b|_)"));
 static CH_NUM: LazyLock<Regex> = LazyLock::new(|| re(r"\bch(?:apter)?\.?\s*0*(\d{1,4}(?:\.\d)?)"));
 static AFTER_WORD: LazyLock<Regex> = LazyLock::new(|| re(r"\b(?:annual|special|issue)[\s#._-]*0*(\d{1,3})\b"));
 static ANY_NUM: LazyLock<Regex> = LazyLock::new(|| re(r"(?:^|[\s#_-])0*(\d{1,4}(?:\.\d)?)(?:[\s(._-]|$)"));
 static WORD_NUM: LazyLock<Regex> = LazyLock::new(|| re(r"\bbook (one|two|three|four|five|six|seven|eight|nine|ten)\b"));
 
+/// The file name with the series' own name taken off the front, so a number in the name isn't
+/// taken for the book's: "Ben 10 001" is " 001" in the series "Ben 10". Names are compared by
+/// their letters and digits only ("Spider-Man" is "Spider Man"), without tags like "(2024)".
+pub(crate) fn without_series<'a>(stem: &'a str, series: &str) -> &'a str {
+    let words = |s: &str| NON_WORD.split(&s.to_lowercase()).filter(|w| !w.is_empty()).map(str::to_string).collect::<Vec<_>>();
+    let want = words(&TAGS.replace_all(series, ""));
+    if want.is_empty() {
+        return stem;
+    }
+    // Walk the stem word by word until the series' words are used up.
+    for (m, w) in WORD.find_iter(stem).zip(&want) {
+        if m.as_str().to_lowercase() != *w {
+            return stem;
+        }
+        if std::ptr::eq(w, want.last().unwrap()) {
+            return &stem[m.end()..];
+        }
+    }
+    stem
+}
+
+/// A number the file name starts with is its place in a reading order ("019 Siege - Storming
+/// Asgard"), which matters more than the issue's own number. Not when it's the start of the
+/// series' own name ("100 Bullets - Book 01").
+pub fn order_number(file_name: &str, series: &str) -> Option<f64> {
+    if without_series(file_name, series).len() != file_name.len() {
+        return None;
+    }
+    LEADING.captures(file_name).and_then(|c| c[1].parse().ok())
+}
+
 /// The book's number within its format, from its file name: "Saga Vol. 3" is 3 as a volume,
-/// "Titans Annual 002" is 2 as an annual.
-pub fn number(kind: &str, file_name: &str) -> Option<f64> {
+/// "Titans Annual 002" is 2 as an annual. `series` is the series' name, skipped where the file
+/// name starts with it.
+pub fn number(kind: &str, file_name: &str, series: &str) -> Option<f64> {
     let stem = file_name.rsplit_once('.').map_or(file_name, |(s, _)| s);
-    // Years in brackets would otherwise pass for numbers: "Titans 019 (2018)".
+    let stem = without_series(stem, series);
+    // Years in brackets and dates would otherwise pass for numbers: "Titans 019 (2018)".
     let stem = YEAR.replace_all(stem, " ");
     let grab = |r: &Regex| r.captures(&stem).and_then(|c| c[1].parse::<f64>().ok());
     let words = ["one", "two", "three", "four", "five", "six", "seven", "eight", "nine", "ten"];
@@ -171,14 +208,26 @@ mod tests {
 
     #[test]
     fn numbers_and_labels() {
-        assert_eq!(number("volume", "Saga Vol. 11.cbz"), Some(11.0));
-        assert_eq!(number("issue", "Titans 019 (2018) (2 covers) (digital).cbz"), Some(19.0));
-        assert_eq!(number("issue", "Titans 013 (2017) GetComics.INFO (1).cbz"), Some(13.0));
-        assert_eq!(number("annual", "Titans Annual 002 (2018) (digital).cbz"), Some(2.0));
-        assert_eq!(number("annual", "Absolute Batman 2025 Annual 001 (2025).cbz"), Some(1.0));
-        assert_eq!(number("chapter", "Solo Leveling 000 - Prologue (2020).cbz"), Some(0.0));
-        assert_eq!(number("volume", "Teen Titans by Geoff Johns Book 02 (2018).cbz"), Some(2.0));
-        assert_eq!(number("volume", "Kokou no Hito - Volume_04.cbz"), Some(4.0));
+        assert_eq!(number("volume", "Saga Vol. 11.cbz", "Saga"), Some(11.0));
+        assert_eq!(number("issue", "Titans 019 (2018) (2 covers) (digital).cbz", "Titans"), Some(19.0));
+        assert_eq!(number("issue", "Titans 013 (2017) GetComics.INFO (1).cbz", "Titans"), Some(13.0));
+        assert_eq!(number("annual", "Titans Annual 002 (2018) (digital).cbz", "Titans"), Some(2.0));
+        assert_eq!(number("annual", "Absolute Batman 2025 Annual 001 (2025).cbz", "Absolute Batman"), Some(1.0));
+        assert_eq!(number("chapter", "Solo Leveling 000 - Prologue (2020).cbz", "Solo Leveling"), Some(0.0));
+        assert_eq!(number("volume", "Teen Titans by Geoff Johns Book 02 (2018).cbz", "Teen Titans"), Some(2.0));
+        assert_eq!(number("volume", "Kokou no Hito - Volume_04.cbz", "Kokou no Hito"), Some(4.0));
+        // A number in the series' own name isn't the book's.
+        assert_eq!(number("issue", "Ben 10 003 (2026) (Series) (Dynamite Entertainment) (Digital).cbz", "Ben 10"), Some(3.0));
+        assert_eq!(number("issue", "Doom 2099 001 (2020) (Digital) (Zone-Empire).cbz", "Doom 2099"), Some(1.0));
+        assert_eq!(number("issue", "Spider-Man 2099 004 (2015).cbz", "Spider Man 2099 (2015)"), Some(4.0));
+        assert_eq!(number("issue", "Injustice 2 012 (2017).cbr", "Injustice 2"), Some(12.0));
+        assert_eq!(number("issue", "Marvel 1602 (2010) (Digital).cbz", "Marvel 1602"), None);
+        // Nor is a date.
+        assert_eq!(number("volume", "Justice League by Alex Ross 2018-12-19 (TPB) (digital).cbz", "Justice League"), None);
+        // A reading order's place comes first in the name.
+        assert_eq!(order_number("019 Siege - Storming Asgard (2010).cbz", "Siege"), Some(19.0));
+        assert_eq!(order_number("Siege 001 (2010).cbr", "Siege"), None);
+        assert_eq!(order_number("100 Bullets - Book 01 (2014).cbr", "100 Bullets"), None);
         assert_eq!(label("chapter", Some(110.0), "Vol. 9"), "Ch. 110");
         assert_eq!(label("special", None, "Heaven and Earth"), "Heaven and Earth");
     }

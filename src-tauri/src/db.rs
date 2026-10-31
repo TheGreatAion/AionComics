@@ -703,24 +703,31 @@ pub fn series_view(conn: &Connection, id: i64) -> Result<SeriesView> {
 fn editions_of(conn: &Connection, id: i64, manga: bool) -> Result<Vec<Edition>> {
     let mut st = conn.prepare(
         "SELECT c.section, c.file_name, COALESCE(c.num_pages, 0), COALESCE(c.synopsis, ''), o.kind, c.number,
-           (SELECT json_extract(m.data, '$.number') FROM meta_layer m WHERE m.comic_id=c.id AND m.source='user')
+           (SELECT json_extract(m.data, '$.number') FROM meta_layer m WHERE m.comic_id=c.id AND m.source='user'),
+           (SELECT json_extract(m.data, '$.number') FROM meta_layer m WHERE m.comic_id=c.id AND m.source='cv')
          FROM comics c LEFT JOIN edition_override o ON o.comic_id=c.id WHERE c.series_id=?1 ORDER BY c.sort_key",
     )?;
-    type Extra = (String, String, i64, String, Option<String>, Option<String>, Option<String>);
+    type Extra = (String, String, i64, String, Option<String>, Option<String>, Option<String>, Option<String>);
     let extra: Vec<Extra> = st
-        .query_map([id], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?, r.get(4)?, r.get(5)?, r.get(6)?)))?
+        .query_map([id], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?, r.get(4)?, r.get(5)?, r.get(6)?, r.get(7)?)))?
         .collect::<rusqlite::Result<_>>()?;
+    let series: String = conn.query_row("SELECT name FROM series WHERE id=?1", [id], |r| r.get(0))?;
     let rows = cards(conn, "WHERE c.series_id=?1 ORDER BY c.sort_key", [id])?;
     // (format, subfolder, number, place in the old order, book)
     let mut books: Vec<(&'static str, String, Option<f64>, usize, ComicCard)> = Vec::new();
-    for (i, (mut c, (sec, file, pages, synopsis, own, stored, typed))) in rows.into_iter().zip(extra).enumerate() {
+    for (i, (mut c, (sec, file, pages, synopsis, own, stored, typed, cv))) in rows.into_iter().zip(extra).enumerate() {
         let kind = own
             .as_deref()
             .and_then(|k| editions::KINDS.iter().copied().find(|x| *x == k))
             .unwrap_or_else(|| editions::kind(manga, &sec, &file, pages));
-        // A number you typed in wins; then the file name's; then whatever the book's details say.
+        // A number you typed in wins; then a reading order's place at the front of the file name;
+        // then Comic Vine's; then the file name's; then whatever the book's own details say.
         let parse = |v: Option<String>| v.and_then(|s| s.trim().trim_start_matches('#').parse::<f64>().ok());
-        let n = parse(typed).or_else(|| editions::number(kind, &file)).or_else(|| parse(stored));
+        let n = parse(typed)
+            .or_else(|| editions::order_number(&file, &series))
+            .or_else(|| parse(cv))
+            .or_else(|| editions::number(kind, &file, &series))
+            .or_else(|| parse(stored));
         c.label = editions::label(kind, n, &c.label);
         if matches!(kind, "volume" | "collection" | "deluxe" | "omnibus") {
             c.collects = editions::collects(&synopsis);
@@ -971,7 +978,7 @@ pub const META_FIELDS: [&str; 22] = [
 
 pub type Meta = serde_json::Map<String, serde_json::Value>;
 
-fn read_layer(conn: &Connection, id: i64, source: &str) -> Result<Meta> {
+pub fn read_layer(conn: &Connection, id: i64, source: &str) -> Result<Meta> {
     let data: Option<String> = conn
         .query_row("SELECT data FROM meta_layer WHERE comic_id=?1 AND source=?2", params![id, source], |r| r.get(0))
         .optional()?;
@@ -1008,17 +1015,23 @@ pub fn apply_meta(conn: &Connection, only: Option<&[i64]>) -> Result<usize> {
     let mut up = conn.prepare(&sql)?;
     let mut n = 0;
     for id in ids {
-        let Some((base, label, manga)): Option<(Option<String>, String, bool)> = conn
+        type Found = (Option<String>, String, bool, String, String, i64, Option<String>);
+        let Some((base, label, manga, section, file, pages, own)): Option<Found> = conn
             .query_row(
-                "SELECT c.meta_base, c.label, col.is_manga FROM comics c JOIN series s ON s.id=c.series_id
-                 JOIN collections col ON col.id=s.collection_id WHERE c.id=?1",
+                "SELECT c.meta_base, c.label, col.is_manga, c.section, c.file_name, COALESCE(c.num_pages, 0), o.kind
+                 FROM comics c JOIN series s ON s.id=c.series_id JOIN collections col ON col.id=s.collection_id
+                 LEFT JOIN edition_override o ON o.comic_id=c.id WHERE c.id=?1",
                 [id],
-                |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)),
+                |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?, r.get(4)?, r.get(5)?, r.get(6)?)),
             )
             .optional()?
         else {
             continue;
         };
+        let kind = own
+            .as_deref()
+            .and_then(|k| editions::KINDS.iter().copied().find(|x| *x == k))
+            .unwrap_or_else(|| editions::kind(manga, &section, &file, pages));
         // No scan has recorded this book's imported values yet (e.g. the drive is offline):
         // take today's values as that base, so applying a layer never blanks the rest.
         let base = match base {
@@ -1047,10 +1060,12 @@ pub fn apply_meta(conn: &Connection, only: Option<&[i64]>) -> Result<usize> {
             }
         }
         let text = |k: &str| m.get(k).and_then(|v| v.as_str()).map(str::trim).filter(|s| !s.is_empty()).map(str::to_string);
-        // A number from Comic Vine or a hand edit relabels the book ("#5", "Vol. 5"). A book already
-        // called a volume (a collected edition, say) stays one.
+        // A number from Comic Vine or a hand edit relabels the book in the style of its format
+        // ("#5", "Ch. 5", "Vol. 5"). A book already called a volume stays one.
+        let collected = matches!(kind, "volume" | "collection" | "deluxe" | "omnibus");
         let label = match (numbered, text("number")) {
-            (true, Some(n)) if manga || base_label.starts_with("Vol.") => format!("Vol. {n}"),
+            (true, Some(n)) if kind == "chapter" => format!("Ch. {n}"),
+            (true, Some(n)) if manga || collected || base_label.starts_with("Vol.") => format!("Vol. {n}"),
             (true, Some(n)) => format!("#{n}"),
             _ => base_label,
         };
@@ -1215,6 +1230,46 @@ mod meta_tests {
         assert!(read(&conn));
         drop(conn);
         let _ = std::fs::remove_file(&path);
+    }
+
+    /// Every book in a copy of a real library whose series-page number disagrees with the number
+    /// Comic Vine or a hand edit gave it. `AION_TEST_DB` names the copy.
+    #[test]
+    #[ignore]
+    fn real_numbers() {
+        let path = std::env::var("AION_TEST_DB").expect("AION_TEST_DB");
+        let conn = Connection::open(path).unwrap();
+        let series: Vec<(i64, String, bool)> = {
+            let mut st = conn
+                .prepare("SELECT s.id, s.name, col.is_manga FROM series s JOIN collections col ON col.id=s.collection_id ORDER BY s.name")
+                .unwrap();
+            let v = st.query_map([], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?))).unwrap().collect::<rusqlite::Result<_>>().unwrap();
+            v
+        };
+        let mut wrong = 0;
+        for (id, name, manga) in series {
+            for e in editions_of(&conn, id, manga).unwrap() {
+                for c in e.sections.iter().flat_map(|s| &s.comics) {
+                    let saved: Option<String> = conn
+                        .query_row(
+                            "SELECT c.number FROM comics c WHERE c.id=?1 AND EXISTS (SELECT 1 FROM meta_layer m WHERE m.comic_id=c.id
+                             AND m.source IN ('cv','user') AND json_extract(m.data, '$.number') IS NOT NULL)",
+                            [c.id],
+                            |r| r.get(0),
+                        )
+                        .optional()
+                        .unwrap()
+                        .flatten();
+                    let Some(n) = saved.and_then(|s| s.trim().trim_start_matches('#').parse::<f64>().ok()) else { continue };
+                    let shown = c.label.trim_start_matches(|ch: char| !ch.is_ascii_digit()).parse::<f64>().ok();
+                    if shown != Some(n) {
+                        wrong += 1;
+                        println!("{name}: shows {:?}, saved {n} ({})", c.label, e.kind);
+                    }
+                }
+            }
+        }
+        println!("{wrong} books show the wrong number");
     }
 
     #[test]
