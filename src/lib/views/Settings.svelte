@@ -658,17 +658,6 @@
     gap: 24px 32px;
   }
   /* A caption box, as on collection pages. */
-  .caption {
-    width: fit-content;
-    background: #e6dfd1;
-    color: #141414;
-    border: 3px solid var(--ink);
-    padding: 8px 14px 5px;
-    font: 400 23px/1 var(--display);
-    letter-spacing: 0.05em;
-    text-transform: uppercase;
-    white-space: nowrap;
-  }
   .top > .caption {
     position: absolute;
     left: -4px;

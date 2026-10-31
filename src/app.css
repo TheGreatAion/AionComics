@@ -191,6 +191,19 @@ img {
   background: none;
 }
 
+/* Caption boxes, as a comic's narration: paper, ink border, tall capitals. */
+.caption {
+  width: fit-content;
+  background: #e6dfd1;
+  color: #141414;
+  border: 3px solid var(--ink);
+  padding: 8px 14px 5px;
+  font: 400 23px/1 var(--display);
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+
 /* Covers in a grid: captions reserve two lines so covers line up along their bottoms. */
 .grid {
   display: grid;

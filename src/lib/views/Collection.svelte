@@ -5,9 +5,9 @@
   import { lib, nav, openReader } from "$lib/state.svelte";
   import Cover from "$lib/components/Cover.svelte";
   import LetterHeadline from "$lib/components/LetterHeadline.svelte";
-  import { hue, rgb, tone } from "$lib/color";
+  import InkPrint from "$lib/components/InkPrint.svelte";
+  import { hue, tone } from "$lib/color";
   import { look } from "$lib/look.svelte";
-  import { theme } from "$lib/theme.svelte";
   import Icon, { type IconName } from "$lib/components/Icon.svelte";
 
   type Sort = "name" | "read" | "added";
@@ -93,15 +93,6 @@
     const s = choice.find((s) => s.printed) ?? choice[0];
     backdrop = { id: s.coverId!, hue: hue(s.coverColor)!.h, at: 20 + (shuffled(s.id) % 61) };
   });
-  // The ink: the art's shadows to its lights. Near-black to a deep shade of the cover's color on
-  // the dark theme; a soft shade of it to paper on the light one.
-  const ink = $derived.by(() => {
-    if (!backdrop) return null;
-    const near = (hex: string) => [1, 3, 5].map((i) => parseInt(hex.slice(i, i + 2), 16) / 255);
-    const [from, to] =
-      theme.current === "light" ? [rgb(backdrop.hue, 0.38, 0.66), near("#e4ddd0")] : [near("#12100e"), rgb(backdrop.hue, 0.46, 0.33)];
-    return [0, 1, 2].map((i) => `${from[i].toFixed(3)} ${to[i].toFixed(3)}`);
-  });
   // The grid's caption box: what's shown, in what order.
   const section = $derived(
     filter.trim()
@@ -168,25 +159,8 @@
       Nothing here yet
     {/if}
   </div>
-  {#if look.backdrop && backdrop && ink}
-    <div class="backdrop" aria-hidden="true">
-      <svg width="0" height="0">
-        <filter id="ink-{seed}" color-interpolation-filters="sRGB">
-          <feColorMatrix type="matrix" values=".3 .59 .11 0 0 .3 .59 .11 0 0 .3 .59 .11 0 0 0 0 0 1 0" />
-          <feComponentTransfer>
-            <feFuncR type="table" tableValues={ink[0]} />
-            <feFuncG type="table" tableValues={ink[1]} />
-            <feFuncB type="table" tableValues={ink[2]} />
-          </feComponentTransfer>
-        </filter>
-      </svg>
-      <img
-        src={printUrl(backdrop.id)}
-        alt=""
-        style:object-position="50% {backdrop.at}%"
-        style:filter="url(#ink-{seed})"
-      />
-    </div>
+  {#if look.backdrop && backdrop}
+    <InkPrint src={printUrl(backdrop.id)} hue={backdrop.hue} at={backdrop.at} />
   {/if}
     {#if data.series.length === 1 && features[0]}
       <LetterHeadline text={data.name} covers={letterCovers} bind:beside>
@@ -251,7 +225,7 @@
 
 <style>
   /* The headline's panel: the name, huge, its letters cut from the collection's covers (see
-     LetterHeadline), over a cover printed in one ink (see backdrop above). */
+     LetterHeadline), over a cover printed in one ink (see InkPrint). */
   .top {
     position: relative;
     margin: 64px var(--pad) 0;
@@ -262,32 +236,6 @@
   .top > :global(.headline) {
     position: relative;
     z-index: 1;
-  }
-  .backdrop {
-    position: absolute;
-    inset: 0;
-    overflow: hidden;
-    pointer-events: none;
-  }
-  .backdrop svg {
-    position: absolute;
-  }
-  .backdrop img {
-    width: 100%;
-    height: 100%;
-    object-fit: cover;
-  }
-  /* Caption boxes, as a comic's narration: paper, ink border, tall capitals. */
-  .caption {
-    width: fit-content;
-    background: #e6dfd1;
-    color: #141414;
-    border: 3px solid var(--ink);
-    padding: 8px 14px 5px;
-    font: 400 23px/1 var(--display);
-    letter-spacing: 0.05em;
-    text-transform: uppercase;
-    white-space: nowrap;
   }
   .caption.count {
     position: absolute;

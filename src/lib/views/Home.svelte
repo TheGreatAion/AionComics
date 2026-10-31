@@ -1,11 +1,13 @@
 <script lang="ts">
   import { tick, untrack } from "svelte";
-  import { fly } from "svelte/transition";
-  import { ago, api, pageUrl, progressOf, storyTitle, unitWord, type ComicCard, type Home } from "$lib/api";
+  import { fade, fly } from "svelte/transition";
+  import { ago, api, pageUrl, printUrl, progressOf, storyTitle, unitWord, type ComicCard, type Home } from "$lib/api";
   import { lib, nav, openReader, reader, search, sheets, showMenu } from "$lib/state.svelte";
+  import { hue } from "$lib/color";
   import Cover from "$lib/components/Cover.svelte";
   import Icon from "$lib/components/Icon.svelte";
-  import { motionMs } from "$lib/look.svelte";
+  import InkPrint from "$lib/components/InkPrint.svelte";
+  import { look, motionMs } from "$lib/look.svelte";
 
   let data = $state<Home | null>(null);
 
@@ -27,6 +29,14 @@
   const hero = $derived(pile[at]);
   const sub = $derived(hero ? storyTitle(hero) : null);
   const empty = $derived(data && !hero);
+  // The splash panel prints the top book's cover in its own color; a gray cover, or one that would
+  // print teal, prints in gray.
+  const heroHue = $derived.by(() => {
+    const c = hue(hero?.coverColor);
+    return c && c.chroma > 0.12 && !(c.h >= 150 && c.h <= 200) ? c.h : null;
+  });
+  // Each collection's panel is wider the more books it holds.
+  const most = $derived(Math.max(1, ...lib.collections.map((c) => c.comicCount)));
 
   const pages = new Map<number, HTMLImageElement>();
   const resume = () => hero && openReader(hero.id, pages.get(hero.id) ?? null);
@@ -74,7 +84,9 @@
     const tall = h * (1 + n * PEEK);
     const left = (colW - wide(h) + n * SHIFT * h * (LIFT - 1)) / 2;
     const top = (colH - caption - tall) / 2 + tall - h;
-    return { h, left, top, coverW: h / COVER_RATIO };
+    // How wide the resting pile is, for the arrows either side of it.
+    const w = h / COVER_RATIO + GAP + h / ratioOf(hero.id) + n * SHIFT * h;
+    return { h, left, top, w, coverW: h / COVER_RATIO };
   });
 
   /* ---- Each book's place comes from its depth; CSS glides them between places. */
@@ -218,10 +230,18 @@
   <div class="screen" class:solo={!hero}>
     <!-- The book you're in tints the top of Home in its cover's color. -->
     {#if hero}
+      <!-- A splash panel: the book you're in, over its cover printed in one ink. -->
       <section class="hero">
+        {#if look.backdrop}
+          {#key hero.id}
+            <div class="print" transition:fade={{ duration: motionMs(300, 600) }}>
+              <InkPrint src={printUrl(hero.id)} hue={heroHue} at={40} />
+            </div>
+          {/key}
+        {/if}
+        <div class="caption when">{ago(hero.lastReadAt)}</div>
         {#key hero.id}
           <div class="text" in:fly={{ y: 10, duration: motionMs(200, 420) }}>
-            <div class="when">{ago(hero.lastReadAt)}</div>
             <h1>{hero.seriesName.trim()}</h1>
             <div class="vol">{hero.label}{#if sub}&ensp;&mdash;&ensp;{sub}{/if}</div>
             <div class="where">
@@ -295,11 +315,14 @@
             </div>
 
             {#if pile.length > 1}
-              <div class="count" style:left="{fit.left}px" style:top="{fit.top + fit.h + 8}px">
-                <button class="ico" aria-label="Previous book" onclick={() => flip(-1)}><Icon name="chevronLeft" size={14} /></button>
-                <span class="mono">{at + 1} / {pile.length}</span>
-                <button class="ico" aria-label="Next book" onclick={() => flip(1)}><Icon name="chevronRight" size={14} /></button>
-              </div>
+              <!-- Arrows either side of the pile flip through it. -->
+              <button class="ico turn" style:left="{fit.left - 76}px" style:top="{fit.top + fit.h / 2}px" title="Previous book" aria-label="Previous book" onclick={() => flip(-1)}>
+                <Icon name="arrowLeft" size={30} />
+              </button>
+              <button class="ico turn" style:left="{fit.left + fit.w + 28}px" style:top="{fit.top + fit.h / 2}px" title="Next book" aria-label="Next book" onclick={() => flip(1)}>
+                <Icon name="arrowRight" size={30} />
+              </button>
+              <div class="count mono" style:left="{fit.left}px" style:top="{fit.top + fit.h + 12}px">{at + 1} / {pile.length}</div>
             {/if}
           {/if}
         </div>
@@ -307,16 +330,17 @@
     {/if}
 
     {#if lib.collections.length}
-      <section class="library">
-        <h2>Library</h2>
+      <!-- The library as a tier of panels, each collection's name and counts in a caption box. -->
+      <section class="library" aria-label="Library">
         <div class="cols">
           {#each lib.collections as c (c.id)}
-            <button class="col" onclick={() => nav.root({ name: "collection", id: c.id })}>
+            <button class="col" style:flex-grow={3 + c.comicCount / most} onclick={() => nav.root({ name: "collection", id: c.id })}>
+              <div class="caption">
+                {c.name}<span class="mono">{c.seriesCount.toLocaleString()} series · {c.comicCount.toLocaleString()}</span>
+              </div>
               <div class="fan">
                 {#each c.covers as id (id)}<Cover {id} width={112} pages={null} />{/each}
               </div>
-              <div class="name">{c.name}</div>
-              <span class="mono">{c.seriesCount.toLocaleString()} series · {c.comicCount.toLocaleString()}</span>
             </button>
           {/each}
         </div>
@@ -344,31 +368,41 @@
     min-height: 0;
     padding-top: 140px;
   }
+  /* The splash panel: inked frame, the cover printed behind, when you last read in a caption box
+     on its corner. */
   .hero {
     flex: 1;
     min-height: 0;
+    position: relative;
     display: grid;
     grid-template-columns: minmax(380px, 5fr) 7fr;
     gap: 48px;
-    padding: 64px var(--pad) 30px;
+    margin: 76px var(--pad) 20px;
+    padding: 40px 48px 16px;
+    border: 4px solid var(--ink);
+    background: var(--raised);
     align-items: center;
+  }
+  .print {
+    position: absolute;
+    inset: 0;
+  }
+  .hero > .when {
+    position: absolute;
+    left: -4px;
+    top: -4px;
+    z-index: 2;
   }
   .library {
     flex: none;
     padding: 0 var(--pad) 30px;
   }
-  .library h2 {
-    margin-bottom: 0;
-  }
   .text {
+    position: relative;
     grid-column: 1;
     grid-row: 1;
-    padding-bottom: 32px;
+    padding-bottom: 16px;
     min-width: 0;
-  }
-  .when {
-    color: var(--cap);
-    font-size: 15px;
   }
   h1 {
     margin-top: 18px;
@@ -459,36 +493,47 @@
   }
   .count {
     position: absolute;
-    display: flex;
-    align-items: center;
-    gap: 2px;
-    color: var(--text-3);
+    color: var(--text-2);
   }
-  .count .ico {
-    color: var(--text-3);
-    padding: 4px;
-  }
-  .count .ico:hover {
+  .turn {
+    position: absolute;
+    width: 48px;
+    height: 48px;
+    translate: 0 -50%;
     color: var(--text);
+    opacity: 0.75;
+    z-index: 11;
   }
-
-  h2 {
-    font-weight: 400;
-    font-size: 15px;
-    margin-bottom: 28px;
-    display: flex;
-    gap: 12px;
-    align-items: baseline;
+  .turn:hover {
+    opacity: 1;
   }
 
   .cols {
-    display: grid;
-    grid-template-columns: repeat(4, 1fr);
-    gap: 32px;
+    display: flex;
+    flex-wrap: wrap;
+    gap: 20px;
   }
   .col {
+    position: relative;
     display: block;
-    padding-top: 18px;
+    flex: 3 1 200px;
+    padding: 52px 0 20px;
+    border: 4px solid var(--ink);
+    background: var(--raised);
+  }
+  .col > .caption {
+    position: absolute;
+    left: -4px;
+    top: -4px;
+    z-index: 2;
+  }
+  .caption .mono {
+    margin-left: 10px;
+    font-size: 12px;
+    letter-spacing: 0;
+    text-transform: none;
+    color: #55504a;
+    vertical-align: 3px;
   }
   .fan {
     position: relative;
@@ -527,19 +572,6 @@
   .col:hover .fan :global(.cover:nth-child(3)) {
     transform: translateX(-4%) rotate(10deg) scale(0.88);
     filter: brightness(0.8);
-  }
-  .name {
-    margin-top: 22px;
-    font-family: var(--display);
-    font-weight: 400;
-    font-size: 30px;
-    line-height: 1;
-    letter-spacing: 0.01em;
-  }
-  .col .mono {
-    display: block;
-    color: var(--text-3);
-    margin-top: 4px;
   }
   .empty {
     padding: 160px var(--pad) 0;

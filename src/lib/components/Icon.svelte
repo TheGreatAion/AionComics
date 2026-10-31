@@ -42,6 +42,7 @@
     plus: "M12 5v14M5 12h14",
     play: "M7 4.5v15l12-7.5z",
     arrowRight: "M5 12h14M13 6l6 6-6 6",
+    arrowLeft: "M19 12H5M11 6l-6 6 6 6",
     chevronLeft: "M15 6l-6 6 6 6",
     stats: "M5 20v-7M12 20V5M19 20v-11M3 20.5h18",
     chevronRight: "M9 6l6 6-6 6",
