@@ -1,11 +1,15 @@
 <script lang="ts">
   import { tick } from "svelte";
   import { slide } from "svelte/transition";
-  import { api, listText, plainText, storyTitle, unitWord, type ComicCard, type ComicMeta, type EditionKind, type MetaField, type SeriesView } from "$lib/api";
+  import { api, listText, plainText, printUrl, storyTitle, unitWord, type ComicCard, type ComicMeta, type EditionKind, type MetaField, type SeriesView } from "$lib/api";
   import { lib, nav, openReader, reader, search, sheets, showMenu, undoable, undoableWith, type MenuItem } from "$lib/state.svelte";
   import { bareEnter, nearest } from "$lib/keynav";
   import { motionMs } from "$lib/look.svelte";
   import Cover from "$lib/components/Cover.svelte";
+  import LetterHeadline from "$lib/components/LetterHeadline.svelte";
+  import InkPrint from "$lib/components/InkPrint.svelte";
+  import { hue } from "$lib/color";
+  import { look } from "$lib/look.svelte";
   import Icon from "$lib/components/Icon.svelte";
 
   let { id, book: startBook }: { id: number; book?: number } = $props();
@@ -40,14 +44,41 @@
     return biggest ? startOf(biggest.sections.flatMap((s) => s.comics)) : going;
   });
   // "Makoto Yukimura · Kodansha Comics USA · 2013–2026", with the artist when it isn't the writer.
+  // A long run names a dozen artists: the first few, then how many more.
+  const few = (v: string | null | undefined, n: number) => {
+    const names = listText(v).split(", ").filter(Boolean);
+    return names.length > n ? `${names.slice(0, n).join(", ")} +${names.length - n}` : names.join(", ");
+  };
   const by = $derived.by(() => {
     if (!data) return "";
-    const writer = listText(data.writer);
-    const artist = listText(data.artist);
+    const writer = few(data.writer, 2);
+    const artist = few(data.artist, 3);
     const art = artist && artist !== writer ? `art by ${artist}` : "";
     return [writer, art, data.publisher, data.years].filter(Boolean).join(" · ");
   });
   const findOnCv = () => data && (sheets.matching = { seriesId: data.id, isManga: data.isManga, name: data.name });
+  // The name is set as on collection pages: its letters cut from the series' covers, picked at
+  // random each visit, over one more cover printed in a single ink of its own color. That one is
+  // the series' own cover when its color will do (it's printed ahead of time), else another, never
+  // a teal one; only ever a cover, as a page could give the story away.
+  const seed = Math.floor(Math.random() * 2 ** 32);
+  const shuffled = (n: number) => Math.imul(n ^ seed, 2654435761) >>> 0;
+  const inky = (c: ComicCard) => {
+    const h = hue(c.coverColor);
+    return !!h && h.chroma > 0.12 && !(h.h >= 150 && h.h <= 200);
+  };
+  const backdrop = $derived.by(() => {
+    const c = first && inky(first) ? first : [...all].filter(inky).sort((a, b) => shuffled(a.id) - shuffled(b.id))[0];
+    return c ? { id: c.id, hue: hue(c.coverColor)!.h, at: 20 + (shuffled(c.id) % 61) } : null;
+  });
+  const letterCovers = $derived.by(() => {
+    const letters = [...(data?.name ?? "")].filter((ch) => ch !== " ").length;
+    const others = all.filter((c) => c.id !== backdrop?.id);
+    return [...(others.length ? others : all)]
+      .sort((a, b) => shuffled(a.id) - shuffled(b.id))
+      .slice(0, letters)
+      .map((c) => c.id);
+  });
   const seriesAbout = $derived(plainText(data?.synopsis ?? null));
   const cvLabel = $derived(data?.cvVolumeId ? "Get details again from Comic Vine" : "Find details on Comic Vine");
 
@@ -380,17 +411,24 @@
 
 {#if data}
   <div class="screen">
-    <!-- The series: its name, who made it, how far you are. -->
+    <!-- The name as a comic panel, as on collection pages: inked frame, how many and how far in a
+         caption box on its corner, a cover printed behind the letters. -->
+    <div class="top">
+      <div class="caption count">
+        {mainCount.toLocaleString()} {!edition ? unitWord(data.isManga, mainCount) : mainCount === 1 ? KIND_NAME[edition.kind] : edition.name} · {mainRead === mainCount && mainCount ? "all read" : `${mainRead.toLocaleString()} read`}
+      </div>
+      {#if look.backdrop && backdrop}
+        <InkPrint src={printUrl(backdrop.id)} hue={backdrop.hue} at={backdrop.at} />
+      {/if}
+      <LetterHeadline text={data.name} covers={letterCovers} />
+    </div>
+    <!-- Where it lives and who made it; fetching its details, and more. -->
     <header class="series">
       <div class="names">
         <button class="crumb link" onclick={() => nav.go({ name: "collection", id: data!.collectionId })}>{data.collectionName}</button>
-        <h1>{data.name}</h1>
-        {#if by}<div class="by">{by}</div>{/if}
+        {#if by}<span class="by">· {by}</span>{/if}
       </div>
       <div class="tools">
-        <span class="mono count" title="{mainRead} of {mainCount} {unitWord(data.isManga, mainCount)} read">
-          <Icon name="check" size={13} />{mainRead} / {mainCount}
-        </span>
         <!-- Always here, so a series can fetch its details again (a new issue, a wrong match). -->
         <button class="ico" title={cvLabel} aria-label={cvLabel} onclick={findOnCv}>
           <Icon name="fetch" size={18} />
@@ -539,45 +577,49 @@
     position: relative;
     isolation: isolate;
     min-height: 100vh;
-    padding: 92px 0 80px;
+    padding-bottom: 80px;
+  }
+  /* The headline's panel (see LetterHeadline and InkPrint), as on collection pages. */
+  .top {
+    position: relative;
+    margin: 64px var(--pad) 0;
+    padding: 44px 24px 40px;
+    border: 4px solid var(--ink);
+    background: var(--raised);
+  }
+  .top > :global(.headline) {
+    position: relative;
+    z-index: 1;
+  }
+  .caption.count {
+    position: absolute;
+    left: -4px;
+    top: -4px;
+    z-index: 2;
   }
   .series {
+    margin-top: 18px;
     padding: 0 var(--pad);
     display: flex;
     justify-content: space-between;
-    align-items: flex-end;
+    align-items: center;
     gap: 32px;
   }
-  .crumb {
-    font-size: 13px;
+  .names {
+    min-width: 0;
+    font-size: 14px;
   }
-  h1 {
-    margin-top: 10px;
-    font-family: var(--display);
-    font-weight: 400;
-    font-size: clamp(40px, 4.2vw, 60px);
-    line-height: 0.92;
-    letter-spacing: 0.005em;
-    overflow-wrap: anywhere;
+  .crumb {
+    font-size: 14px;
   }
   .by {
-    margin-top: 8px;
     color: var(--text-2);
-    font-size: 14px;
   }
   .tools {
     flex: none;
     display: flex;
     align-items: center;
     gap: 6px;
-  }
-  .count {
-    display: inline-flex;
-    align-items: center;
-    gap: 5px;
-    margin-right: 10px;
-    color: var(--text-2);
-    white-space: nowrap;
   }
   .backfill {
     margin: 16px var(--pad) 0;
