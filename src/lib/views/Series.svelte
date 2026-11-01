@@ -579,11 +579,16 @@
     min-height: 100vh;
     padding-bottom: 80px;
   }
-  /* The headline's panel (see LetterHeadline and InkPrint), as on collection pages. */
+  /* The headline's panel (see LetterHeadline and InkPrint), as on collection pages. A long name
+     sets small, so the panel keeps a height of its own and the name sits in the middle of it. */
   .top {
     position: relative;
     margin: 64px var(--pad) 0;
     padding: 44px 24px 40px;
+    min-height: 380px;
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
     border: 4px solid var(--ink);
     background: var(--raised);
   }
