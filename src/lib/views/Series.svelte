@@ -459,7 +459,7 @@
               oncontextmenu={(e) => bookMenu(e, c)}
             >
               <span class="art">
-                <Cover id={c.id} ratio={c.coverRatio} flip={c.id === first?.id ? `s${data.id}` : undefined} />
+                <Cover id={c.id} ratio={c.coverRatio} />
                 {#if c.read}<span class="tick"><Icon name="check" size={12} stroke={2.5} /></span>{/if}
                 {#if many.includes(c.id)}<span class="mark"><Icon name="check" size={12} stroke={2.5} /></span>{/if}
                 {#if !c.read && c.currentPage > 0 && c.numPages}

@@ -1,21 +1,17 @@
 <script lang="ts">
   import { coverUrl } from "$lib/api";
-  import { land } from "$lib/flight";
 
   // ratio = height / width; reserving it up front keeps rows from jumping.
   let {
     id,
     ratio = null,
     width,
-    flip,
     pages,
   }: {
     id: number | null | undefined;
     ratio?: number | null;
     /** Fixed width in px; otherwise the cover fills its column. */
     width?: number;
-    /** Shared-element key: a cover launched with the same key flies in here. */
-    flip?: string;
     /**
      * Draw it as a book: a spine down the left and the edge of its pages on the right, as thick as
      * its page count (null when that isn't known: a slim book). Left out, it's a flat picture.
@@ -46,10 +42,6 @@
   // An image can be complete before its load listener is attached.
   $effect(() => {
     if (img?.complete && img.naturalWidth > 0) loadedId = id ?? null;
-  });
-
-  $effect(() => {
-    if (el && flip) land(el, flip);
   });
 </script>
 

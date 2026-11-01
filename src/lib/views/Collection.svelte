@@ -1,7 +1,6 @@
 <script lang="ts">
   import { untrack } from "svelte";
   import { api, listText, plainText, printUrl, unitWord, type CollectionView, type SeriesSummary, type SeriesView } from "$lib/api";
-  import { launch } from "$lib/flight";
   import { lib, nav, openReader } from "$lib/state.svelte";
   import Cover from "$lib/components/Cover.svelte";
   import LetterHeadline from "$lib/components/LetterHeadline.svelte";
@@ -54,7 +53,6 @@
   }
 
   function open(e: MouseEvent, s: SeriesSummary) {
-    launch((e.currentTarget as HTMLElement).querySelector("img"), `s${s.id}`);
     nav.go({ name: "series", id: s.id });
   }
 

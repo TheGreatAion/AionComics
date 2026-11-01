@@ -1,4 +1,4 @@
-// Shared-element transitions: a cover lifts off one screen and lands on the next.
+// A cover flying from one place to another: a book opening into the reader and closing back.
 
 type Box = { left: number; top: number; width: number; height: number };
 
@@ -7,24 +7,6 @@ import { motionMs } from "./look.svelte";
 const EASE = "cubic-bezier(.2,.7,0,1)";
 /** How long a cover takes to fly, for the animations chosen in Settings (0: they're off). */
 export const flightMs = () => motionMs(360, 620);
-
-let pending: { src: string; from: Box; key: string; at: number } | null = null;
-
-/** Remember where a cover is before navigating; the matching cover on the next screen calls `land`. */
-export function launch(img: HTMLImageElement | null | undefined, key: string) {
-  if (!img || !img.complete || !img.naturalWidth) return;
-  pending = { src: img.currentSrc || img.src, from: img.getBoundingClientRect(), key, at: performance.now() };
-}
-
-/** Fly the pending cover onto `target` if it was launched for this key. */
-export function land(target: HTMLElement, key: string) {
-  const p = pending;
-  if (!p || p.key !== key || performance.now() - p.at > 2000) return;
-  pending = null;
-  const to = target.getBoundingClientRect();
-  if (!visible(p.from) || !visible(to)) return;
-  fly(p.src, p.from, to, { hide: [target] });
-}
 
 export function visible(r: Box) {
   return r.width > 0 && r.top + r.height > 0 && r.top < window.innerHeight;
