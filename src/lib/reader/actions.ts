@@ -66,7 +66,7 @@ export const ACTIONS: Action[] = [
     group: "fit",
     keys: ["h"],
     run: (c) => c.setFit("height"),
-    checked: () => prefs.fit === "height",
+    checked: (c) => c.view.fit === "height",
   },
   {
     id: "fitWidth",
@@ -74,7 +74,7 @@ export const ACTIONS: Action[] = [
     group: "fit",
     keys: ["f"],
     run: (c) => c.setFit("width"),
-    checked: () => prefs.fit === "width",
+    checked: (c) => c.view.fit === "width",
   },
   {
     id: "fitPage",
@@ -82,7 +82,7 @@ export const ACTIONS: Action[] = [
     group: "fit",
     keys: ["p"],
     run: (c) => c.setFit("page"),
-    checked: () => prefs.fit === "page",
+    checked: (c) => c.view.fit === "page",
   },
   {
     id: "fullSize",
@@ -90,7 +90,7 @@ export const ACTIONS: Action[] = [
     group: "fit",
     keys: ["w"],
     run: (c) => c.setFit("full"),
-    checked: () => prefs.fit === "full",
+    checked: (c) => c.view.fit === "full",
   },
   {
     id: "scroll",
@@ -98,7 +98,7 @@ export const ACTIONS: Action[] = [
     group: "fit",
     keys: ["shift+c"],
     run: (c) => c.toggleScroll(),
-    checked: () => prefs.scroll,
+    checked: (c) => c.view.scroll,
   },
 
   {

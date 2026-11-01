@@ -3,7 +3,7 @@
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { open, save } from "@tauri-apps/plugin-dialog";
 import { api, pageUrl, previewUrl, screenUrl, thumbUrl, type Panel, type ReaderInfo } from "$lib/api";
-import { prefs, savePrefs, type Fit } from "./prefs.svelte";
+import { keepView, prefs, viewFor, type Fit, type View } from "./prefs.svelte";
 
 export type Overlay = null | "flow" | "bookmarks" | "shortcuts" | "options" | "extract" | "editor";
 export type Dims = { w: number; h: number };
@@ -35,12 +35,12 @@ export class Ctl {
   dims = $state<Record<number, Dims>>({});
   /** Pages' small previews that have loaded (their sizes): shown in place of a page still loading. */
   hints = $state<Record<number, Dims>>({});
+  /** Fit, scrolling, double page and Guided View, as this book's series is read (see View). */
+  view = $state<View>(viewFor(null, false));
   zoom = $state(1);
   rotation = $state(0);
   magnifier = $state(false);
   lensZoom = $state(2.5);
-  /** Spreads read right to left (J, or any manga). */
-  pairRtl = $state(false);
   /** Guided View stops for the pages on screen, in reading order. */
   steps = $state<Step[] | null>(null);
   step = $state(-1); // -1 = the whole page or spread, then each stop
@@ -55,6 +55,8 @@ export class Ctl {
   overlay = $state<Overlay>(null);
   bookmarks = $state<number[]>([]);
   endCard = $state(false);
+  /** At the end of a series, the book the end card offers from your pile (set by the reader). */
+  fromPile: number | null = null;
   note = $state("");
   /** The scrolling element of the current view, for Space to scroll before turning. */
   stage: HTMLElement | null = null;
@@ -78,19 +80,28 @@ export class Ctl {
     return Math.max(0, this.count - 1);
   }
   get guided() {
-    return this.rtl ? prefs.guidedManga : prefs.guidedComics;
+    return this.view.guided;
   }
   set guided(v: boolean) {
-    if (this.rtl) prefs.guidedManga = v;
-    else prefs.guidedComics = v;
-    savePrefs();
+    this.view.guided = v;
+    this.keep();
+  }
+  /** Spreads read right to left (J, or any manga). */
+  get pairRtl() {
+    return this.view.pairRtl;
   }
   get mode(): "guided" | "scroll" | "pages" {
-    return this.guided ? "guided" : prefs.scroll ? "scroll" : "pages";
+    return this.guided ? "guided" : this.view.scroll ? "scroll" : "pages";
   }
   /** Two pages side by side, also while Guided View steps through them. */
   get double() {
-    return prefs.double && this.mode !== "scroll";
+    return this.view.double && this.mode !== "scroll";
+  }
+
+  /** The series reads this way from now on. */
+  private keep() {
+    const info = this.info;
+    if (info && !info.external) keepView(info.comic.seriesId, this.view);
   }
   /** Turning direction on screen: manga, or a spread set to read right to left. */
   get flipped() {
@@ -107,7 +118,7 @@ export class Ctl {
     this.warm = [];
     this.info = info;
     this.bookmarks = info.bookmarks;
-    this.pairRtl = info.comic.isManga;
+    this.view = viewFor(info.external ? null : info.comic.seriesId, info.comic.isManga);
     this.step = -1;
     this.part = 0;
     this.endCard = false;
@@ -128,7 +139,7 @@ export class Ctl {
    *  turned), a big page comes as its copy at screen height, which decodes several times faster;
    *  otherwise as it is, every pixel there for zooming in. */
   src(i: number) {
-    const whole = (prefs.fit === "page" || prefs.fit === "height") && this.zoom === 1 && !this.magnifier && this.rotation % 180 === 0;
+    const whole = (this.view.fit === "page" || this.view.fit === "height") && this.zoom === 1 && !this.magnifier && this.rotation % 180 === 0;
     return whole ? screenUrl(this.id, i) : pageUrl(this.id, i);
   }
 
@@ -239,7 +250,8 @@ export class Ctl {
     const info = this.info;
     if (!info) return;
     if (this.endCard) {
-      if (info.next) this.hooks.open(info.next.id);
+      const to = info.next?.id ?? this.fromPile;
+      if (to) this.hooks.open(to);
       else this.hooks.close();
       return;
     }
@@ -322,44 +334,47 @@ export class Ctl {
   // ---------- view modes ----------
 
   setFit(f: Fit) {
-    prefs.fit = f;
+    this.view.fit = f;
     this.zoom = 1;
-    savePrefs();
+    this.keep();
   }
 
   cycleFit() {
     const order: Fit[] = ["page", "height", "width", "full"];
-    this.setFit(order[(order.indexOf(prefs.fit) + 1) % order.length]);
+    this.setFit(order[(order.indexOf(this.view.fit) + 1) % order.length]);
   }
 
   toggleScroll() {
-    prefs.scroll = !prefs.scroll;
-    if (prefs.scroll) this.guided = false;
+    const v = this.view;
+    v.scroll = !v.scroll;
+    if (v.scroll) v.guided = false;
     this.solo = false;
     this.rotation = 0;
-    savePrefs();
+    this.keep();
     this.seek++;
   }
 
   toggleDouble() {
-    if (this.double) prefs.double = false;
+    const v = this.view;
+    if (this.double) v.double = false;
     else {
-      prefs.double = true;
-      prefs.scroll = false;
-      this.pairRtl = this.rtl;
+      v.double = true;
+      v.scroll = false;
+      v.pairRtl = this.rtl;
     }
-    savePrefs();
+    this.keep();
     this.goTo(this.page);
   }
 
   toggleMangaDouble() {
-    if (this.double && this.pairRtl) prefs.double = false;
+    const v = this.view;
+    if (this.double && v.pairRtl) v.double = false;
     else {
-      prefs.double = true;
-      prefs.scroll = false;
-      this.pairRtl = true;
+      v.double = true;
+      v.scroll = false;
+      v.pairRtl = true;
     }
-    savePrefs();
+    this.keep();
     this.goTo(this.page);
   }
 

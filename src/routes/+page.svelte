@@ -2,9 +2,11 @@
   import { listen } from "@tauri-apps/api/event";
   import { onMount } from "svelte";
   import { api, type ScanStats } from "$lib/api";
-  import { lib, nav, openReader, reader, search, sheets } from "$lib/state.svelte";
+  import { lib, menu, nav, openReader, reader, search, sheets, takeBack, undo } from "$lib/state.svelte";
+  import { arrowNav } from "$lib/keynav";
   import ContextMenu from "$lib/components/ContextMenu.svelte";
   import DropZone from "$lib/components/DropZone.svelte";
+  import UndoBar from "$lib/components/UndoBar.svelte";
   import Matcher from "$lib/components/Matcher.svelte";
   import MetaEditor from "$lib/components/MetaEditor.svelte";
   import SearchOverlay from "$lib/components/SearchOverlay.svelte";
@@ -112,8 +114,15 @@
   });
 
   function onkey(e: KeyboardEvent) {
-    if (reader.id !== null || search.open) return;
-    if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "k") {
+    if (reader.id !== null || search.open || e.defaultPrevented) return;
+    const typing = !!(e.target as HTMLElement)?.closest?.("input, textarea, select, [contenteditable]");
+    const bare = !e.ctrlKey && !e.metaKey && !e.altKey && !e.shiftKey;
+    if (bare && !typing && !menu.open && sheets.editing === null && !sheets.matching && arrowNav(e, route.name !== "home")) {
+      e.preventDefault();
+    } else if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "z" && undo.run && !typing) {
+      e.preventDefault();
+      takeBack();
+    } else if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "k") {
       e.preventDefault();
       search.open = true;
     } else if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "b") {
@@ -176,6 +185,7 @@
 {#if sheets.matching}<Matcher seriesId={sheets.matching.seriesId} isManga={sheets.matching.isManga} name={sheets.matching.name} comicId={sheets.matching.comicId} label={sheets.matching.label} count={sheets.matching.count} />{/if}
 <ContextMenu />
 <DropZone />
+<UndoBar />
 
 <style>
   /* First run has no top bar, but the window still needs a place to drag from and its buttons. */

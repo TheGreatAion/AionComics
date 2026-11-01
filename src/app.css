@@ -204,6 +204,15 @@ img {
   white-space: nowrap;
 }
 
+/* Covers picked with the arrow keys (see keynav.ts) scroll clear of the top bar. */
+[data-nav] {
+  scroll-margin: 96px 0 40px;
+}
+[data-nav]:focus-visible {
+  outline: 2px solid var(--text);
+  outline-offset: 6px;
+}
+
 /* Covers in a grid: captions reserve two lines so covers line up along their bottoms. */
 .grid {
   display: grid;

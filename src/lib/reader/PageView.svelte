@@ -55,7 +55,7 @@
     const W = turned ? 1000 : unitW;
     const H = turned ? unitW : 1000;
     let s: number;
-    switch (prefs.fit) {
+    switch (c.view.fit) {
       case "height":
         s = vh / H;
         break;

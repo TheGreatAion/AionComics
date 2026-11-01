@@ -1,4 +1,4 @@
-import type { CollectionSummary } from "./api";
+import { api, type CollectionSummary, type ReadState } from "./api";
 
 export type Route =
   | { name: "home" }
@@ -57,6 +57,48 @@ export const lib = $state({
   noticeLabel: "",
 });
 
+/** The last change to what's read, offered back for a few seconds: Undo, or Ctrl+Z. */
+export const undo = $state({ text: "", run: null as null | (() => Promise<void>) });
+let undoTimer: ReturnType<typeof setTimeout> | undefined;
+const UNDO_MS = 7000;
+
+/** Mark something read, or take it off Continue reading, and offer to take it back. `after` runs
+ *  once it's been taken back. */
+export function undoable(text: string, change: () => Promise<ReadState[]>, after?: () => void) {
+  return undoableWith(text, change, api.restoreReading, after);
+}
+
+/** Any change that returns how things were, and `restore` to put them back. */
+export async function undoableWith<T>(text: string, change: () => Promise<T>, restore: (before: T) => Promise<void>, after?: () => void) {
+  const before = await change();
+  lib.version++;
+  undo.text = text;
+  undo.run = async () => {
+    await restore(before);
+    lib.version++;
+    after?.();
+  };
+  holdUndo(false);
+}
+
+export function takeBack() {
+  const run = undo.run;
+  dropUndo();
+  return run?.();
+}
+
+export function dropUndo() {
+  clearTimeout(undoTimer);
+  undo.text = "";
+  undo.run = null;
+}
+
+/** The pointer over the bar keeps it up. */
+export function holdUndo(hold: boolean) {
+  clearTimeout(undoTimer);
+  if (!hold && undo.run) undoTimer = setTimeout(dropUndo, UNDO_MS);
+}
+
 export const reader = $state({
   id: null as number | null,
   /** The image the reader grew out of, so it can shrink back into it. */
@@ -80,7 +122,9 @@ export const sheets = $state({
 export type MenuItem =
   | {
       label: string;
-      action: () => void;
+      action?: () => void;
+      /** A list that opens beside this item (then there's no action of its own). */
+      items?: MenuItem[];
       /** Keyboard shortcut shown on the right. */
       hint?: string;
       /** Toggle state: true shows a tick, false reserves the space. */

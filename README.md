@@ -38,9 +38,10 @@ The art is the interface: monochrome, no accent color. The covers and pages brin
 
 - **Home** opens on the page you stopped on, beside the book's title and a Resume button. Below it: *Also reading* (other books opened in the last 30 days), *Next* (the next untouched book in each series you're reading) and the collections as fanned stacks. If nothing was read in the last month, the most recent book you put down takes the top spot.
 - **Collections** are in the top bar. Each is one grid of series covers, filterable and sortable by name, recently read or recently added.
-- **Series pages** show the cover, credits, synopsis and every volume or issue; finished ones are dimmed.
+- **Series pages** are a gallery of every volume or issue as a big cover (finished ones ticked). Click one and its details (story, credits, characters, Read/Resume) open in a panel under its row; click it again or press Esc to close them. Double-click a cover to read it. Ctrl + the mouse wheel makes the covers bigger or smaller. A series split into formats (issues, collections, omnibus…) has a tab for each.
 - Clicking a series cover carries it into the series page, and opening a book grows its cover (or the page on Home) into the reader. Closing shrinks it back.
-- Ctrl+K searches series and creators. Right-click a book for read/unread and Show in Explorer.
+- Ctrl+K searches series and creators. Right-click a book for read/unread, Show in Explorer and its format. On a series page, Ctrl+click or Shift+click picks several books, and right-clicking one of them changes them all (read, unread, format). Marking things read, or taking a book off Continue reading, can be undone for a few seconds (the Undo bar, or Ctrl+Z). Books taken off are listed under Settings › Reading, to put back.
+- The arrow keys move between covers and Enter opens the one picked. On Home, ← and → flip the pile and Enter resumes the top book; on a series page ← → step through its books, ↑ ↓ go a row up or down, and Enter reads the one picked.
 
 Covers keep their real proportions: shapes are read from YACReader's cover cache in a background pass after each scan.
 
@@ -82,6 +83,8 @@ Every tool is in the **⋯** menu (or right-click the page), with its shortcut. 
 | O / Ctrl+O | Open a file / a folder of images from anywhere |
 | Ctrl+S / Ctrl+E | Save this page / extract a range of pages (never into the library folder) |
 | Esc | Back to library |
+
+Each series keeps its own fit, scrolling, double page and Guided View: change them in a book and its series opens that way from then on. Series not read yet start from Settings › Reading (Settings can also forget them all). At the end of a book the next one in the series is offered; at the end of a series, the top book of your Continue reading pile.
 
 Clicking the left or right third of the screen turns pages; clicking the middle shows the controls. Books opened from outside the library keep no progress, bookmarks or panel edits. Alt+← or the mouse back button goes back in the library.
 

@@ -19,7 +19,7 @@
 
   // One column: full width for "fit width" (webtoons), otherwise about a page's width at screen height.
   const column = $derived(
-    Math.round(prefs.fit === "width" ? vw * Math.min(c.zoom, 1) : Math.min(vw, vh * 0.7 * c.zoom)),
+    Math.round(c.view.fit === "width" ? vw * Math.min(c.zoom, 1) : Math.min(vw, vh * 0.7 * c.zoom)),
   );
   const pages = $derived(Array.from({ length: c.count }, (_, i) => i));
   const shape = (i: number) => {

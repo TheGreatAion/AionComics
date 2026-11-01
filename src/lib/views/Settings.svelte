@@ -1,13 +1,14 @@
 <script lang="ts">
   import { getVersion } from "@tauri-apps/api/app";
   import { open } from "@tauri-apps/plugin-dialog";
-  import { api, type Backup, type CvStatus, type Options, type Settings, type Storage } from "$lib/api";
+  import { api, type Backup, type ComicCard, type CvStatus, type Options, type Settings, type Storage } from "$lib/api";
+  import Cover from "$lib/components/Cover.svelte";
   import Icon, { type IconName } from "$lib/components/Icon.svelte";
   import { look, setBackdrop, setMotion, type Motion } from "$lib/look.svelte";
   import { ACTIONS, keysFor, type Action } from "$lib/reader/actions";
   import { chord, loadOverrides, pretty, saveOverrides } from "$lib/reader/keys";
   import { FIT_LABEL } from "$lib/reader/ctl.svelte";
-  import { prefs, savePrefs, type Prefs } from "$lib/reader/prefs.svelte";
+  import { forgetViews, prefs, savePrefs, views, type Prefs } from "$lib/reader/prefs.svelte";
   import { lib, nav } from "$lib/state.svelte";
   import { setTheme, theme, type ThemeChoice } from "$lib/theme.svelte";
 
@@ -28,6 +29,9 @@
   let storage = $state<Storage | null>(null);
   let clearing = $state(false);
   let version = $state("");
+  // Books taken off Continue reading, to put back.
+  let taken = $state<ComicCard[]>([]);
+  const kept = $derived(Object.keys(views).length);
 
   $effect(() => {
     void lib.version;
@@ -35,7 +39,13 @@
     api.settings().then((v) => (s = v));
     api.cvStatus().then((v) => (cv = v));
     api.backups().then((v) => (backups = v));
+    if (!welcome) api.takenOffReading().then((v) => (taken = v));
   });
+
+  async function putBack(c: ComicCard) {
+    await api.unhideFromReading(c.id);
+    lib.version++;
+  }
   $effect(() => {
     if (welcome) return;
     api.storage().then((v) => (storage = v));
@@ -395,6 +405,34 @@
               <div class="lbl">Page number and clock<small>Kept in the corner while you read</small></div>
               {@render toggle(prefs.info, () => set("info", !prefs.info), "Page number and clock")}
             </div>
+            <div class="row">
+              <div class="lbl">
+                Each series keeps its own view
+                <small>
+                  {#if kept}{kept} {kept === 1 ? "series opens" : "series open"} with the fit and layout you last used in {kept === 1 ? "it" : "them"}; the rest start from the settings above
+                  {:else}Change the fit or layout in a book and its series remembers it{/if}
+                </small>
+              </div>
+              {#if kept}<button class="chip" onclick={forgetViews}>Forget them</button>{/if}
+            </div>
+            <div class="row" class:open={taken.length}>
+              <div class="lbl">
+                Taken off Continue reading
+                <small>{taken.length ? "Put one back and it's on Home again, at the page you were on" : "Nothing right now"}</small>
+              </div>
+            </div>
+            {#each taken as c (c.id)}
+              <div class="row book">
+                <span class="thumb"><Cover id={c.id} ratio={c.coverRatio} width={30} /></span>
+                <div class="lbl">
+                  {c.seriesName.trim()} {c.label}
+                  {#if c.numPages}<small class="mono">{c.currentPage + 1} / {c.numPages}</small>{/if}
+                </div>
+                <button class="ico" title="Put back on Continue reading" aria-label="Put back on Continue reading" onclick={() => putBack(c)}>
+                  <Icon name="undo" size={17} />
+                </button>
+              </div>
+            {/each}
           </section>
 
           <section bind:this={sections.library}>
@@ -721,6 +759,22 @@
     padding: 10px 0;
     border-bottom: 1px solid var(--line);
     text-align: left;
+  }
+  .row.open {
+    border-bottom: 0;
+  }
+  .row.book {
+    justify-content: flex-start;
+    gap: 14px;
+    min-height: 0;
+    padding: 8px 0;
+  }
+  .row.book .lbl {
+    flex: 1;
+  }
+  .thumb {
+    flex: none;
+    width: 30px;
   }
   .row.go:hover .ico {
     color: var(--text);

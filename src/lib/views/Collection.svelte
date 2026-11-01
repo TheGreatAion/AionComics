@@ -129,7 +129,7 @@
 {#snippet feature(v: SeriesView, s: SeriesSummary, width: number)}
   {@const next = nextBook(v)}
   <div class="feature">
-    <button class="fcover" onclick={(e) => open(e, s)} aria-label={s.name}>
+    <button class="fcover" data-nav onclick={(e) => open(e, s)} aria-label={s.name}>
       <Cover id={s.coverId} ratio={s.coverRatio} {width} />
     </button>
     <div class="fbody">
@@ -200,7 +200,7 @@
       {#each shown as s (s.id)}
         <!-- Each series' cover on the page, a run of books standing as a small pile behind it. Under
              it, a bar of the cover's own color that fills in as you read. -->
-        <button class="series" style:--tint={tone(s.coverColor, 0.4, 0.5) ?? "var(--track)"} onclick={(e) => open(e, s)}>
+        <button class="series" data-nav style:--tint={tone(s.coverColor, 0.4, 0.5) ?? "var(--track)"} onclick={(e) => open(e, s)}>
           <span class="art">
             {#if s.count > 2}<span class="sheet far"></span>{/if}
             {#if s.count > 1}<span class="sheet"></span>{/if}

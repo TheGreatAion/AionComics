@@ -39,7 +39,7 @@
         </div>
         {#each g.books as b (b.comic.id)}
           <div class="book">
-            <button class="art" onclick={() => nav.go({ name: "series", id: b.comic.seriesId, book: b.comic.id })} title="Open its series">
+            <button class="art" data-nav onclick={() => nav.go({ name: "series", id: b.comic.seriesId, book: b.comic.id })} title="Open its series">
               <Cover id={b.comic.id} ratio={b.comic.coverRatio} width={44} />
             </button>
             <div class="what">

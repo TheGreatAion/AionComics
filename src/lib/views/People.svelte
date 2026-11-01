@@ -53,6 +53,7 @@
             {@const t = storyTitle(c)}
             <button
               class="pick"
+              data-nav
               class:done={c.read}
               title="{c.label}{t ? ` · ${t}` : ''}"
               onclick={() => nav.go({ name: "series", id: s.id, book: c.id })}

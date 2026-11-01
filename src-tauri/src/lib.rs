@@ -555,7 +555,7 @@ fn search(state: State<Shared>, q: String) -> CmdResult<Vec<db::SeriesSummary>> 
 }
 
 #[tauri::command]
-fn mark_read_before(state: State<Shared>, id: i64) -> CmdResult<()> {
+fn mark_read_before(state: State<Shared>, id: i64) -> CmdResult<Vec<db::ReadState>> {
     db::mark_read_before(&state.conn.lock().unwrap(), id, scan::now()).map_err(err)
 }
 
@@ -582,7 +582,7 @@ fn reveal(state: State<Shared>, id: i64) -> CmdResult<()> {
 }
 
 #[tauri::command]
-fn set_series_read(state: State<Shared>, series_id: i64, read: bool) -> CmdResult<()> {
+fn set_series_read(state: State<Shared>, series_id: i64, read: bool) -> CmdResult<Vec<db::ReadState>> {
     db::set_series_read(&state.conn.lock().unwrap(), series_id, read, scan::now()).map_err(err)
 }
 
@@ -966,19 +966,46 @@ fn reading_stats(state: State<Shared>, tz_minutes: i64) -> CmdResult<stats::Stat
 }
 
 #[tauri::command]
-fn set_read(state: State<Shared>, id: i64, read: bool) -> CmdResult<()> {
+fn set_read(state: State<Shared>, id: i64, read: bool) -> CmdResult<Vec<db::ReadState>> {
     db::set_read(&state.conn.lock().unwrap(), id, read, scan::now()).map_err(err)
 }
 
 #[tauri::command]
-fn hide_from_reading(state: State<Shared>, id: i64) -> CmdResult<()> {
+fn hide_from_reading(state: State<Shared>, id: i64) -> CmdResult<Vec<db::ReadState>> {
     db::hide_from_reading(&state.conn.lock().unwrap(), id, scan::now()).map_err(err)
+}
+
+#[tauri::command]
+fn unhide_from_reading(state: State<Shared>, id: i64) -> CmdResult<()> {
+    db::unhide_from_reading(&state.conn.lock().unwrap(), id).map_err(err)
+}
+
+#[tauri::command]
+fn taken_off_reading(state: State<Shared>) -> CmdResult<Vec<db::ComicCard>> {
+    db::taken_off_reading(&state.conn.lock().unwrap()).map_err(err)
+}
+
+/// Undo a change to what's read: the states it returned, put back.
+#[tauri::command]
+fn restore_reading(state: State<Shared>, states: Vec<db::ReadState>) -> CmdResult<()> {
+    db::restore_reading(&state.conn.lock().unwrap(), &states).map_err(err)
 }
 
 /// Give a book a format by hand, or (None) let it be worked out from its name again.
 #[tauri::command]
 fn set_edition(state: State<Shared>, id: i64, kind: Option<String>) -> CmdResult<()> {
     db::set_edition(&state.conn.lock().unwrap(), id, kind.as_deref()).map_err(err)
+}
+
+/// The format of several books at once; returns how they were, for Undo.
+#[tauri::command]
+fn set_editions(state: State<Shared>, ids: Vec<i64>, kind: Option<String>) -> CmdResult<Vec<db::EditionState>> {
+    db::set_editions(&state.conn.lock().unwrap(), &ids, kind.as_deref()).map_err(err)
+}
+
+#[tauri::command]
+fn restore_editions(state: State<Shared>, states: Vec<db::EditionState>) -> CmdResult<()> {
+    db::restore_editions(&state.conn.lock().unwrap(), &states).map_err(err)
 }
 
 // ---------- image protocol: aion://localhost/cover/{id}, /print/{id}, /page/{id}/{n} ----------
@@ -1247,6 +1274,9 @@ pub fn run() {
             save_progress,
             set_read,
             hide_from_reading,
+            unhide_from_reading,
+            taken_off_reading,
+            restore_reading,
             open_path,
             save_page,
             extract_pages,
@@ -1262,6 +1292,8 @@ pub fn run() {
             cv_status,
             cv_open_site,
             set_edition,
+            set_editions,
+            restore_editions,
             cv_set_key,
             cv_search,
             cv_plan,

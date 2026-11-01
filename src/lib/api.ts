@@ -24,6 +24,21 @@ export interface ComicCard {
 export type EditionKind = "volume" | "issue" | "chapter" | "collection" | "deluxe" | "omnibus" | "annual" | "special";
 
 /** One format of a series ("Volumes", "Issues", "Annuals"…), its books in their subfolders. */
+/** A book's reading state before a change, so the change can be undone. */
+/** A book's format as set by hand (null: sorted automatically), for Undo. */
+export interface EditionState {
+  id: number;
+  kind: EditionKind | null;
+}
+
+export interface ReadState {
+  id: number;
+  read: boolean;
+  currentPage: number;
+  lastReadAt: number | null;
+  hiddenAt: number | null;
+}
+
 export interface Edition {
   kind: EditionKind;
   name: string;
@@ -326,6 +341,9 @@ export const api = {
   cvStatus: () => invoke<CvStatus>("cv_status"),
   cvOpenSite: () => invoke<void>("cv_open_site"),
   setEdition: (id: number, kind: EditionKind | null) => invoke<void>("set_edition", { id, kind }),
+  /** Several books at once; returns how they were, for Undo (restoreEditions). */
+  setEditions: (ids: number[], kind: EditionKind | null) => invoke<EditionState[]>("set_editions", { ids, kind }),
+  restoreEditions: (states: EditionState[]) => invoke<void>("restore_editions", { states }),
   cvSetKey: (key: string) => invoke<void>("cv_set_key", { key }),
   cvSearch: (seriesId: number, query?: string) =>
     invoke<{ query: string; volumes: CvVolume[] }>("cv_search", { seriesId, query: query ?? null }),
@@ -349,12 +367,17 @@ export const api = {
     invoke<number>("extract_pages", { id, from, to, dir }),
   saveProgress: (id: number, page: number, pageCount: number) =>
     invoke<void>("save_progress", { id, page, pageCount }),
-  setRead: (id: number, read: boolean) => invoke<void>("set_read", { id, read }),
+  // These four return how the books were before, for Undo (restoreReading).
+  setRead: (id: number, read: boolean) => invoke<ReadState[]>("set_read", { id, read }),
   /** Off Continue reading, with the page you're on kept. Reading it again puts it back. */
-  hideFromReading: (id: number) => invoke<void>("hide_from_reading", { id }),
-  markReadBefore: (id: number) => invoke<void>("mark_read_before", { id }),
+  hideFromReading: (id: number) => invoke<ReadState[]>("hide_from_reading", { id }),
+  markReadBefore: (id: number) => invoke<ReadState[]>("mark_read_before", { id }),
+  setSeriesRead: (seriesId: number, read: boolean) => invoke<ReadState[]>("set_series_read", { seriesId, read }),
+  restoreReading: (states: ReadState[]) => invoke<void>("restore_reading", { states }),
+  /** Books taken off Continue reading and not read since. */
+  takenOffReading: () => invoke<ComicCard[]>("taken_off_reading"),
+  unhideFromReading: (id: number) => invoke<void>("unhide_from_reading", { id }),
   dismissBackfill: (seriesId: number) => invoke<void>("dismiss_backfill", { seriesId }),
-  setSeriesRead: (seriesId: number, read: boolean) => invoke<void>("set_series_read", { seriesId, read }),
   reveal: (id: number) => invoke<void>("reveal", { id }),
 };
 

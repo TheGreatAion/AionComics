@@ -1,6 +1,6 @@
 <script lang="ts">
   import { tick } from "svelte";
-  import { api, coverUrl, duration, storyTitle, type BookStats, type Panel } from "$lib/api";
+  import { api, coverUrl, duration, storyTitle, type BookStats, type ComicCard, type Panel } from "$lib/api";
   import Icon, { type IconName } from "$lib/components/Icon.svelte";
   import WindowControls from "$lib/components/WindowControls.svelte";
   import Wash from "$lib/components/Wash.svelte";
@@ -42,7 +42,8 @@
   let panelsRev = $state(0);
 
   // The cover (or page) the reader grew out of. It flies in onto the first page and back out on close.
-  let arriving = $state(!!reader.from && !prefs.scroll && visible(reader.from.getBoundingClientRect()));
+  // (Not into continuous scroll, which has no one page to land on; see the load below.)
+  let arriving = $state(!!reader.from && visible(reader.from.getBoundingClientRect()));
   let leaving = $state(false);
 
   // Never leave a blank screen: if the first page is slow, skip the flight and bring the controls back.
@@ -60,7 +61,11 @@
     c.rotation = 0;
     api
       .openComic(book)
-      .then((r) => book === id && c.load(r))
+      .then((r) => {
+        if (book !== id) return;
+        c.load(r);
+        if (c.mode === "scroll") arriving = false;
+      })
       .catch((e) => (c.error = String(e)));
   });
 
@@ -125,6 +130,19 @@
     const book = c.id;
     flush().then(() => api.bookStats(book).then((s) => book === c.id && (read = s)));
   });
+  // The end of a series: the book on top of your pile is offered instead of a next one.
+  let waiting = $state<ComicCard | null>(null);
+  $effect(() => {
+    if (!c.endCard || !c.info || c.info.next || c.info.external) return void (waiting = null);
+    const book = c.id;
+    api.home().then((h) => {
+      if (book === c.id) waiting = [...h.continueReading, ...h.pickUpAgain].find((b) => b.id !== book) ?? null;
+    });
+  });
+  $effect(() => {
+    c.fromPile = waiting?.id ?? null;
+  });
+
   const readLine = $derived.by(() => {
     if (!read?.sittings) return [];
     const days = read.firstAt && read.lastAt ? Math.round((read.lastAt - read.firstAt) / 86_400) + 1 : 1;
@@ -365,6 +383,18 @@
               <button class="btn icon-btn" onclick={() => onopen(c.info!.next!.id)}><Icon name="play" size={14} />{c.info.next.label}</button>
               <button class="ico" title="Back to library" aria-label="Back to library" onclick={close}><Icon name="back" size={18} /></button>
             </div>
+          {:else if waiting}
+            {@const w = waiting}
+            <p class="pile-note">Next from your pile</p>
+            <button class="next" onclick={() => onopen(w.id)}>
+              <img src={coverUrl(w.id)} alt="" />
+              <span class="nl">{w.seriesName.trim()}</span>
+              <span class="nt">{w.label}{#if w.numPages}&ensp;·&ensp;page {w.currentPage + 1} of {w.numPages}{/if}</span>
+            </button>
+            <div class="end-actions">
+              <button class="btn icon-btn" onclick={() => onopen(w.id)}><Icon name="play" size={14} />Resume</button>
+              <button class="ico" title="Back to library" aria-label="Back to library" onclick={close}><Icon name="back" size={18} /></button>
+            </div>
           {:else}
             <div class="end-actions">
               <button class="btn icon-btn" onclick={close}><Icon name="back" size={15} />Library</button>
@@ -420,11 +450,11 @@
           {@render tool("flow", "strip")}
           <button
             class="tool"
-            title="{FIT_LABEL[prefs.fit]} (click to change)"
-            aria-label="Fit: {FIT_LABEL[prefs.fit]}"
+            title="{FIT_LABEL[c.view.fit]} (click to change)"
+            aria-label="Fit: {FIT_LABEL[c.view.fit]}"
             onclick={() => (c.cycleFit(), wake())}
           >
-            {#if prefs.fit === "full"}<span class="txt mono">1:1</span>{:else}<Icon name={FIT_ICON[prefs.fit]} />{/if}
+            {#if c.view.fit === "full"}<span class="txt mono">1:1</span>{:else}<Icon name={FIT_ICON[c.view.fit]} />{/if}
           </button>
           {@render tool("double", "double")}
           {@render tool("guided", "guided")}
@@ -797,6 +827,11 @@
   }
   .read .dot {
     color: var(--text-3);
+  }
+  .pile-note {
+    margin-bottom: 18px;
+    color: var(--text-3);
+    font-size: 13px;
   }
   .next {
     display: flex;

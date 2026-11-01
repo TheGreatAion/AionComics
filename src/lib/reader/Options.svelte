@@ -25,7 +25,7 @@
     <span>Page fit</span>
     <div class="choice">
       {#each Object.entries(FIT_LABEL) as [k, label] (k)}
-        <button class:on={prefs.fit === k} onclick={() => c.setFit(k as Prefs["fit"])}>{label.replace(/^Fit (.)/, (_, ch) => ch.toUpperCase())}</button>
+        <button class:on={c.view.fit === k} onclick={() => c.setFit(k as Prefs["fit"])}>{label.replace(/^Fit (.)/, (_, ch) => ch.toUpperCase())}</button>
       {/each}
     </div>
   </div>

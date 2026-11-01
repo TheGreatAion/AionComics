@@ -2,7 +2,8 @@
   import { tick, untrack } from "svelte";
   import { fade, fly } from "svelte/transition";
   import { ago, api, pageUrl, printUrl, progressOf, storyTitle, unitWord, type ComicCard, type Home } from "$lib/api";
-  import { lib, nav, openReader, reader, search, sheets, showMenu } from "$lib/state.svelte";
+  import { lib, nav, openReader, reader, search, sheets, showMenu, undoable } from "$lib/state.svelte";
+  import { bareEnter } from "$lib/keynav";
   import { hue } from "$lib/color";
   import Cover from "$lib/components/Cover.svelte";
   import Icon from "$lib/components/Icon.svelte";
@@ -41,10 +42,12 @@
   const pages = new Map<number, HTMLImageElement>();
   const resume = () => hero && openReader(hero.id, pages.get(hero.id) ?? null);
 
-  // Off the pile, with the page you're on kept; reading the book again brings it back.
+  // Off the pile, with the page you're on kept; reading the book again brings it back. Taking off
+  // the book on top leaves the next one on top.
   async function remove(c: ComicCard) {
-    await api.hideFromReading(c.id);
-    lib.version++;
+    if (c.id === hero?.id && pile.length > 1) topId = pile[(at + 1) % pile.length].id;
+    // Taken back, it's on top again.
+    await undoable(`${c.seriesName.trim()} ${c.label} taken off`, () => api.hideFromReading(c.id), () => (topId = c.id));
   }
   const bookMenu = (e: MouseEvent, c: ComicCard) =>
     showMenu(e, [
@@ -186,11 +189,15 @@
     return () => el.removeEventListener("wheel", onwheel);
   });
 
+  // ← and → flip the pile (once a collection's picked, they move between collections instead),
+  // Enter resumes the book on top.
   function onkey(e: KeyboardEvent) {
-    if (reader.id !== null || search.open || sheets.editing !== null || sheets.matching) return;
+    if (reader.id !== null || search.open || sheets.editing !== null || sheets.matching || e.defaultPrevented) return;
     if (e.ctrlKey || e.metaKey || e.altKey || e.shiftKey) return;
     if ((e.target as HTMLElement)?.closest?.("input, textarea, select, [contenteditable]")) return;
-    if (e.key === "ArrowRight") flip(1);
+    if (document.activeElement?.closest("[data-nav]")) return;
+    if (bareEnter(e)) resume();
+    else if (e.key === "ArrowRight") flip(1);
     else if (e.key === "ArrowLeft") flip(-1);
     else return;
     e.preventDefault();
@@ -334,7 +341,7 @@
       <section class="library" aria-label="Library">
         <div class="cols">
           {#each lib.collections as c (c.id)}
-            <button class="col" style:flex-grow={3 + c.comicCount / most} onclick={() => nav.root({ name: "collection", id: c.id })}>
+            <button class="col" data-nav style:flex-grow={3 + c.comicCount / most} onclick={() => nav.root({ name: "collection", id: c.id })}>
               <div class="caption">
                 {c.name}<span class="mono">{c.seriesCount.toLocaleString()} series · {c.comicCount.toLocaleString()}</span>
               </div>

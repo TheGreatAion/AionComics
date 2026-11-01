@@ -262,12 +262,77 @@ pub fn pick_up_again(conn: &Connection, now: i64, limit: i64) -> Result<Vec<Comi
     )
 }
 
-/// Take a book off Continue reading (and Pick up again). Its place in the book is kept.
-pub fn hide_from_reading(conn: &Connection, id: i64, now: i64) -> Result<()> {
+/// Take a book off Continue reading (and Pick up again). Its place in the book is kept. Returns how
+/// it was, for Undo.
+pub fn hide_from_reading(conn: &Connection, id: i64, now: i64) -> Result<Vec<ReadState>> {
+    let before = read_states(conn, "c.id=?1", [id])?;
     conn.execute(
         "INSERT INTO reading_hidden(comic_id, at) VALUES(?1, ?2) ON CONFLICT(comic_id) DO UPDATE SET at=excluded.at",
         params![id, now],
     )?;
+    Ok(before)
+}
+
+/// Put a book taken off Continue reading back on it.
+pub fn unhide_from_reading(conn: &Connection, id: i64) -> Result<()> {
+    conn.execute("DELETE FROM reading_hidden WHERE comic_id=?1", [id])?;
+    Ok(())
+}
+
+/// Books taken off Continue reading and not read since, the last one taken off first.
+pub fn taken_off_reading(conn: &Connection) -> Result<Vec<ComicCard>> {
+    cards(
+        conn,
+        "JOIN reading_hidden h ON h.comic_id=c.id
+         WHERE c.read=0 AND c.current_page>0 AND h.at>=COALESCE(c.last_read_at, 0) ORDER BY h.at DESC",
+        [],
+    )
+}
+
+/// A book's reading state before a change (marking it read, taking it off Continue reading), so the
+/// change can be undone.
+#[derive(Serialize, serde::Deserialize, Debug, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct ReadState {
+    pub id: i64,
+    pub read: bool,
+    pub current_page: i64,
+    pub last_read_at: Option<i64>,
+    /// When it was taken off Continue reading, if it was.
+    pub hidden_at: Option<i64>,
+}
+
+/// The reading state of the books `filter` (a condition on comics `c`) picks out.
+fn read_states(conn: &Connection, filter: &str, p: impl rusqlite::Params) -> Result<Vec<ReadState>> {
+    let mut st = conn.prepare(&format!(
+        "SELECT c.id, c.read, c.current_page, c.last_read_at, h.at FROM comics c
+         LEFT JOIN reading_hidden h ON h.comic_id=c.id WHERE {filter}"
+    ))?;
+    let v = st
+        .query_map(p, |r| {
+            Ok(ReadState { id: r.get(0)?, read: r.get(1)?, current_page: r.get(2)?, last_read_at: r.get(3)?, hidden_at: r.get(4)? })
+        })?
+        .collect::<rusqlite::Result<Vec<_>>>()?;
+    Ok(v)
+}
+
+/// Undo: put books back the way `read_states` found them.
+pub fn restore_reading(conn: &Connection, states: &[ReadState]) -> Result<()> {
+    let tx = conn.unchecked_transaction()?;
+    for s in states {
+        tx.execute(
+            "UPDATE comics SET read=?2, current_page=?3, last_read_at=?4 WHERE id=?1",
+            params![s.id, s.read, s.current_page, s.last_read_at],
+        )?;
+        match s.hidden_at {
+            Some(at) => tx.execute(
+                "INSERT INTO reading_hidden(comic_id, at) VALUES(?1, ?2) ON CONFLICT(comic_id) DO UPDATE SET at=excluded.at",
+                params![s.id, at],
+            )?,
+            None => tx.execute("DELETE FROM reading_hidden WHERE comic_id=?1", [s.id])?,
+        };
+    }
+    tx.commit()?;
     Ok(())
 }
 
@@ -804,6 +869,38 @@ pub fn set_edition(conn: &Connection, comic: i64, kind: Option<&str>) -> Result<
     Ok(())
 }
 
+/// A book's format as it was set by hand (None: sorted automatically), for Undo.
+#[derive(Serialize, serde::Deserialize, Debug, PartialEq)]
+pub struct EditionState {
+    pub id: i64,
+    pub kind: Option<String>,
+}
+
+/// Set the format of several books at once. Returns how they were, for Undo.
+pub fn set_editions(conn: &Connection, ids: &[i64], kind: Option<&str>) -> Result<Vec<EditionState>> {
+    let tx = conn.unchecked_transaction()?;
+    let mut before = Vec::with_capacity(ids.len());
+    for &id in ids {
+        let was = tx
+            .query_row("SELECT kind FROM edition_override WHERE comic_id=?1", [id], |r| r.get(0))
+            .optional()?;
+        before.push(EditionState { id, kind: was });
+        set_edition(&tx, id, kind)?;
+    }
+    tx.commit()?;
+    Ok(before)
+}
+
+/// Undo: put formats back the way `set_editions` found them.
+pub fn restore_editions(conn: &Connection, states: &[EditionState]) -> Result<()> {
+    let tx = conn.unchecked_transaction()?;
+    for s in states {
+        set_edition(&tx, s.id, s.kind.as_deref())?;
+    }
+    tx.commit()?;
+    Ok(())
+}
+
 fn backfill(conn: &Connection, series: i64) -> Result<Option<Backfill>> {
     if get_setting(conn, &format!("backfill_dismissed:{series}"))?.is_some() {
         return Ok(None);
@@ -826,17 +923,24 @@ fn backfill(conn: &Connection, series: i64) -> Result<Option<Backfill>> {
     Ok((count > 0).then_some(Backfill { before_id, before_label, count }))
 }
 
-pub fn mark_read_before(conn: &Connection, id: i64, now: i64) -> Result<()> {
+pub fn mark_read_before(conn: &Connection, id: i64, now: i64) -> Result<Vec<ReadState>> {
+    let before = read_states(
+        conn,
+        "c.series_id=(SELECT series_id FROM comics WHERE id=?1)
+         AND c.sort_key<(SELECT sort_key FROM comics WHERE id=?1) AND c.read=0",
+        [id],
+    )?;
     conn.execute(
         "UPDATE comics SET read=1, current_page=0, last_read_at=COALESCE(last_read_at, ?2)
          WHERE series_id=(SELECT series_id FROM comics WHERE id=?1)
            AND sort_key<(SELECT sort_key FROM comics WHERE id=?1) AND read=0",
         params![id, now],
     )?;
-    Ok(())
+    Ok(before)
 }
 
-pub fn set_series_read(conn: &Connection, series: i64, read: bool, now: i64) -> Result<()> {
+pub fn set_series_read(conn: &Connection, series: i64, read: bool, now: i64) -> Result<Vec<ReadState>> {
+    let before = read_states(conn, "c.series_id=?1", [series])?;
     if read {
         conn.execute(
             "UPDATE comics SET read=1, current_page=0, last_read_at=COALESCE(last_read_at, ?2) WHERE series_id=?1",
@@ -845,7 +949,7 @@ pub fn set_series_read(conn: &Connection, series: i64, read: bool, now: i64) -> 
     } else {
         conn.execute("UPDATE comics SET read=0, current_page=0, last_read_at=NULL WHERE series_id=?1", [series])?;
     }
-    Ok(())
+    Ok(before)
 }
 
 pub struct ComicFile {
@@ -906,13 +1010,14 @@ pub fn set_progress(conn: &Connection, id: i64, page: i64, pages: i64, now: i64)
     Ok(())
 }
 
-pub fn set_read(conn: &Connection, id: i64, read: bool, now: i64) -> Result<()> {
+pub fn set_read(conn: &Connection, id: i64, read: bool, now: i64) -> Result<Vec<ReadState>> {
+    let before = read_states(conn, "c.id=?1", [id])?;
     if read {
         conn.execute("UPDATE comics SET read=1, last_read_at=?2 WHERE id=?1", params![id, now])?;
     } else {
         conn.execute("UPDATE comics SET read=0, current_page=0, last_read_at=NULL WHERE id=?1", params![id])?;
     }
-    Ok(())
+    Ok(before)
 }
 
 pub fn set_cover_color(conn: &Connection, id: i64, color: &str) -> Result<()> {
@@ -1269,6 +1374,56 @@ mod meta_tests {
         assert_eq!(page(&conn), 12, "its place is kept");
         set_progress(&conn, 1, 13, 38, 2 * day).unwrap();
         assert_eq!(shown(&conn, 2 * day), 1, "reading it again brings it back");
+
+        let before = hide_from_reading(&conn, 1, 3 * day).unwrap();
+        assert_eq!(taken_off_reading(&conn).unwrap().len(), 1, "listed as taken off");
+        restore_reading(&conn, &before).unwrap();
+        assert_eq!(shown(&conn, 3 * day), 1, "undone");
+        assert!(taken_off_reading(&conn).unwrap().is_empty());
+        hide_from_reading(&conn, 1, 3 * day).unwrap();
+        unhide_from_reading(&conn, 1).unwrap();
+        assert_eq!(shown(&conn, 3 * day), 1, "put back by hand");
+
+        let before = set_read(&conn, 1, true, 4 * day).unwrap();
+        assert_eq!(shown(&conn, 4 * day), 0, "finished");
+        restore_reading(&conn, &before).unwrap();
+        assert_eq!((page(&conn), shown(&conn, 4 * day)), (13, 1), "marking it read undone, its place kept");
+        let before = set_series_read(&conn, 1, false, 5 * day).unwrap();
+        assert_eq!(page(&conn), 0);
+        restore_reading(&conn, &before).unwrap();
+        assert_eq!(page(&conn), 13, "marking the series unread undone");
+        drop(conn);
+        let _ = std::fs::remove_file(&path);
+    }
+
+    #[test]
+    fn changing_the_format_of_several_books() {
+        let path = std::env::temp_dir().join(format!("aion-editions-test-{}.db", std::process::id()));
+        let _ = std::fs::remove_file(&path);
+        let conn = open(&path).unwrap();
+        conn.execute("INSERT INTO collections(id, name, is_manga) VALUES(1, 'DC', 0)", []).unwrap();
+        conn.execute("INSERT INTO series(id, collection_id, name, rel_path) VALUES(1, 1, 'Absolute Batman', 'DC/AB')", []).unwrap();
+        for i in 1..=3 {
+            conn.execute(
+                "INSERT INTO comics(id, series_id, rel_path, file_name, label) VALUES(?1, 1, ?2, ?3, ?4)",
+                params![i, format!("DC/AB/{i}.cbz"), format!("{i}.cbz"), format!("#{i}")],
+            )
+            .unwrap();
+        }
+        let kinds = |c: &Connection| -> Vec<Option<String>> {
+            (1..=3)
+                .map(|i| c.query_row("SELECT kind FROM edition_override WHERE comic_id=?1", [i], |r| r.get(0)).optional().unwrap())
+                .collect()
+        };
+        set_edition(&conn, 1, Some("annual")).unwrap();
+        let before = set_editions(&conn, &[1, 2], Some("collection")).unwrap();
+        assert_eq!(kinds(&conn), [Some("collection".into()), Some("collection".into()), None]);
+        restore_editions(&conn, &before).unwrap();
+        assert_eq!(kinds(&conn), [Some("annual".into()), None, None], "undone, the hand-set one kept");
+        let before = set_editions(&conn, &[1, 2, 3], None).unwrap();
+        assert_eq!(kinds(&conn), [None, None, None]);
+        restore_editions(&conn, &before).unwrap();
+        assert_eq!(kinds(&conn)[0], Some("annual".into()));
         drop(conn);
         let _ = std::fs::remove_file(&path);
     }
