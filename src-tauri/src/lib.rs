@@ -11,6 +11,7 @@ mod rarindex;
 mod scan;
 mod stats;
 mod warm;
+mod yacsync;
 
 /// Bump when panel detection changes so cached results are recomputed.
 const PANELS_VERSION: i64 = 11;
@@ -125,6 +126,8 @@ struct Options {
     cache_days: u64,
     /// How many backups are kept.
     backups_keep: usize,
+    /// Send your reading to YACReader's library too (see yacsync.rs).
+    yacreader_sync: bool,
 }
 
 impl Options {
@@ -135,6 +138,7 @@ impl Options {
             read_file_details: get("read_file_details").is_none_or(|v| v != "0"),
             cache_days: get("cache_days").and_then(|v| v.parse().ok()).unwrap_or(30),
             backups_keep: backup::keep(conn),
+            yacreader_sync: yacsync::enabled(conn),
         }
     }
 
@@ -143,7 +147,8 @@ impl Options {
         db::set_setting(conn, "watch_folder", flag(self.watch_folder))?;
         db::set_setting(conn, "read_file_details", flag(self.read_file_details))?;
         db::set_setting(conn, "cache_days", &self.cache_days.max(1).to_string())?;
-        db::set_setting(conn, "backups_keep", &self.backups_keep.max(1).to_string())
+        db::set_setting(conn, "backups_keep", &self.backups_keep.max(1).to_string())?;
+        db::set_setting(conn, yacsync::SETTING, flag(self.yacreader_sync))
     }
 }
 
@@ -163,6 +168,20 @@ fn tidy_cache(state: &AppState, keep: Option<i64>) {
         } else if let Ok((path, _)) = state.comic_path(id) {
             state.archives.trim_unpacked(id, &path);
         }
+    }
+}
+
+/// Send your reading to YACReader if that's on, anything is waiting and YACReader is closed.
+fn send_to_yacreader(state: &AppState) {
+    let waiting = {
+        let conn = state.conn.lock().unwrap();
+        yacsync::enabled(&conn) && yacsync::pending(&conn) > 0
+    };
+    let Some(root) = state.root().filter(|_| waiting) else { return };
+    match yacsync::flush(&state.db_path, &state.data_dir, &root) {
+        Ok(0) => {}
+        Ok(n) => eprintln!("sent reading of {n} books to YACReader"),
+        Err(e) => eprintln!("couldn't send reading to YACReader: {e}"),
     }
 }
 
@@ -295,20 +314,47 @@ struct Settings {
     options: Options,
     /// Where the library database and backups are kept.
     data_dir: String,
+    /// The YACReader library in the comics folder, if there is one.
+    yacreader: Option<YacStatus>,
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct YacStatus {
+    /// Books whose reading hasn't reached YACReader yet.
+    pending: i64,
+    /// Held back because YACReader is open.
+    waiting: bool,
+    last_sent: Option<yacsync::Sent>,
 }
 
 #[tauri::command(async)]
 fn get_settings(state: State<Shared>) -> CmdResult<Settings> {
     let conn = state.conn.lock().unwrap();
-    Ok(Settings {
-        library_root: db::get_setting(&conn, "library_root").map_err(err)?,
+    let library_root = db::get_setting(&conn, "library_root").map_err(err)?;
+    let options = Options::load(&conn);
+    let yacreader = library_root.as_ref().filter(|r| yacsync::library(Path::new(r)).exists()).map(|_| YacStatus {
+        pending: yacsync::pending(&conn),
+        waiting: false,
+        last_sent: yacsync::last_sent(&conn),
+    });
+    let settings = Settings {
+        library_root,
         last_scan: db::get_setting(&conn, "last_scan")
             .map_err(err)?
             .and_then(|s| serde_json::from_str(&s).ok()),
         scanning: state.scanning.load(Ordering::SeqCst),
-        options: Options::load(&conn),
+        options,
         data_dir: state.data_dir.display().to_string(),
-    })
+        yacreader,
+    };
+    drop(conn);
+    // Asking Windows what's running takes a moment: only when something is waiting to go.
+    let mut settings = settings;
+    if let Some(y) = settings.yacreader.as_mut().filter(|y| options.yacreader_sync && y.pending > 0) {
+        y.waiting = yacsync::yacreader_open();
+    }
+    Ok(settings)
 }
 
 /// Save the Settings page's choices, and act on the ones that change something now.
@@ -332,6 +378,12 @@ fn set_options(app: AppHandle, state: State<Shared>, options: Options) -> CmdRes
                 }
             });
         }
+    }
+    if options.yacreader_sync && !before.yacreader_sync {
+        // YACReader catches up on what you've read here before, then hears of it as you go.
+        yacsync::queue_all(&state.conn.lock().unwrap()).map_err(err)?;
+        let state = state.inner().clone();
+        std::thread::spawn(move || send_to_yacreader(&state));
     }
     if options.cache_days < before.cache_days {
         let state = state.inner().clone();
@@ -629,6 +681,10 @@ struct ReaderInfo {
     bookmarks: Vec<i64>,
     /// Opened from outside the library: progress, bookmarks and panel edits aren't kept.
     external: bool,
+    /// Reads right to left: manga, unless YACReader says it's left-to-right manga or a webtoon.
+    rtl: bool,
+    /// A webtoon, as YACReader says: one long strip, read scrolling.
+    webtoon: bool,
 }
 
 /// Open a file or folder picked from disk. Books inside the library open as themselves.
@@ -883,6 +939,8 @@ async fn open_comic(state: State<'_, Shared>, id: i64, screen: Option<u32>) -> C
                 next: None,
                 bookmarks: vec![],
                 external: true,
+                rtl: false,
+                webtoon: false,
             });
         }
         let conn = state.conn.lock().unwrap();
@@ -891,11 +949,17 @@ async fn open_comic(state: State<'_, Shared>, id: i64, screen: Option<u32>) -> C
         let next = next_id.map(|n| db::card_by_id(&conn, n)).transpose()?;
         let start = if comic.read { 0 } else { (comic.current_page.max(0) as usize).min(n - 1) };
         let bookmarks = db::bookmarks(&conn, id)?;
+        let kind = db::yac_type(&conn, id)?;
         drop(conn);
+        let rtl = match kind {
+            Some(1) => true,
+            Some(2 | 3) => false,
+            _ => comic.is_manga,
+        };
         warm::start(&state, id, n, start, screen);
         let s = state.clone();
         std::thread::spawn(move || tidy_cache(&s, Some(id)));
-        Ok(ReaderInfo { comic, page_count: n, start_page: start, prev_id, next, bookmarks, external: false })
+        Ok(ReaderInfo { comic, page_count: n, start_page: start, prev_id, next, bookmarks, external: false, rtl, webtoon: kind == Some(3) })
     })
     .await
     .map_err(err)?
@@ -1235,6 +1299,14 @@ pub fn run() {
                     std::thread::sleep(std::time::Duration::from_secs(3600) - STARTUP_QUIET);
                 });
             }
+            // Your reading, sent to YACReader while it's closed, when that's on in Settings.
+            {
+                let state = state.clone();
+                std::thread::spawn(move || loop {
+                    std::thread::sleep(std::time::Duration::from_secs(20));
+                    send_to_yacreader(&state);
+                });
+            }
             // Pick up anything added or moved since last launch, and tidy the cache, once the first
             // screen is up: both work the database and the drive, and would hold it up.
             {
@@ -1303,8 +1375,14 @@ pub fn run() {
             add_comics,
             take_open_request
         ])
-        .run(tauri::generate_context!())
-        .expect("error while running AionComics");
+        .build(tauri::generate_context!())
+        .expect("error while running AionComics")
+        .run(|app, event| {
+            // The last of your reading goes to YACReader on the way out.
+            if let tauri::RunEvent::Exit = event {
+                send_to_yacreader(app.state::<Shared>().inner());
+            }
+        });
 }
 
 #[cfg(test)]

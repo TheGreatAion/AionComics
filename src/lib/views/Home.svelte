@@ -1,7 +1,7 @@
 <script lang="ts">
   import { tick, untrack } from "svelte";
   import { fade, fly } from "svelte/transition";
-  import { ago, api, pageUrl, printUrl, progressOf, storyTitle, unitWord, type ComicCard, type Home } from "$lib/api";
+  import { ago, api, listText, pageUrl, printUrl, progressOf, storyTitle, unitWord, type ComicCard, type Home } from "$lib/api";
   import { lib, nav, openReader, reader, search, sheets, showMenu, undoable } from "$lib/state.svelte";
   import { bareEnter } from "$lib/keynav";
   import { hue } from "$lib/color";
@@ -36,6 +36,30 @@
     const c = hue(hero?.coverColor);
     return c && c.chroma > 0.12 && !(c.h >= 150 && c.h <= 200) ? c.h : null;
   });
+  // Who made the book on top, and how long the rest of it should take at the pace you've read it.
+  let about = $state<{ id: number; by: string; secsPerPage: number | null } | null>(null);
+  $effect(() => {
+    const id = hero?.id;
+    if (!id) return;
+    let live = true;
+    Promise.all([api.comicMeta(id), api.bookStats(id).catch(() => null)]).then(([m, s]) => {
+      if (!live) return;
+      const names = [m.fields.writer, m.fields.penciller].flatMap((v) => listText(v).split(", ")).filter(Boolean);
+      about = {
+        id,
+        by: [...new Set(names)].slice(0, 2).join(" · "),
+        secsPerPage: s && s.pages >= 5 ? s.seconds / s.pages : null,
+      };
+    });
+    return () => (live = false);
+  });
+  const shown = $derived(about && about.id === hero?.id ? about : null);
+  const timeLeft = $derived.by(() => {
+    if (!hero?.numPages || !shown?.secsPerPage) return null;
+    const mins = Math.round(((hero.numPages - hero.currentPage - 1) * shown.secsPerPage) / 60);
+    if (mins < 3) return "A few minutes left";
+    return mins < 60 ? `About ${mins} min left` : `About ${Math.floor(mins / 60)} hr ${mins % 60} min left`;
+  });
   // Each collection's panel is wider the more books it holds.
   const most = $derived(Math.max(1, ...lib.collections.map((c) => c.comicCount)));
 
@@ -62,13 +86,12 @@
 
   /* ---- Layout. Sizes are shares of the book's height, so the pile looks the same at any window size. */
   const BEHIND = 3; // books you can see behind the top one; the rest wait hidden at the back
-  const PEEK = 0.1; // how far each book behind rises above the one in front
-  const SHIFT = 0.045; // and how far it sits to the right
-  const SHRINK = 0.025; // and how much smaller it is
+  const PEEK = 0.08; // how far each book behind rises straight up above the one in front
+  const SHRINK = 0.05; // and how much smaller it is
   const LIFT = 1.3; // hovering spreads the pile by this much
   const COVER_RATIO = 1.54;
   const GAP = 4; // between a book's cover and its page
-  const CAPTION = 34; // room under the pile for the counter
+  const CAPTION = 58; // room under the pile for the arrows and counter
 
   let colW = $state(0);
   let colH = $state(0);
@@ -80,15 +103,14 @@
     if (!colW || !colH || !hero) return null;
     const n = Math.min(pile.length - 1, BEHIND);
     const caption = pile.length > 1 ? CAPTION : 0;
-    const wide = (h: number) => h / COVER_RATIO + GAP + h / ratioOf(hero.id) + n * SHIFT * h * LIFT;
+    const wide = (h: number) => h / COVER_RATIO + GAP + h / ratioOf(hero.id);
     // Hovering lifts the pile into the space above the hero, so only the resting pile needs room here.
     let h = (colH - caption) / (1 + n * PEEK);
     if (wide(h) > colW) h *= colW / wide(h);
     const tall = h * (1 + n * PEEK);
-    const left = (colW - wide(h) + n * SHIFT * h * (LIFT - 1)) / 2;
+    const w = wide(h);
+    const left = (colW - w) / 2;
     const top = (colH - caption - tall) / 2 + tall - h;
-    // How wide the resting pile is, for the arrows either side of it.
-    const w = h / COVER_RATIO + GAP + h / ratioOf(hero.id) + n * SHIFT * h;
     return { h, left, top, w, coverW: h / COVER_RATIO };
   });
 
@@ -103,12 +125,15 @@
   const regUnit = reg(units);
   const regPage = reg(pages as Map<number, HTMLElement>);
 
+  // Books stand centered on the one on top, whatever the shape of their page.
+  const unitLeft = (id: number) => (fit!.w - (fit!.coverW + GAP + fit!.h / ratioOf(id))) / 2;
+
   function place(d: number) {
     const h = fit!.h;
     const k = Math.min(d, BEHIND);
     const m = spread ? LIFT : 1;
     return {
-      transform: `translate(${k * SHIFT * h * m}px, ${-k * PEEK * h * m}px) scale(${1 - k * SHRINK})`,
+      transform: `translateY(${-k * PEEK * h * m}px) scale(${1 - k * SHRINK})`,
       filter: `brightness(${1 - k * 0.2})`,
       opacity: d <= BEHIND ? 1 : 0,
       zIndex: 10 - k,
@@ -135,8 +160,8 @@
     topId = pile[to].id;
     await tick();
     const h = fit.h;
-    // Slid down and out to the left, clear of the pile, before going to its new place.
-    const out = { transform: `translate(${-h * 0.42}px, ${h * 0.08}px) rotate(-3deg)`, filter: "brightness(1)", opacity: 1 };
+    // Slid straight out to the left, clear of the pile, before going to its new place.
+    const out = { transform: `translate(${-h * 0.42}px, ${h * 0.04}px)`, filter: "brightness(1)", opacity: 1 };
     const [high, low] = [20, 10 - BEHIND - 1];
     const [lift, settle] = ["cubic-bezier(0.2, 0.7, 0.3, 1)", "cubic-bezier(0.45, 0, 0.1, 1)"];
     const runs = moving.map(({ c, a, b }, j) => {
@@ -220,7 +245,7 @@
       units.get(id)?.animate(
         [
           { transform: "none" },
-          { transform: `translate(${-h * 0.12}px, ${h * 0.05}px) rotate(-2deg)`, offset: 0.4 },
+          { transform: `translate(${-h * 0.12}px, ${h * 0.03}px)`, offset: 0.4 },
           { transform: "none" },
         ],
         { duration: 1300, easing: "cubic-bezier(0.4, 0, 0.2, 1)", composite: "add" },
@@ -238,7 +263,7 @@
     <!-- The book you're in tints the top of Home in its cover's color. -->
     {#if hero}
       <!-- A splash panel: the book you're in, over its cover printed in one ink. -->
-      <section class="hero">
+      <section class="hero" class:inked={look.backdrop}>
         {#if look.backdrop}
           {#key hero.id}
             <div class="print" transition:fade={{ duration: motionMs(300, 600) }}>
@@ -251,9 +276,15 @@
           <div class="text" in:fly={{ y: 10, duration: motionMs(200, 420) }}>
             <h1>{hero.seriesName.trim()}</h1>
             <div class="vol">{hero.label}{#if sub}&ensp;&mdash;&ensp;{sub}{/if}</div>
+            <div class="by">{shown?.by ?? ""}</div>
             <div class="where">
               <div class="prog"><i style:width="{progressOf(hero) * 100}%"></i></div>
-              {#if hero.numPages}<span class="mono">{hero.currentPage + 1} / {hero.numPages}</span>{/if}
+              {#if hero.numPages}
+                <div class="nums mono">
+                  <span>Page {hero.currentPage + 1} of {hero.numPages}</span><span>{Math.round(progressOf(hero) * 100)}%</span>
+                </div>
+              {/if}
+              <div class="left">{timeLeft ?? ""}</div>
             </div>
             <div class="actions">
               <button class="btn play" onclick={resume}><Icon name="play" size={14} />Resume</button>
@@ -294,6 +325,7 @@
                   use:regUnit={c.id}
                   title={d === 0 ? "Resume" : `${c.seriesName.trim()} ${c.label}`}
                   tabindex={d <= BEHIND ? 0 : -1}
+                  style:left="{unitLeft(c.id)}px"
                   style:transform={p.transform}
                   style:filter={p.filter}
                   style:opacity={p.opacity}
@@ -322,14 +354,12 @@
             </div>
 
             {#if pile.length > 1}
-              <!-- Arrows either side of the pile flip through it. -->
-              <button class="ico turn" style:left="{fit.left - 76}px" style:top="{fit.top + fit.h / 2}px" title="Previous book" aria-label="Previous book" onclick={() => flip(-1)}>
-                <Icon name="arrowLeft" size={30} />
-              </button>
-              <button class="ico turn" style:left="{fit.left + fit.w + 28}px" style:top="{fit.top + fit.h / 2}px" title="Next book" aria-label="Next book" onclick={() => flip(1)}>
-                <Icon name="arrowRight" size={30} />
-              </button>
-              <div class="count mono" style:left="{fit.left}px" style:top="{fit.top + fit.h + 12}px">{at + 1} / {pile.length}</div>
+              <!-- Under the book: arrows to turn to the next, and where you are in the pile. -->
+              <div class="turns" style:left="{fit.left + fit.w / 2}px" style:top="{fit.top + fit.h + 14}px">
+                <button class="ico" title="Previous book" aria-label="Previous book" onclick={() => flip(-1)}><Icon name="arrowLeft" size={22} /></button>
+                <span class="count mono">{at + 1} of {pile.length}</span>
+                <button class="ico" title="Next book" aria-label="Next book" onclick={() => flip(1)}><Icon name="arrowRight" size={22} /></button>
+              </div>
             {/if}
           {/if}
         </div>
@@ -427,15 +457,31 @@
     color: var(--text-2);
     letter-spacing: -0.02em;
   }
+  .by {
+    margin-top: 8px;
+    min-height: 1.4em;
+    font-size: 14px;
+    color: var(--text-2);
+  }
+  /* How far along: the line, the page and share, and the time the rest should take. */
   .where {
-    margin-top: min(44px, 4vh);
-    display: flex;
-    align-items: center;
-    gap: 16px;
+    margin-top: min(36px, 3.4vh);
+    max-width: 360px;
     color: var(--text-2);
   }
   .where .prog {
-    width: 200px;
+    height: 2px;
+  }
+  .nums {
+    margin-top: 9px;
+    display: flex;
+    justify-content: space-between;
+    font-size: 13px;
+  }
+  .left {
+    margin-top: 4px;
+    min-height: 1.4em;
+    font-size: 14px;
   }
   .actions {
     margin-top: min(36px, 3.4vh);
@@ -459,15 +505,15 @@
   .pile {
     position: absolute;
   }
-  /* One book: its cover with the page you're on beside it. Behind ones rise from the bottom-left corner. */
+  /* One book: its cover with the page you're on beside it. Behind ones rise straight up, centered,
+     each a little smaller from the top down, so the whole of each rise shows. */
   .unit {
     position: absolute;
-    left: 0;
     top: 0;
     height: 100%;
     display: flex;
     gap: 4px;
-    transform-origin: bottom left;
+    transform-origin: top center;
     transition:
       transform 0.55s var(--ease),
       filter 0.55s var(--ease),
@@ -498,21 +544,25 @@
   .unit.top:hover {
     translate: 0 -4px;
   }
-  .count {
+  .turns {
     position: absolute;
-    color: var(--text-2);
-  }
-  .turn {
-    position: absolute;
-    width: 48px;
-    height: 48px;
-    translate: 0 -50%;
-    color: var(--text);
-    opacity: 0.75;
+    translate: -50% 0;
+    display: flex;
+    align-items: center;
+    gap: 14px;
     z-index: 11;
   }
-  .turn:hover {
+  .turns .ico {
+    color: var(--text);
+    opacity: 0.75;
+  }
+  .turns .ico:hover {
     opacity: 1;
+  }
+  .count {
+    font-size: 13px;
+    color: var(--text-2);
+    white-space: nowrap;
   }
 
   .cols {

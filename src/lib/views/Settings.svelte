@@ -8,7 +8,7 @@
   import { ACTIONS, keysFor, type Action } from "$lib/reader/actions";
   import { chord, loadOverrides, pretty, saveOverrides } from "$lib/reader/keys";
   import { FIT_LABEL } from "$lib/reader/ctl.svelte";
-  import { forgetViews, prefs, savePrefs, views, type Prefs } from "$lib/reader/prefs.svelte";
+  import { prefs, savePrefs, type Prefs } from "$lib/reader/prefs.svelte";
   import { lib, nav } from "$lib/state.svelte";
   import { setTheme, theme, type ThemeChoice } from "$lib/theme.svelte";
 
@@ -31,7 +31,6 @@
   let version = $state("");
   // Books taken off Continue reading, to put back.
   let taken = $state<ComicCard[]>([]);
-  const kept = $derived(Object.keys(views).length);
 
   $effect(() => {
     void lib.version;
@@ -41,6 +40,26 @@
     api.backups().then((v) => (backups = v));
     if (!welcome) api.takenOffReading().then((v) => (taken = v));
   });
+
+  // While reading waits to reach YACReader, keep its line up to date.
+  $effect(() => {
+    if (!s?.options.yacreaderSync || !s.yacreader?.pending) return;
+    const t = setInterval(() => api.settings().then((v) => (s = v)), 5000);
+    return () => clearInterval(t);
+  });
+  const yacLine = $derived.by(() => {
+    const y = s?.yacreader;
+    if (!y || !s?.options.yacreaderSync) return "Your page and finished books, saved into YACReader's library too";
+    const books = (n: number) => `${n.toLocaleString()} ${n === 1 ? "book" : "books"}`;
+    if (y.waiting) return `${books(y.pending)} waiting for YACReader to close`;
+    if (y.pending) return `Sending ${books(y.pending)}…`;
+    if (y.lastSent) return `Up to date · last sent ${when(y.lastSent.at)}`;
+    return "Up to date";
+  });
+  async function setYacreaderSync(on: boolean) {
+    await setOption("yacreaderSync", on);
+    s = await api.settings();
+  }
 
   async function putBack(c: ComicCard) {
     await api.unhideFromReading(c.id);
@@ -373,7 +392,7 @@
           <section bind:this={sections.reading}>
             <div class="caption">Reading</div>
             <div class="row">
-              <div class="lbl">Page fit<small>{FIT_LABEL[prefs.fit]}</small></div>
+              <div class="lbl">Page fit<small>{FIT_LABEL[prefs.fit]} · changing it in a book changes it here too</small></div>
               <div class="seg" role="radiogroup" aria-label="Page fit">
                 {#each FITS as f (f.key)}
                   <button class:on={prefs.fit === f.key} role="radio" aria-checked={prefs.fit === f.key} title={FIT_LABEL[f.key]} aria-label={FIT_LABEL[f.key]} onclick={() => set("fit", f.key)}>
@@ -405,16 +424,6 @@
               <div class="lbl">Page number and clock<small>Kept in the corner while you read</small></div>
               {@render toggle(prefs.info, () => set("info", !prefs.info), "Page number and clock")}
             </div>
-            <div class="row">
-              <div class="lbl">
-                Each series keeps its own view
-                <small>
-                  {#if kept}{kept} {kept === 1 ? "series opens" : "series open"} with the fit and layout you last used in {kept === 1 ? "it" : "them"}; the rest start from the settings above
-                  {:else}Change the fit or layout in a book and its series remembers it{/if}
-                </small>
-              </div>
-              {#if kept}<button class="chip" onclick={forgetViews}>Forget them</button>{/if}
-            </div>
             <div class="row" class:open={taken.length}>
               <div class="lbl">
                 Taken off Continue reading
@@ -439,7 +448,11 @@
             <div class="caption">Library</div>
             <div class="row">
               <div class="lbl">
-                <span class="mono path" title="Only read, except to add comics you drop in. Nothing there is moved, changed or deleted.">{s.libraryRoot ?? "Not set"}</span>
+                <span
+                  class="mono path"
+                  title={s.options.yacreaderSync && s.yacreader
+                    ? "Only read, except to add comics you drop in and to send your reading to YACReader. Nothing there is moved or deleted."
+                    : "Only read, except to add comics you drop in. Nothing there is moved, changed or deleted."}>{s.libraryRoot ?? "Not set"}</span>
                 {#if s.lastScan}
                   <small class="mono">{s.lastScan.comics.toLocaleString()} books · {s.lastScan.series.toLocaleString()} series · scanned {when(s.lastScan.finishedAt)}</small>
                 {/if}
@@ -457,6 +470,12 @@
               <div class="lbl">Watch for new comics<small>Adds books as soon as they land in the folder</small></div>
               {@render toggle(s.options.watchFolder, () => setOption("watchFolder", !s!.options.watchFolder), "Watch for new comics")}
             </div>
+            {#if s.yacreader}
+              <div class="row">
+                <div class="lbl">Send my reading to YACReader<small>{yacLine}</small></div>
+                {@render toggle(s.options.yacreaderSync, () => setYacreaderSync(!s!.options.yacreaderSync), "Send my reading to YACReader")}
+              </div>
+            {/if}
             <button class="row go" onclick={() => nav.go({ name: "duplicates" })}>
               <div class="lbl">Duplicates<small>Books that may be in your library twice</small></div>
               <span class="ico"><Icon name="chevronRight" size={17} /></span>

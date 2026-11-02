@@ -1,8 +1,10 @@
 /* AionComics: the art is the interface. Monochrome, one typeface, no accent color. Two themes,
    each one flat color under every page: a warm charcoal (dark) and Paper, comic-page cream
-   (light). The reader stays dark whichever is chosen. */
+   (light). The reader stays dark whichever is chosen, and so do the panels a cover is printed
+   behind (.inked, see InkPrint): one deep shade of the cover in either theme. */
 :root,
-.reader {
+.reader,
+.inked {
   --bg: #1d1b19;
   --raised: #282623;
   --menu: #2d2b28;
@@ -27,6 +29,10 @@
   /* The collection name's ink line, between each letter's cover and its second print. */
   --ink: #0d0c0b;
   color-scheme: dark;
+}
+/* Text in an inked panel takes the panel's light colors, not the page's. */
+.inked {
+  color: var(--text);
 }
 /* How long a new screen takes to fade in, as chosen under Settings › Look › Animations. */
 :root {

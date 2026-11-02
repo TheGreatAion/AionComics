@@ -1,4 +1,4 @@
-// Reader preferences that persist between books and launches.
+// Reader preferences that persist between books and launches: the reader's own changes included.
 
 export type Fit = "height" | "width" | "page" | "full";
 
@@ -45,46 +45,32 @@ export function savePrefs() {
   } catch {}
 }
 
-/** How a series is read: page fit, scrolling, double page (and which way its spreads go) and
- *  Guided View. Each series keeps the way it was last read; one not read yet starts from the
- *  settings above, which only Settings changes. */
+/** How a book is read: page fit, scrolling, double page (and which way its spreads go) and
+ *  Guided View. */
 export type View = { fit: Fit; scroll: boolean; double: boolean; pairRtl: boolean; guided: boolean };
 
-const VIEWS_KEY = "aion.series-view";
-function loadViews(): Record<number, View> {
-  try {
-    return JSON.parse(localStorage.getItem(VIEWS_KEY) ?? "{}");
-  } catch {
-    return {};
-  }
-}
-/** Series that keep a view of their own. */
-export const views = $state<Record<number, View>>(loadViews());
-
-/** The view a book opens in: its series' own, else the settings. Books from outside the library
- *  (no series) always start from the settings. */
-export function viewFor(seriesId: number | null, manga: boolean): View {
-  const kept = seriesId ? views[seriesId] : undefined;
-  if (kept) return { ...kept };
+/** The view a book opens in: the way you last read, whatever the book (Guided View apart for
+ *  manga and comics). A webtoon starts scrolling, the way it's drawn. */
+export function viewFor(manga: boolean, webtoon = false): View {
+  if (webtoon) return { fit: "width", scroll: true, double: false, pairRtl: false, guided: false };
   return { fit: prefs.fit, scroll: prefs.scroll, double: prefs.double, pairRtl: manga, guided: manga ? prefs.guidedManga : prefs.guidedComics };
 }
 
-export function keepView(seriesId: number, v: View) {
-  views[seriesId] = { ...v };
-  saveViews();
+/** Change the fit, scrolling, double page or Guided View in a book and every book opens that way
+ *  from then on, until you change it again. */
+export function keepView(v: View, manga: boolean) {
+  prefs.fit = v.fit;
+  prefs.scroll = v.scroll;
+  prefs.double = v.double;
+  if (manga) prefs.guidedManga = v.guided;
+  else prefs.guidedComics = v.guided;
+  savePrefs();
 }
 
-/** Every series back to the settings. */
-export function forgetViews() {
-  for (const k of Object.keys(views)) delete views[+k];
-  saveViews();
-}
-
-function saveViews() {
-  try {
-    localStorage.setItem(VIEWS_KEY, JSON.stringify(views));
-  } catch {}
-}
+// Each series once kept a view of its own; one way of reading for every book replaced that.
+try {
+  localStorage.removeItem("aion.series-view");
+} catch {}
 
 export const GUIDED_MS = { slow: 900, normal: 650, fast: 400 } as const;
 export const GUIDED_DIM = { light: 0.75, strong: 0.94, hidden: 1 } as const;

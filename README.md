@@ -24,7 +24,9 @@ On first launch, choose your comics folder. AionComics **only reads that folder*
 - Second-level folders are **series**. Deeper folders (`Issues`, `Compendium`, `Annuals`…) become sections on the series page.
 - Archives are detected by content, not extension, so mislabeled CBZ/CBR files still open.
 
-If `<root>/.yacreaderlibrary/library.ydb` exists, AionComics reads it (read-only) on every scan. It imports Comic Vine metadata, page counts, YACReader's cover cache, and reading progress whenever YACReader's copy is newer.
+If `<root>/.yacreaderlibrary/library.ydb` exists, AionComics reads it on every scan. It imports Comic Vine metadata, page counts, YACReader's cover cache, reading progress whenever YACReader's copy is newer, and how each book reads: a book YACReader marks as left-to-right manga or a webtoon reads left to right, and a webtoon opens scrolling.
+
+**Send my reading to YACReader** (Settings › Library, off until you turn it on) works the other way: the page you're on and the books you finish or mark read or unread are saved into YACReader's library too, so the two apps agree. It's the one thing AionComics writes in the comics folder besides comics you drop in, and it changes only those reading fields, never YACReader's book details or folders. Changes wait while YACReader is open and go once it's closed (and when AionComics closes). A book you opened in YACReader after changing it in AionComics keeps YACReader's reading. Before the first change, a copy of YACReader's database is saved to `yacreader-backup` in the AionComics data folder.
 
 ## Adding comics
 
@@ -84,7 +86,7 @@ Every tool is in the **⋯** menu (or right-click the page), with its shortcut. 
 | Ctrl+S / Ctrl+E | Save this page / extract a range of pages (never into the library folder) |
 | Esc | Back to library |
 
-Each series keeps its own fit, scrolling, double page and Guided View: change them in a book and its series opens that way from then on. Series not read yet start from Settings › Reading (Settings can also forget them all). At the end of a book the next one in the series is offered; at the end of a series, the top book of your Continue reading pile.
+The reader remembers your fit, scrolling and double page: change them in a book and every book opens that way until you change them again (Settings › Reading shows and sets the same choices). Guided View is remembered separately for manga and comics. Webtoons always open scrolling, and scrolling one doesn't set other books scrolling. At the end of a book the next one in the series is offered; at the end of a series, the top book of your Continue reading pile.
 
 Clicking the left or right third of the screen turns pages; clicking the middle shows the controls. Books opened from outside the library keep no progress, bookmarks or panel edits. Alt+← or the mouse back button goes back in the library.
 
@@ -121,6 +123,7 @@ The ignored tests run against a real library. They scan it into a temporary data
 src-tauri/src/
   lib.rs       commands, aion:// image protocol, app setup
   scan.rs      folder walk, YACReader import, issue/volume labels
+  yacsync.rs   sending your reading back to YACReader (when turned on)
   archive.rs   CBZ/CBR page access, RAR extraction cache, thumbnails
   panels.rs    Guided View panel detection
   db.rs        schema and queries

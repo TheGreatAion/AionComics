@@ -36,7 +36,7 @@ export class Ctl {
   /** Pages' small previews that have loaded (their sizes): shown in place of a page still loading. */
   hints = $state<Record<number, Dims>>({});
   /** Fit, scrolling, double page and Guided View, as this book's series is read (see View). */
-  view = $state<View>(viewFor(null, false));
+  view = $state<View>(viewFor(false));
   zoom = $state(1);
   rotation = $state(0);
   magnifier = $state(false);
@@ -71,7 +71,7 @@ export class Ctl {
     return this.info?.comic.id ?? 0;
   }
   get rtl() {
-    return this.info?.comic.isManga ?? false;
+    return this.info?.rtl ?? false;
   }
   get count() {
     return this.info?.pageCount ?? 0;
@@ -98,10 +98,11 @@ export class Ctl {
     return this.view.double && this.mode !== "scroll";
   }
 
-  /** The series reads this way from now on. */
+  /** Every book reads this way from now on. */
   private keep() {
     const info = this.info;
-    if (info && !info.external) keepView(info.comic.seriesId, this.view);
+    // A webtoon's scrolling is its own: reading one doesn't set every book scrolling.
+    if (info && !info.webtoon) keepView(this.view, this.rtl);
   }
   /** Turning direction on screen: manga, or a spread set to read right to left. */
   get flipped() {
@@ -118,7 +119,7 @@ export class Ctl {
     this.warm = [];
     this.info = info;
     this.bookmarks = info.bookmarks;
-    this.view = viewFor(info.external ? null : info.comic.seriesId, info.comic.isManga);
+    this.view = viewFor(info.rtl, info.webtoon);
     this.step = -1;
     this.part = 0;
     this.endCard = false;

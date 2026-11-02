@@ -1,7 +1,7 @@
 <script lang="ts">
   import { tick } from "svelte";
   import { slide } from "svelte/transition";
-  import { api, listText, plainText, printUrl, storyTitle, unitWord, type ComicCard, type ComicMeta, type EditionKind, type MetaField, type SeriesView } from "$lib/api";
+  import { api, chapterList, listText, plainText, printUrl, storyTitle, unitWord, type ComicCard, type ComicMeta, type EditionKind, type MetaField, type SeriesView } from "$lib/api";
   import { lib, nav, openReader, reader, search, sheets, showMenu, undoable, undoableWith, type MenuItem } from "$lib/state.svelte";
   import { bareEnter, nearest } from "$lib/keynav";
   import { motionMs } from "$lib/look.svelte";
@@ -126,6 +126,11 @@
       .map((x) => x.trim())
       .filter(Boolean);
   const synopsis = $derived(plainText(f?.synopsis ?? null));
+  // The chapters a manga volume holds, or what a comic collects, listed after its blurb.
+  const chapters = $derived(chapterList(f?.synopsis ?? null));
+  const numbered = $derived(chapters.some((c) => c.n));
+  const CHAPTERS = 8;
+  let allChapters = $state(false);
   const title = $derived(book ? storyTitle(book) : null);
   // Who made it, each person once with everything they did: "Jack Kirby  pencils, cover".
   const ROLES: [MetaField, string][] = [
@@ -188,6 +193,7 @@
   $effect(() => {
     void book?.id;
     expanded = false;
+    allChapters = false;
     allChips = false;
     allPeople = false;
   });
@@ -413,14 +419,14 @@
   <div class="screen">
     <!-- The name as a comic panel, as on collection pages: inked frame, how many and how far in a
          caption box on its corner, a cover printed behind the letters. -->
-    <div class="top">
+    <div class="top" class:inked={look.backdrop && backdrop}>
       <div class="caption count">
         {mainCount.toLocaleString()} {!edition ? unitWord(data.isManga, mainCount) : mainCount === 1 ? KIND_NAME[edition.kind] : edition.name} · {mainRead === mainCount && mainCount ? "all read" : `${mainRead.toLocaleString()} read`}
       </div>
       {#if look.backdrop && backdrop}
         <InkPrint src={printUrl(backdrop.id)} hue={backdrop.hue} at={backdrop.at} />
       {/if}
-      <LetterHeadline text={data.name} covers={letterCovers} />
+      <LetterHeadline text={data.name} covers={letterCovers} maxLines={4} />
     </div>
     <!-- Where it lives and who made it; fetching its details, and more. -->
     <header class="series">
@@ -526,6 +532,16 @@
                     <p class="syn" class:open={expanded} bind:this={synEl}>{synopsis}</p>
                     {#if clamped || expanded}
                       <button class="more link" onclick={() => (expanded = !expanded)}>{expanded ? "Less" : "More"}</button>
+                    {/if}
+                  {/if}
+                  {#if chapters.length}
+                    <ol class="chapters">
+                      {#each allChapters || chapters.length <= CHAPTERS + 2 ? chapters : chapters.slice(0, CHAPTERS) as ch, k (k)}
+                        <li>{#if numbered}<span class="n mono">{ch.n ?? ""}</span>{/if}<span class="t">{ch.title}</span></li>
+                      {/each}
+                    </ol>
+                    {#if chapters.length > CHAPTERS + 2 && !allChapters}
+                      <button class="link more" onclick={() => (allChapters = true)}>+{chapters.length - CHAPTERS}</button>
                     {/if}
                   {/if}
                   {#if credits.length}
@@ -914,6 +930,37 @@
   .more {
     margin-top: 6px;
     font-size: 13px;
+  }
+  /* A volume's chapters: number, then title, in two columns. */
+  .chapters {
+    margin: 16px 0 0;
+    padding: 0;
+    list-style: none;
+    columns: 2;
+    column-gap: 32px;
+    font-size: 14px;
+    user-select: text;
+  }
+  .chapters li {
+    display: flex;
+    gap: 12px;
+    padding: 3px 0;
+    break-inside: avoid;
+    min-width: 0;
+  }
+  .chapters .n {
+    flex: none;
+    min-width: 3ch;
+    text-align: right;
+    color: var(--text-3);
+    font-size: 12px;
+    padding-top: 2px;
+  }
+  .chapters .t {
+    color: var(--text-2);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
   }
   .credits {
     margin-top: 16px;

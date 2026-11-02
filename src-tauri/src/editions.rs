@@ -165,17 +165,47 @@ pub fn label(kind: &str, n: Option<f64>, own: &str) -> String {
 
 static TAG: LazyLock<Regex> = LazyLock::new(|| re(r"<[^>]+>|[\r\n]+"));
 static COLLECTS: LazyLock<Regex> =
-    LazyLock::new(|| re(r"collect(?:s|ing|ed)?\b[^.#]{0,90}?#\s?(\d{1,4})(?:\s?(?:-|–|—|to|through)\s?#?(\d{1,4}))?"));
+    LazyLock::new(|| re(r"(?:collect|reprint)(?:s|ing|ed)?\b[^.#]{0,90}?#\s?(\d{1,4})(?:\s?(?:-|–|—|to|through)\s?#?(\d{1,4}))?"));
+// Without a "#", only a range counts ("Collecting Justice League 0-17"): a lone number is too
+// often a year or a count ("the 2005 event", "six issues").
+static COLLECTS_RANGE: LazyLock<Regex> =
+    LazyLock::new(|| re(r"(?:collect|reprint)(?:s|ing|ed)?\b[^.#]{0,90}?\b(\d{1,3})\s?(?:-|–|—|to|through)\s?(\d{1,3})\b"));
 
-/// The issues a collection says it holds, from its description: "Collects SAGA #13-18" → "#13–18".
+/// The issues a collection says it holds, from its description: "Collects SAGA #13-18" → "#13–18",
+/// "Collecting Justice League 0-17" → "#0–17".
 pub fn collects(synopsis: &str) -> Option<String> {
     // Descriptions from Comic Vine are HTML.
     let text = TAG.replace_all(synopsis, " ").replace("&nbsp;", " ").replace("&#8211;", "–");
-    let c = COLLECTS.captures(&text)?;
-    Some(match c.get(2) {
-        Some(to) => format!("#{}–{}", &c[1], to.as_str()),
-        None => format!("#{}", &c[1]),
-    })
+    if let Some(c) = COLLECTS.captures(&text) {
+        return Some(match c.get(2) {
+            Some(to) => format!("#{}–{}", &c[1], to.as_str()),
+            None => format!("#{}", &c[1]),
+        });
+    }
+    let c = COLLECTS_RANGE.captures(&text)?;
+    let (from, to) = (c[1].parse::<u32>().ok()?, c[2].parse::<u32>().ok()?);
+    (from < to).then(|| format!("#{from}–{to}"))
+}
+
+static CHAPTER_HEAD: LazyLock<Regex> =
+    LazyLock::new(|| re(r"<h\d[^>]*>[^<]*(?:chapter|contents|story titles|episode)[^<]*</h\d>\s*<[uo]l[^>]*>([\s\S]*?)</[uo]l>"));
+static CHAPTER_NUMBER: LazyLock<Regex> = LazyLock::new(|| {
+    re(r"^\s*(?:chapter|ch\.?|episode|ep\.?|file|act|lesson|part|night|round|story|stage|level|quest|#)\s*:?\s*(\d{1,4})\b")
+});
+
+/// The chapters a manga volume holds, from the chapter list in its description: "Ch. 301–310".
+pub fn chapters(synopsis: &str) -> Option<String> {
+    let list = CHAPTER_HEAD.captures(synopsis)?;
+    let numbers: Vec<String> = list[1]
+        .split("<li")
+        .skip(1)
+        .filter_map(|li| {
+            let text = TAG.replace_all(li.split_once('>').map_or("", |(_, t)| t), " ");
+            CHAPTER_NUMBER.captures(&text).map(|c| c[1].to_string())
+        })
+        .collect();
+    let (first, last) = (numbers.first()?, numbers.last()?);
+    Some(if first == last { format!("Ch. {first}") } else { format!("Ch. {first}–{last}") })
 }
 
 /// The whole numbers missing between a run's first and last issue, when there are only a few.
@@ -239,6 +269,17 @@ mod tests {
         assert_eq!(collects("collects All-Star Superman#1-12").as_deref(), Some("#1–12"));
         assert_eq!(collects("A new series begins!"), None);
         assert_eq!(collects("<p><em>Collects</em> issues <b>#1-5</b>.</p>").as_deref(), Some("#1–5"));
+        assert_eq!(collects("Paperback collecting Justice League 0-17, and more").as_deref(), Some("#0–17"));
+        assert_eq!(collects("Collects Concrete 6-10; stories from Dark Horse Presents").as_deref(), Some("#6–10"));
+        assert_eq!(collects("reprints issues #25-30 of the series").as_deref(), Some("#25–30"));
+        assert_eq!(collects("collects the many titles from the 2005 event"), None);
+        assert_eq!(collects("Collecting the complete four-issue miniseries"), None);
         assert_eq!(gaps(&[19.0, 20.0, 22.0, 23.0]), vec![21]);
+        let hxh = "<p>Blurb.</p><h2>Chapter Titles</h2><ul><li>Chapter 301: Memory</li><li>Chapter 310: Action</li></ul>";
+        assert_eq!(chapters(hxh).as_deref(), Some("Ch. 301–310"));
+        let aot = "<h2>Contents</h2><ul><li>Episode 79: Perfect Game</li><li>Episode 82: Hero</li></ul><h4>Covers</h4>";
+        assert_eq!(chapters(aot).as_deref(), Some("Ch. 79–82"));
+        assert_eq!(chapters("<h2>Chapter List</h2><ul><li>第三百一訓 侠の鎖</li></ul>"), None);
+        assert_eq!(chapters("<h2>Back Blurb</h2><ul><li>Chapter 1</li></ul>"), None);
     }
 }

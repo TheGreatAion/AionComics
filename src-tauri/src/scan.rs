@@ -113,7 +113,7 @@ fn walk(root: &Path) -> Vec<Found> {
 
 // ---------- YACReader import ----------
 
-struct Yac {
+pub(crate) struct Yac {
     title: Option<String>,
     number: Option<String>,
     volume: Option<String>,
@@ -124,10 +124,12 @@ struct Yac {
     cv_id: Option<String>,
     hash: Option<String>,
     num_pages: Option<i64>,
-    current_page: Option<i64>,
-    read: bool,
-    last_opened: Option<i64>,
+    pub(crate) current_page: Option<i64>,
+    pub(crate) read: bool,
+    pub(crate) last_opened: Option<i64>,
     added: Option<i64>,
+    /// How YACReader reads it: 0 comic, 1 manga, 2 left-to-right manga, 3 webtoon.
+    kind: Option<i64>,
     /// Credits and story details, as AionComics field name -> value.
     extra: Vec<(&'static str, String)>,
 }
@@ -162,7 +164,7 @@ fn as_text(v: rusqlite::types::Value) -> Option<String> {
     (!s.is_empty()).then_some(s)
 }
 
-fn read_yac(root: &Path) -> HashMap<String, Yac> {
+pub(crate) fn read_yac(root: &Path) -> HashMap<String, Yac> {
     let mut map = HashMap::new();
     let db = root.join(".yacreaderlibrary").join("library.ydb");
     if !db.exists() {
@@ -178,9 +180,11 @@ fn read_yac(root: &Path) -> HashMap<String, Yac> {
     let extras: Vec<(&str, &'static str)> =
         YAC_EXTRA.iter().copied().filter(|(col, _)| present.iter().any(|p| p == col)).collect();
     let extra_cols: String = extras.iter().map(|(col, _)| format!(", ci.{col}")).collect();
+    // Older YACReaders don't have reading types.
+    let kind_col = if present.iter().any(|p| p == "type") { "ci.type" } else { "NULL" };
     let sql = format!(
         "SELECT c.path, ci.title, ci.number, ci.volume, ci.date, ci.writer, ci.publisher, ci.synopsis,
-           ci.comicVineID, ci.hash, ci.numPages, ci.currentPage, ci.read, ci.lastTimeOpened, ci.added{extra_cols}
+           ci.comicVineID, ci.hash, ci.numPages, ci.currentPage, ci.read, ci.lastTimeOpened, ci.added, {kind_col}{extra_cols}
          FROM comic c JOIN comic_info ci ON ci.id=c.comicInfoId"
     );
     let Ok(mut st) = conn.prepare(&sql) else { return map };
@@ -203,10 +207,11 @@ fn read_yac(root: &Path) -> HashMap<String, Yac> {
                 read: r.get::<_, Option<bool>>(12)?.unwrap_or(false),
                 last_opened: r.get(13)?,
                 added: r.get(14)?,
+                kind: r.get(15)?,
                 extra: extras
                     .iter()
                     .enumerate()
-                    .filter_map(|(i, (_, field))| r.get::<_, rusqlite::types::Value>(15 + i).ok().and_then(as_text).map(|v| (*field, v)))
+                    .filter_map(|(i, (_, field))| r.get::<_, rusqlite::types::Value>(16 + i).ok().and_then(as_text).map(|v| (*field, v)))
                     .collect(),
             },
         ))
@@ -322,7 +327,6 @@ pub fn scan(conn: &mut Connection, root: &Path) -> Result<ScanStats> {
         anyhow::bail!("No comics were found in {}. Nothing was changed.", root.display());
     }
     let yac = read_yac(root);
-    let ts = now();
     let mut stats = ScanStats::default();
 
     let tx = conn.transaction()?;
@@ -337,7 +341,7 @@ pub fn scan(conn: &mut Connection, root: &Path) -> Result<ScanStats> {
              ON CONFLICT(rel_path) DO UPDATE SET name=excluded.name, collection_id=excluded.collection_id RETURNING id",
         )?;
         let mut existing = tx.prepare(
-            "SELECT id, current_page, read, last_read_at FROM comics WHERE rel_path=?1",
+            "SELECT id, read, last_read_at, yac_read FROM comics WHERE rel_path=?1",
         )?;
         let mut insert = tx.prepare(
             "INSERT INTO comics(series_id, section, rel_path, file_name, size, mtime, added_at)
@@ -351,11 +355,12 @@ pub fn scan(conn: &mut Connection, root: &Path) -> Result<ScanStats> {
                synopsis=?9, cv_id=?10, yac_hash=?11, num_pages=COALESCE(num_pages, ?12), meta_base=?13,
                date=?14, penciller=?15, inker=?16, colorist=?17, letterer=?18, cover_artist=?19,
                characters=?20, teams=?21, locations=?22, story_arc=?23, arc_number=?24, arc_count=?25,
-               genre=?26, cv_volume_id=NULL WHERE id=?1",
+               genre=?26, yac_type=?27, cv_volume_id=NULL WHERE id=?1",
         )?;
         let mut update_progress = tx.prepare(
             "UPDATE comics SET current_page=?2, read=?3, last_read_at=?4 WHERE id=?1",
         )?;
+        let mut note_yac_read = tx.prepare("UPDATE comics SET yac_read=?2 WHERE id=?1")?;
 
         let mut col_ids: HashMap<String, (i64, bool)> = HashMap::new();
         let mut series_ids: HashMap<String, i64> = HashMap::new();
@@ -380,13 +385,13 @@ pub fn scan(conn: &mut Connection, root: &Path) -> Result<ScanStats> {
                 }
             };
             let y = yac.get(&f.rel);
-            let prior: Option<(i64, i64, bool, Option<i64>)> = existing
+            let prior: Option<(i64, bool, Option<i64>, Option<bool>)> = existing
                 .query_row([&f.rel], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?)))
                 .optional()?;
-            let (id, ours_last_read) = match prior {
-                Some((id, _, _, last)) => {
+            let (id, ours_read, ours_last_read, yac_read_before) = match prior {
+                Some((id, read, last, yac_read)) => {
                     update_file.execute(params![id, series_id, f.section, f.file_name, f.size, f.mtime])?;
-                    (id, last)
+                    (id, read, last, yac_read)
                 }
                 None => {
                     let added = y.and_then(|y| y.added).filter(|a| *a > 0).unwrap_or(f.mtime.max(1));
@@ -395,7 +400,7 @@ pub fn scan(conn: &mut Connection, root: &Path) -> Result<ScanStats> {
                         |r| r.get(0),
                     )?;
                     stats.added += 1;
-                    (id, None)
+                    (id, false, None, None)
                 }
             };
             // What the scan imports is also kept as the base layer that Comic Vine data and hand edits sit on.
@@ -457,17 +462,22 @@ pub fn scan(conn: &mut Connection, root: &Path) -> Result<ScanStats> {
                 extra("arc_number"),
                 extra("arc_count"),
                 extra("genre"),
+                y.and_then(|y| y.kind),
             ])?;
             if let Some(y) = y {
                 stats.yac_matched += 1;
                 // Take YACReader's progress when it's newer than ours.
                 let yac_opened = y.last_opened.unwrap_or(0);
                 let has_progress = y.read || y.current_page.unwrap_or(1) > 1;
-                if has_progress && yac_opened > ours_last_read.unwrap_or(0) {
+                // A book marked read in YACReader without opening it has no time to compare, so
+                // the mark is taken when it's new there: not again once you've marked it unread here.
+                let marked = y.read && yac_opened == 0 && !ours_read && yac_read_before != Some(true);
+                if has_progress && (yac_opened > ours_last_read.unwrap_or(0) || marked) {
                     let page = (y.current_page.unwrap_or(1) - 1).max(0);
-                    let last = if yac_opened > 0 { yac_opened } else { ts };
+                    let last = if yac_opened > 0 { Some(yac_opened) } else { ours_last_read };
                     update_progress.execute(params![id, page, y.read, last])?;
                 }
+                note_yac_read.execute(params![id, y.read])?;
             }
         }
     }
@@ -603,6 +613,93 @@ mod tests {
             label_for("Hellboy and the B.P.R.D.- 1952 - 1954 (2021) (digital).cbz", "Hellboy and the B.P.R.D. - 1952 – 1954", false, None),
             "Hellboy and the B.P.R.D.- 1952 - 1954"
         );
+    }
+}
+
+#[cfg(test)]
+mod yacreader_marks {
+    use super::*;
+
+    /// Books marked read in YACReader without being opened (no time to go by) come across once
+    /// each, when the mark is new there; marking one unread here sticks.
+    #[test]
+    fn read_marks_without_a_time() {
+        let base = std::env::temp_dir().join(format!("aion-yac-marks-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&base);
+        let root = base.join("Comics");
+        let series = root.join("Manga").join("Test Series");
+        std::fs::create_dir_all(&series).unwrap();
+        std::fs::create_dir_all(root.join(".yacreaderlibrary")).unwrap();
+        let yac = Connection::open(root.join(".yacreaderlibrary").join("library.ydb")).unwrap();
+        yac.execute_batch(
+            "CREATE TABLE comic(id INTEGER PRIMARY KEY, comicInfoId INTEGER, path TEXT);
+             CREATE TABLE comic_info(id INTEGER PRIMARY KEY, title TEXT, number TEXT, volume TEXT, date TEXT,
+               writer TEXT, publisher TEXT, synopsis TEXT, comicVineID TEXT, hash TEXT, numPages INTEGER,
+               currentPage INTEGER DEFAULT 1, read BOOLEAN DEFAULT 0, lastTimeOpened INTEGER, added INTEGER);",
+        )
+        .unwrap();
+        for i in 1..=3 {
+            std::fs::write(series.join(format!("Test Series v{i:02}.cbz")), b"PK").unwrap();
+            yac.execute(
+                "INSERT INTO comic_info(id, read) VALUES(?1, ?2)",
+                params![i, i < 3],
+            )
+            .unwrap();
+            yac.execute("INSERT INTO comic VALUES(?1, ?1, ?2)", params![i, format!("/Manga/Test Series/Test Series v{i:02}.cbz")]).unwrap();
+        }
+        let mut conn = crate::db::open(&base.join("t.db")).unwrap();
+        let read = |c: &Connection, i: i64| -> (bool, Option<i64>) {
+            c.query_row(
+                "SELECT read, last_read_at FROM comics WHERE file_name=?1",
+                [format!("Test Series v{i:02}.cbz")],
+                |r| Ok((r.get(0)?, r.get(1)?)),
+            )
+            .unwrap()
+        };
+        scan(&mut conn, &root).unwrap();
+        // Read, without a time: they don't jump to the top of what you've been reading.
+        assert_eq!((read(&conn, 1), read(&conn, 2), read(&conn, 3)), ((true, None), (true, None), (false, None)));
+
+        let id: i64 = conn.query_row("SELECT id FROM comics WHERE file_name='Test Series v01.cbz'", [], |r| r.get(0)).unwrap();
+        crate::db::set_read(&conn, id, false, 500).unwrap();
+        scan(&mut conn, &root).unwrap();
+        assert_eq!(read(&conn, 1), (false, None), "marked unread here, it stays unread");
+
+        yac.execute("UPDATE comic_info SET read=1 WHERE id=3", []).unwrap();
+        scan(&mut conn, &root).unwrap();
+        assert!(read(&conn, 3).0, "marked read in YACReader since");
+        let _ = std::fs::remove_dir_all(&base);
+    }
+
+    /// A scan of your real library into a copy of your database: lists every book whose reading
+    /// it changes. Nothing real is written. `cargo test --lib real_rescan -- --ignored --nocapture`
+    #[test]
+    #[ignore]
+    fn real_rescan() {
+        let real = Path::new(&std::env::var("APPDATA").unwrap()).join("com.aion.comics").join("library.db");
+        let copy = std::env::temp_dir().join("aion-real-rescan.db");
+        let _ = std::fs::remove_file(&copy);
+        Connection::open_with_flags(&real, rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY)
+            .unwrap()
+            .execute("VACUUM INTO ?1", [copy.to_string_lossy()])
+            .unwrap();
+        let mut conn = crate::db::open(&copy).unwrap();
+        let reading = |c: &Connection| -> HashMap<String, (bool, i64, Option<i64>)> {
+            let mut st = c.prepare("SELECT rel_path, read, current_page, last_read_at FROM comics").unwrap();
+            st.query_map([], |r| Ok((r.get(0)?, (r.get(1)?, r.get(2)?, r.get(3)?)))).unwrap().map(Result::unwrap).collect()
+        };
+        let before = reading(&conn);
+        scan(&mut conn, Path::new(r"H:\Comics")).unwrap();
+        let after = reading(&conn);
+        let mut changed: Vec<_> = after.iter().filter(|(p, v)| before.get(*p) != Some(v)).collect();
+        changed.sort();
+        for (p, v) in &changed {
+            println!("{p}: {:?} -> {v:?}", before.get(*p));
+        }
+        println!("{} books' reading changed", changed.len());
+        // A second scan changes nothing more.
+        scan(&mut conn, Path::new(r"H:\Comics")).unwrap();
+        assert_eq!(reading(&conn), after);
     }
 }
 

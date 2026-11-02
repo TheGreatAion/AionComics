@@ -148,7 +148,7 @@
   <div class="page collection">
   <!-- The headline as a comic panel: inked frame, the collection's counts in a caption box on its
        corner, and a cover printed behind the letters. -->
-  <div class="top">
+  <div class="top" class:inked={look.backdrop && backdrop}>
   <div class="caption count">
     {#if data.series.length}
       {data.series.length.toLocaleString()} series · {total.toLocaleString()}

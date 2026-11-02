@@ -137,6 +137,26 @@ fn migrate(conn: &Connection) -> Result<()> {
     conn.execute_batch("CREATE TABLE IF NOT EXISTS duplicate_ignored(key TEXT PRIMARY KEY);")?;
     // Formats you've given books by hand, over the ones worked out from their names.
     conn.execute_batch("CREATE TABLE IF NOT EXISTS edition_override(comic_id INTEGER PRIMARY KEY, kind TEXT NOT NULL);")?;
+    // How YACReader says a book reads (0 comic, 1 manga, 2 left-to-right manga, 3 webtoon).
+    if !has("yac_type")? {
+        conn.execute("ALTER TABLE comics ADD COLUMN yac_type INTEGER", [])?;
+    }
+    // Whether YACReader called a book read at the last scan, so a read mark there is taken once,
+    // when it's new.
+    if !has("yac_read")? {
+        conn.execute("ALTER TABLE comics ADD COLUMN yac_read INTEGER", [])?;
+    }
+    // Books whose page or read state changed, and when, waiting to be sent to YACReader (see
+    // yacsync.rs). A trigger, so every way of changing reading is caught.
+    conn.execute_batch(
+        "CREATE TABLE IF NOT EXISTS yac_outbox(comic_id INTEGER PRIMARY KEY, at INTEGER NOT NULL);
+         CREATE TRIGGER IF NOT EXISTS yac_outbox_reading AFTER UPDATE OF read, current_page ON comics
+         WHEN OLD.read IS NOT NEW.read OR OLD.current_page IS NOT NEW.current_page
+         BEGIN
+           INSERT INTO yac_outbox(comic_id, at) VALUES(NEW.id, CAST(strftime('%s', 'now') AS INTEGER))
+           ON CONFLICT(comic_id) DO UPDATE SET at=excluded.at;
+         END;",
+    )?;
     // Books you took off Continue reading, and when. Reading one again puts it back.
     conn.execute_batch("CREATE TABLE IF NOT EXISTS reading_hidden(comic_id INTEGER PRIMARY KEY, at INTEGER NOT NULL);")?;
     // Books in a matched series that were tried for an automatic Comic Vine pairing. Settled ones
@@ -812,7 +832,7 @@ fn editions_of(conn: &Connection, id: i64, manga: bool) -> Result<Vec<Edition>> 
             .or_else(|| parse(stored));
         c.label = editions::label(kind, n, &c.label);
         if matches!(kind, "volume" | "collection" | "deluxe" | "omnibus") {
-            c.collects = editions::collects(&synopsis);
+            c.collects = editions::collects(&synopsis).or_else(|| editions::chapters(&synopsis));
         }
         c.edition = Some(kind.to_string());
         books.push((kind, sec, n, i, c));
@@ -1018,6 +1038,11 @@ pub fn set_read(conn: &Connection, id: i64, read: bool, now: i64) -> Result<Vec<
         conn.execute("UPDATE comics SET read=0, current_page=0, last_read_at=NULL WHERE id=?1", params![id])?;
     }
     Ok(before)
+}
+
+/// How YACReader says a book reads, if it says.
+pub fn yac_type(conn: &Connection, id: i64) -> Result<Option<i64>> {
+    Ok(conn.query_row("SELECT yac_type FROM comics WHERE id=?1", [id], |r| r.get(0))?)
 }
 
 pub fn set_cover_color(conn: &Connection, id: i64, color: &str) -> Result<()> {

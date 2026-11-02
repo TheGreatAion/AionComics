@@ -249,6 +249,10 @@ export interface ReaderInfo {
   bookmarks: number[];
   /** Opened from outside the library: progress, bookmarks and panel edits aren't kept. */
   external: boolean;
+  /** Reads right to left: manga, unless YACReader says it's left-to-right manga or a webtoon. */
+  rtl: boolean;
+  /** A webtoon, as YACReader says: one long strip, read scrolling. */
+  webtoon: boolean;
 }
 
 /** Normalized (0–1) panel rectangle, in reading order. */
@@ -281,12 +285,25 @@ export interface Settings {
   options: Options;
   /** Where the library database and backups are kept. */
   dataDir: string;
+  /** The YACReader library in the comics folder, if there is one. */
+  yacreader: YacStatus | null;
+}
+
+/** Sending your reading to YACReader. */
+export interface YacStatus {
+  /** Books whose reading hasn't reached YACReader yet. */
+  pending: number;
+  /** Held back because YACReader is open. */
+  waiting: boolean;
+  lastSent: { at: number; books: number } | null;
 }
 
 /** Choices on the Settings page that the engine acts on. */
 export interface Options {
   watchFolder: boolean;
   readFileDetails: boolean;
+  /** Send your reading to YACReader's library too. */
+  yacreaderSync: boolean;
   cacheDays: number;
   backupsKeep: number;
 }
@@ -436,6 +453,35 @@ export function plainText(html: string | null): string {
   const spaced = cut.replace(/<(br|\/p|\/div|\/li|\/h\d)[^>]*>/gi, "$& ");
   const doc = new DOMParser().parseFromString(spaced, "text/html");
   return (doc.body.textContent ?? "").replace(/\s+/g, " ").trim();
+}
+
+/** One chapter in a volume's list: "Chapter 301: Memory" is 301 and "Memory". */
+export interface Chapter {
+  n: string | null;
+  title: string;
+}
+const CHAPTER_ITEM =
+  /^(?:chapter|ch\.?|episode|ep\.?|file|act|lesson|part|night|round|story|stage|level|quest|#)\s*:?\s*(\d+(?:\.\d+)?)\s*(?:[:.\-–—]\s*)?(.*)$/i;
+
+/** The chapters a volume holds (or the stories and issues a comic collects), from the list under
+ *  its description's "Chapter Titles" (or "Contents", "Collects", "Chapter List"…) heading, as
+ *  Comic Vine writes them. Read from the book's details each time they're shown, so a book added
+ *  later shows its list as soon as its details arrive. */
+export function chapterList(html: string | null): Chapter[] {
+  if (!html) return [];
+  const doc = new DOMParser().parseFromString(html, "text/html");
+  const head = [...doc.querySelectorAll("h1, h2, h3, h4, h5, h6")].find((h) =>
+    /chapter|contents|story titles|episode|collects|collected/i.test(h.textContent ?? ""),
+  );
+  const list = head?.nextElementSibling;
+  if (!list || !/^(UL|OL)$/.test(list.tagName)) return [];
+  return [...list.querySelectorAll(":scope > li")]
+    .map((li) => {
+      const t = (li.textContent ?? "").replace(/\s+/g, " ").trim();
+      const m = CHAPTER_ITEM.exec(t);
+      return m ? { n: m[1], title: m[2] || t } : { n: null, title: t };
+    })
+    .filter((c) => c.title);
 }
 
 /** Lists stored one per line read as "Thorfinn, Askeladd". */
