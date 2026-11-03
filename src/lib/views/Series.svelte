@@ -56,6 +56,19 @@
     const art = artist && artist !== writer ? `art by ${artist}` : "";
     return [writer, art, data.publisher, data.years].filter(Boolean).join(" · ");
   });
+  // A name that says who made it ("Daredevil by Frank Miller", "New Mutants by Zeb Wells - The
+  // Complete Collection") sets the title in the letters and "by Frank Miller" in a caption box on
+  // the panel's corner. Only when the "by" names someone who made the series, where that's known,
+  // so "Gotham by Gaslight" and "Step by Bloody Step" stay whole.
+  const headline = $derived.by(() => {
+    const name = data?.name.trim() ?? "";
+    const m = /^(.+?)\s+by\s+(.+?)(\s+[-–—]\s+.+)?$/i.exec(name);
+    if (!m) return { title: name, by: "" };
+    const made = `${listText(data?.writer)} ${listText(data?.artist)}`.toLowerCase();
+    const words = m[2].match(/[a-z][a-z.']{2,}/gi) ?? [];
+    if (made.trim() && !words.some((w) => made.includes(w.toLowerCase()))) return { title: name, by: "" };
+    return { title: `${m[1]}${m[3] ?? ""}`, by: `by ${m[2]}` };
+  });
   const findOnCv = () => data && (sheets.matching = { seriesId: data.id, isManga: data.isManga, name: data.name });
   // The name is set as on collection pages: its letters cut from the series' covers, picked at
   // random each visit, over one more cover printed in a single ink of its own color. That one is
@@ -72,7 +85,7 @@
     return c ? { id: c.id, hue: hue(c.coverColor)!.h, at: 20 + (shuffled(c.id) % 61) } : null;
   });
   const letterCovers = $derived.by(() => {
-    const letters = [...(data?.name ?? "")].filter((ch) => ch !== " ").length;
+    const letters = [...headline.title].filter((ch) => ch !== " ").length;
     const others = all.filter((c) => c.id !== backdrop?.id);
     return [...(others.length ? others : all)]
       .sort((a, b) => shuffled(a.id) - shuffled(b.id))
@@ -426,7 +439,8 @@
       {#if look.backdrop && backdrop}
         <InkPrint src={printUrl(backdrop.id)} hue={backdrop.hue} at={backdrop.at} />
       {/if}
-      <LetterHeadline text={data.name} covers={letterCovers} maxLines={4} />
+      <LetterHeadline text={headline.title} covers={letterCovers} maxLines={4} />
+      {#if headline.by}<div class="caption byline">{headline.by}</div>{/if}
     </div>
     <!-- Where it lives and who made it; fetching its details, and more. -->
     <header class="series">
@@ -616,6 +630,13 @@
     position: absolute;
     left: -4px;
     top: -4px;
+    z-index: 2;
+  }
+  /* Who made it, from the series' name, on the opposite corner. */
+  .caption.byline {
+    position: absolute;
+    right: -4px;
+    bottom: -4px;
     z-index: 2;
   }
   .series {
