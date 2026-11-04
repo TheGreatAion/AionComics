@@ -287,6 +287,8 @@ export interface Settings {
   dataDir: string;
   /** The YACReader library in the comics folder, if there is one. */
   yacreader: YacStatus | null;
+  /** How the folders at the top are read. */
+  layout: "auto" | "libraries" | "series";
 }
 
 /** Sending your reading to YACReader. */
@@ -315,14 +317,20 @@ export interface Storage {
   lists: number;
 }
 
-/** Where a comic file dropped on the window would be copied. */
+/** Where a comic dropped on the window would be copied. */
 export type Placement = {
   source: string;
   fileName: string;
   /** Folder inside the comics folder, e.g. "DC/Absolute Batman". */
   folder: string | null;
   status: "add" | "exists" | "name-taken" | "new-series" | "no-place" | "not-comic";
+  /** Copied as it is, unpacked from a .zip or .rar of several books, or packed from a folder of pages. */
+  how: "copy" | "unpack" | "pack";
+  size: number;
 };
+
+/** How far copying dropped comics has got ("add-progress"). */
+export type AddProgress = { done: number; total: number; bytes: number; totalBytes: number };
 
 export const api = {
   settings: () => invoke<Settings>("get_settings"),
@@ -332,6 +340,11 @@ export const api = {
   openDataFolder: () => invoke<void>("open_data_folder"),
   setLibraryRoot: (path: string) => invoke<void>("set_library_root", { path }),
   rescan: () => invoke<void>("rescan"),
+  /** A Comics folder in Documents becomes the comics folder. Returns where it is. */
+  startFresh: () => invoke<string>("start_fresh"),
+  setLayout: (layout: string) => invoke<void>("set_layout", { layout }),
+  /** A new, empty library: a folder at the top of the comics folder. Returns its id. */
+  newLibrary: (name: string) => invoke<number>("new_library", { name }),
   backups: () => invoke<Backup[]>("backups"),
   backupNow: () => invoke<Backup>("backup_now"),
   /** Backs up today's state, then restarts AionComics with the chosen backup in place. */
@@ -375,10 +388,11 @@ export const api = {
   toggleBookmark: (id: number, page: number) => invoke<boolean>("toggle_bookmark", { id, page }),
   openPath: (path: string) => invoke<number>("open_path", { path }),
   takeOpenRequest: () => invoke<string | null>("take_open_request"),
-  planAdd: (paths: string[], seriesId: number | null, collectionId: number | null) =>
-    invoke<Placement[]>("plan_add", { paths, seriesId, collectionId }),
-  addComics: (paths: string[], seriesId: number | null, collectionId: number | null) =>
-    invoke<number>("add_comics", { paths, seriesId, collectionId }),
+  /** Where these would go. `name` puts everything for a collection into the one series of that name. */
+  planAdd: (paths: string[], seriesId: number | null, collectionId: number | null, name: string | null = null) =>
+    invoke<Placement[]>("plan_add", { paths, seriesId, collectionId, name }),
+  addComics: (paths: string[], seriesId: number | null, collectionId: number | null, name: string | null = null) =>
+    invoke<number>("add_comics", { paths, seriesId, collectionId, name }),
   savePage: (id: number, page: number, dest: string) => invoke<void>("save_page", { id, page, dest }),
   extractPages: (id: number, from: number, to: number, dir: string) =>
     invoke<number>("extract_pages", { id, from, to, dir }),

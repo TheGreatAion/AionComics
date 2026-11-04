@@ -1,6 +1,7 @@
 <script lang="ts">
   import { tick, untrack } from "svelte";
   import { fade, fly } from "svelte/transition";
+  import { addMenu, adding } from "$lib/add.svelte";
   import { ago, api, listText, pageUrl, printUrl, progressOf, storyTitle, unitWord, type ComicCard, type Home } from "$lib/api";
   import { lib, nav, openReader, reader, search, sheets, showMenu, undoable } from "$lib/state.svelte";
   import { bareEnter } from "$lib/keynav";
@@ -30,6 +31,16 @@
   const hero = $derived(pile[at]);
   const sub = $derived(hero ? storyTitle(hero) : null);
   const empty = $derived(data && !hero);
+  // Nothing in the library at all, once that's known: somewhere to start, not "nothing in progress".
+  const noBooks = $derived(lib.collectionsLoaded && !lib.scanning && lib.collections.every((c) => c.comicCount === 0));
+  // With one library or none there's only one place to add to; with several, each has its own +.
+  const addHere = $derived(
+    lib.collections.length === 1
+      ? { collection: lib.collections[0].id, title: lib.collections[0].name }
+      : lib.collections.length === 0
+        ? { title: "your comics" }
+        : null,
+  );
   // The splash panel prints the top book's cover in its own color; a gray cover, or one that would
   // print teal, prints in gray.
   const heroHue = $derived.by(() => {
@@ -385,7 +396,20 @@
     {/if}
   </div>
 
-  {#if empty}
+  {#if empty && noBooks}
+    <div class="start">
+      <h1>No comics yet</h1>
+      {#if addHere}
+        <p>Add some here, or drag files and folders anywhere in this window.</p>
+        <div class="ways">
+          <button class="btn" onclick={(e) => addMenu(e, addHere)}><Icon name="plus" size={16} />Add comics</button>
+          <button class="link" onclick={() => (adding.newLibrary = true)}>New library</button>
+        </div>
+      {:else}
+        <p>Open a library above and press + to add a series to it.</p>
+      {/if}
+    </div>
+  {:else if empty}
     <p class="empty">Nothing in progress yet. Open something from your library and it will wait for you here.</p>
   {/if}
 {/if}
@@ -632,5 +656,30 @@
   }
   .empty {
     padding: 160px var(--pad) 0;
+  }
+  .start {
+    padding: 20vh var(--pad) 0;
+    max-width: 640px;
+  }
+  .start h1 {
+    font-family: var(--display);
+    font-weight: 400;
+    font-size: clamp(56px, 7vw, 96px);
+    line-height: 0.9;
+  }
+  .start p {
+    margin: 22px 0 30px;
+    color: var(--text-2);
+    font-size: 15px;
+  }
+  .ways {
+    display: flex;
+    align-items: center;
+    gap: 22px;
+  }
+  .ways .btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 10px;
   }
 </style>

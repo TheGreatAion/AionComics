@@ -10,6 +10,9 @@
     }
   }
 
+  /** The row comics are being dragged over ("series:12", "collection:3"), set by the drop zone. */
+  export const dropOn = $state({ key: null as string | null });
+
   export function toggleSide() {
     side.open = !side.open;
     try {
@@ -24,6 +27,7 @@
   // A side panel for getting around fast: the books you're partway through, the series added
   // lately, and every collection opening into its series, with a filter over all of them. While
   // it's open it is the app's navigation: the top bar keeps only back, search, stats and settings.
+  import { addMenu, adding } from "$lib/add.svelte";
   import { api, progressOf, type ComicCard, type SeriesSummary } from "$lib/api";
   import { lib, nav, openReader, showMenu, undoable } from "$lib/state.svelte";
   import Icon from "./Icon.svelte";
@@ -93,6 +97,14 @@
 
   // On the series page of this series (or of a book in it).
   const seriesHere = (id: number) => route.name === "series" && route.id === id;
+
+  // Comics held over a folded collection for a moment open it, so a series inside can be aimed at.
+  $effect(() => {
+    const key = dropOn.key;
+    if (!key?.startsWith("collection:") || opened[`c${key.slice(11)}`]) return;
+    const t = setTimeout(() => flip(`c${key.slice(11)}`), 700);
+    return () => clearTimeout(t);
+  });
 </script>
 
 <!-- Always there, slid away when hidden, so it can glide in and out. -->
@@ -126,6 +138,8 @@
             <div
               class="book"
               class:on={seriesHere(c.seriesId)}
+              class:dropping={dropOn.key === `series:${c.seriesId}`}
+              data-drop="series:{c.seriesId}"
               role="group"
               oncontextmenu={(e) =>
                 showMenu(e, [
@@ -147,28 +161,56 @@
         {/if}
       {/if}
 
-      <button class="head" onclick={() => flip("added")}>
-        Recently added<span class="chev" class:open={opened.added}><Icon name="chevronRight" size={11} /></span>
-      </button>
+      {#if added.length}
+        <button class="head" onclick={() => flip("added")}>
+          Recently added<span class="chev" class:open={opened.added}><Icon name="chevronRight" size={11} /></span>
+        </button>
+      {/if}
       {#if opened.added}
         {#each added as s (s.id)}
-          <button class="row" class:on={seriesHere(s.id)} onclick={() => nav.go({ name: "series", id: s.id })}>
+          <button
+            class="row"
+            class:on={seriesHere(s.id)}
+            class:dropping={dropOn.key === `series:${s.id}`}
+            data-drop="series:{s.id}"
+            onclick={() => nav.go({ name: "series", id: s.id })}
+          >
             <span class="name">{s.name}</span>
           </button>
         {/each}
       {/if}
     {/if}
 
-    <div class="head label">Library</div>
+    <div class="head label">
+      Library
+      <button class="fold new" title="New library" aria-label="New library" onclick={() => (adding.newLibrary = true)}>
+        <Icon name="plus" size={13} />
+      </button>
+    </div>
     {#each lib.collections as c (c.id)}
       {@const list = shownSeries(c.id)}
       {@const unfolded = opened[`c${c.id}`] || !!words.length}
       {#if !words.length || list.length}
-        <div class="coll" class:on={here({ name: "collection", id: c.id })}>
+        <div
+          class="coll"
+          class:on={here({ name: "collection", id: c.id })}
+          class:dropping={dropOn.key === `collection:${c.id}`}
+          data-drop="collection:{c.id}"
+        >
           <button class="row" onclick={() => nav.root({ name: "collection", id: c.id })}>
             <span class="name">{c.name}</span>
             <span class="count">{words.length ? list.length : c.seriesCount}</span>
           </button>
+          {#if unfolded}
+            <button
+              class="fold"
+              title="Add a series to {c.name}"
+              aria-label="Add a series to {c.name}"
+              onclick={(e) => addMenu(e, { collection: c.id, title: c.name })}
+            >
+              <Icon name="plus" size={13} />
+            </button>
+          {/if}
           <button class="fold" aria-label={unfolded ? `Fold away ${c.name}` : `Show the series in ${c.name}`} onclick={() => flip(`c${c.id}`)}>
             <span class="chev" class:open={unfolded}><Icon name="chevronRight" size={12} /></span>
           </button>
@@ -176,7 +218,14 @@
         {#if unfolded}
           <div class="list">
             {#each list as s (s.id)}
-              <button class="row series" class:on={seriesHere(s.id)} class:done={s.count > 0 && s.readCount >= s.count} onclick={() => nav.go({ name: "series", id: s.id })}>
+              <button
+                class="row series"
+                class:on={seriesHere(s.id)}
+                class:done={s.count > 0 && s.readCount >= s.count}
+                class:dropping={dropOn.key === `series:${s.id}`}
+                data-drop="series:{s.id}"
+                onclick={() => nav.go({ name: "series", id: s.id })}
+              >
                 <span class="name">{s.name}</span>
               </button>
             {/each}
@@ -290,6 +339,13 @@
   .row.on {
     color: var(--text);
     background: rgb(var(--fg) / 0.07);
+  }
+  /* The row comics will go into when they're let go. */
+  .dropping > .row,
+  .row.dropping {
+    color: var(--text);
+    background: rgb(var(--fg) / 0.14);
+    box-shadow: inset 0 0 0 1px rgb(var(--fg) / 0.28);
   }
   .home {
     font-size: 15px;
@@ -405,6 +461,12 @@
   }
   .fold:hover {
     color: var(--text);
+  }
+  /* In line with the collections' own buttons below it. */
+  .fold.new {
+    margin-left: auto;
+    margin-right: -10px;
+    height: 20px;
   }
   .list {
     margin: 2px 0 10px;

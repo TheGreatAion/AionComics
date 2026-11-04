@@ -1,5 +1,6 @@
 <script lang="ts">
   import { untrack } from "svelte";
+  import { addMenu } from "$lib/add.svelte";
   import { api, listText, plainText, printUrl, unitWord, type CollectionView, type SeriesSummary, type SeriesView } from "$lib/api";
   import { lib, nav, openReader } from "$lib/state.svelte";
   import Cover from "$lib/components/Cover.svelte";
@@ -14,7 +15,7 @@
   const SORTS: { key: Sort; title: string; icon: IconName | null }[] = [
     { key: "name", title: "A to Z", icon: null },
     { key: "read", title: "Recently read", icon: "clock" },
-    { key: "added", title: "Recently added", icon: "plus" },
+    { key: "added", title: "Recently added", icon: "arrived" },
   ];
 
   let { id }: { id: number } = $props();
@@ -182,10 +183,13 @@
         {/each}
       </div>
     </div>
+    <button class="ico add" title="Add a series" aria-label="Add a series" onclick={(e) => addMenu(e, { collection: data!.id, title: data!.name })}>
+      <Icon name="plus" size={18} />
+    </button>
   </div>
 
   {#if !data.series.length}
-    <p class="empty">Books added to the {data.name} folder show up here, and their covers fill these letters.</p>
+    <p class="empty">Press + to add a series, or drag comics anywhere in this window. Their covers will fill these letters.</p>
   {:else if few && !beside}
     <div class="features" class:pair={features.length === 2}>
       {#each features as v, i (v.id)}{@render feature(v, data.series[i], features.length === 1 ? 230 : 170)}{/each}
@@ -306,6 +310,11 @@
   }
   .tools.gone {
     visibility: hidden;
+  }
+  /* Beside the filter and sorts, and still here on a collection with nothing in it. */
+  .add {
+    flex: none;
+    margin: 0 0 10px -24px;
   }
   .sorts {
     display: flex;

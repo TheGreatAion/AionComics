@@ -1,6 +1,7 @@
 <script lang="ts">
   import { tick } from "svelte";
   import { slide } from "svelte/transition";
+  import { addMenu } from "$lib/add.svelte";
   import { api, chapterList, listText, plainText, printUrl, storyTitle, unitWord, type ComicCard, type ComicMeta, type EditionKind, type MetaField, type SeriesView } from "$lib/api";
   import { lib, nav, openReader, reader, search, sheets, showMenu, undoable, undoableWith, type MenuItem } from "$lib/state.svelte";
   import { bareEnter, nearest } from "$lib/keynav";
@@ -449,6 +450,14 @@
         {#if by}<span class="by">· {by}</span>{/if}
       </div>
       <div class="tools">
+        <button
+          class="ico"
+          title="Add {unitWord(data.isManga, 2)}"
+          aria-label="Add {unitWord(data.isManga, 2)}"
+          onclick={(e) => addMenu(e, { series: data!.id, title: data!.name })}
+        >
+          <Icon name="plus" size={18} />
+        </button>
         <!-- Always here, so a series can fetch its details again (a new issue, a wrong match). -->
         <button class="ico" title={cvLabel} aria-label={cvLabel} onclick={findOnCv}>
           <Icon name="fetch" size={18} />

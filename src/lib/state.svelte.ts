@@ -50,7 +50,11 @@ export const lib = $state({
   version: 0,
   scanning: false,
   hasRoot: true as boolean | null,
+  /** Still on the welcome screen, after the folder's been chosen. */
+  welcoming: false,
   collections: [] as CollectionSummary[],
+  /** Whether `collections` has been fetched yet: nothing in it means no libraries only once it has. */
+  collectionsLoaded: false,
   /** Why the last scan changed nothing (drive missing), or what it held back. Shown in the top bar. */
   notice: "",
   /** A few words for the top bar; the full notice is its tooltip and appears in Settings. */

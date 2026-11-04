@@ -71,6 +71,10 @@ pub fn open(path: &Path) -> Result<Connection> {
 
 /// Columns added after the first release of the schema.
 fn migrate(conn: &Connection) -> Result<()> {
+    // The library for series that sit straight in the comics folder, with no folder of its own.
+    if !conn.prepare("SELECT 1 FROM pragma_table_info('collections') WHERE name='at_top'")?.exists([])? {
+        conn.execute("ALTER TABLE collections ADD COLUMN at_top INTEGER NOT NULL DEFAULT 0", [])?;
+    }
     let has = |col: &str| -> Result<bool> {
         let mut st = conn.prepare("SELECT 1 FROM pragma_table_info('comics') WHERE name=?1")?;
         Ok(st.exists([col])?)

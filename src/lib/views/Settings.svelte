@@ -12,8 +12,6 @@
   import { lib, nav } from "$lib/state.svelte";
   import { setTheme, theme, type ThemeChoice } from "$lib/theme.svelte";
 
-  let { welcome = false }: { welcome?: boolean } = $props();
-
   let s = $state<Settings | null>(null);
   let cv = $state<CvStatus | null>(null);
   let cvKey = $state("");
@@ -38,7 +36,7 @@
     api.settings().then((v) => (s = v));
     api.cvStatus().then((v) => (cv = v));
     api.backups().then((v) => (backups = v));
-    if (!welcome) api.takenOffReading().then((v) => (taken = v));
+    api.takenOffReading().then((v) => (taken = v));
   });
 
   // While reading waits to reach YACReader, keep its line up to date.
@@ -66,7 +64,6 @@
     lib.version++;
   }
   $effect(() => {
-    if (welcome) return;
     api.storage().then((v) => (storage = v));
     getVersion().then((v) => (version = v));
   });
@@ -198,6 +195,12 @@
       error = String(e);
     }
   }
+  function setLayout(key: string) {
+    if (!s || s.layout === key || lib.scanning) return;
+    s.layout = key as typeof s.layout;
+    lib.scanning = true;
+    api.setLayout(key);
+  }
   function rescan() {
     lib.scanning = true;
     lib.notice = "";
@@ -270,7 +273,7 @@
     new Date(t * 1000).toLocaleString(undefined, { dateStyle: "medium", timeStyle: "short" });
 </script>
 
-<svelte:window onkeydowncapture={capture} onscroll={welcome ? undefined : onscroll} />
+<svelte:window onkeydowncapture={capture} {onscroll} />
 
 {#snippet toggle(on: boolean, flip: () => void, label: string)}
   <button class="tog" class:on role="switch" aria-checked={on} aria-label={label} onclick={flip}><i></i></button>
@@ -292,15 +295,7 @@
   </span>
 {/snippet}
 
-{#if welcome}
-  <div class="welcome">
-    <h1>AionComics</h1>
-    <p>Pick the folder with your comics. AionComics only reads it, and adds comics you drop in.</p>
-    <button class="btn" onclick={choose}><Icon name="folder" size={16} />Choose folder</button>
-    {#if error}<p class="err">{error}</p>{/if}
-  </div>
-{:else}
-  <div class="page">
+<div class="page">
     <div class="top">
       <div class="caption">AionComics{version ? ` ${version}` : ""}</div>
       <h1>Settings</h1>
@@ -451,8 +446,8 @@
                 <span
                   class="mono path"
                   title={s.options.yacreaderSync && s.yacreader
-                    ? "Only read, except to add comics you drop in and to send your reading to YACReader. Nothing there is moved or deleted."
-                    : "Only read, except to add comics you drop in. Nothing there is moved, changed or deleted."}>{s.libraryRoot ?? "Not set"}</span>
+                    ? "Only read, except to add comics and libraries you ask for and to send your reading to YACReader. Nothing there is moved or deleted."
+                    : "Only read, except to add comics and libraries you ask for. Nothing there is moved, changed or deleted."}>{s.libraryRoot ?? "Not set"}</span>
                 {#if s.lastScan}
                   <small class="mono">{s.lastScan.comics.toLocaleString()} books · {s.lastScan.series.toLocaleString()} series · scanned {when(s.lastScan.finishedAt)}</small>
                 {/if}
@@ -466,6 +461,19 @@
             </div>
             {#if error}<p class="err"><Icon name="alert" size={14} />{error}</p>{/if}
             {#if lib.notice}<p class="err"><Icon name="alert" size={14} />{lib.notice}</p>{/if}
+            <div class="row">
+              <div class="lbl">Folders in your comics folder<small>Only changes how they show here. Nothing is moved.</small></div>
+              {@render choice(
+                [
+                  { key: "auto", label: "Work it out" },
+                  { key: "libraries", label: "Libraries" },
+                  { key: "series", label: "Series" },
+                ] as const,
+                s.layout,
+                setLayout,
+                "Folders in your comics folder",
+              )}
+            </div>
             <div class="row">
               <div class="lbl">Watch for new comics<small>Adds books as soon as they land in the folder</small></div>
               {@render toggle(s.options.watchFolder, () => setOption("watchFolder", !s!.options.watchFolder), "Watch for new comics")}
@@ -668,32 +676,8 @@
       </div>
     {/if}
   </div>
-{/if}
 
 <style>
-  .welcome {
-    max-width: 520px;
-    padding: 24vh var(--pad) 0;
-    margin: 0 auto;
-  }
-  .welcome h1 {
-    font-family: var(--display);
-    font-weight: 400;
-    font-size: clamp(64px, 8vw, 116px);
-    line-height: 0.88;
-    letter-spacing: 0.005em;
-  }
-  .welcome p {
-    margin: 24px 0 36px;
-    color: var(--text-2);
-    font-size: 15px;
-  }
-  .welcome .btn {
-    display: inline-flex;
-    align-items: center;
-    gap: 10px;
-  }
-
   .page {
     padding: 0 0 120px;
   }

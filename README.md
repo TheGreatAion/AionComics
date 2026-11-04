@@ -12,7 +12,7 @@ npm run tauri dev      # development
 npm run tauri build    # installer in src-tauri/target/release/bundle
 ```
 
-On first launch, choose your comics folder. AionComics **only reads that folder**, with one exception you start yourself: comics you drop on the window are copied in (under their own names; nothing is ever renamed, overwritten, moved or deleted; see *Adding comics*). Its database (`library.db`) and cover thumbnails live in the app data and cache folders (`%APPDATA%\com.aion.comics`, `%LOCALAPPDATA%\com.aion.comics`).
+On first launch, choose your comics folder, or start fresh with a new one. AionComics **only reads that folder**, with one exception you start yourself: comics and libraries you add are put there (under their own names; nothing is ever renamed, overwritten, moved or deleted; see *Adding comics*). Its database (`library.db`) and cover thumbnails live in the app data and cache folders (`%APPDATA%\com.aion.comics`, `%LOCALAPPDATA%\com.aion.comics`).
 
 ## Library layout
 
@@ -28,9 +28,25 @@ If `<root>/.yacreaderlibrary/library.ydb` exists, AionComics reads it on every s
 
 **Send my reading to YACReader** (Settings › Library, off until you turn it on) works the other way: the page you're on and the books you finish or mark read or unread are saved into YACReader's library too, so the two apps agree. It's the one thing AionComics writes in the comics folder besides comics you drop in, and it changes only those reading fields, never YACReader's book details or folders. Changes wait while YACReader is open and go once it's closed (and when AionComics closes). A book you opened in YACReader after changing it in AionComics keeps YACReader's reading. Before the first change, a copy of YACReader's database is saved to `yacreader-backup` in the AionComics data folder.
 
+## How your folders are read
+
+Any way of keeping comics works, and nothing on disk is rearranged to fit:
+
+- `Marvel / Saga / Saga 001.cbz`: Marvel is a library, Saga a series. Folders under a series are its sections.
+- `Saga / Saga 001.cbz`: a folder whose books are named after it, only by number, or all alike is a series. So is one with only numbered folders inside (`Saga / Vol 1 / ...`). These go in a library named after your comics folder.
+- `Saga 001.cbz` loose in the comics folder: books sharing a name are one series, in that same library. A book alone is a series of one, and so it goes loose in a library's folder too.
+- An empty folder at the top is a library waiting for its first series.
+
+If the guess is wrong, *Settings › Library › Folders in your comics folder* says which they are. It only changes how they show.
+
 ## Adding comics
 
+- **New library.** The + beside "Library" in the side panel makes a folder at the top of the comics folder.
+
 - **Drop .cbz/.cbr files on the window.** On a series page they're copied into that series' folder. On a collection page each goes into the series of the same name ("Absolute Batman 018.cbz" → `DC/Absolute Batman`), or a new folder named after it. Elsewhere, files go to a series of the same name, if there is one. While you drag, the window shows where each file will go; nothing is copied until you let go. Files keep their own names: AionComics never renames, overwrites, moves or deletes anything in the folder (what a book is called in the app comes from its metadata). A file that's already there is skipped, and so is one whose name is taken by a different file.
+- **Or drop them on the side panel.** Let go over a series there to add to it, or over a collection to sort them into its series as on the collection's page. Holding over a folded collection opens it.
+- **Folders and bundles work too.** A dropped folder brings every comic inside it (at any depth); books named only by number ("v01.cbz") go to the series the folder is named after. A folder of loose pages becomes one .cbz named after the folder. A .zip or .rar holding several comic files is unpacked, and those books are placed as if dropped one by one; a .zip that's a book itself is copied as it is. The originals are left where they were. A note at the bottom shows how far a big copy has got.
+- **Or use a + button.** There's one on each series page (add books to it), on each collection's page and beside an opened collection in the side panel (add a series). Choose comic files or a folder; a box then shows where they'll go, and nothing is copied until you press Add. Adding a series asks for its name, and everything chosen goes into that one series. Comics chosen from several places, or that look like several series, can be kept apart.
 - **Or copy them in yourself.** AionComics watches the comics folder and rescans a few seconds after files stop changing, so new books (and removed ones) show up by themselves.
 - **Open a comic from Explorer**: AionComics opens a .cbz/.cbr it's started with (Open with → AionComics), in the window that's already open if it's running. An installer built with `npm run tauri build` registers both file types.
 

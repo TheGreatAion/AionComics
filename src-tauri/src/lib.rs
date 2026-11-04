@@ -316,6 +316,8 @@ struct Settings {
     data_dir: String,
     /// The YACReader library in the comics folder, if there is one.
     yacreader: Option<YacStatus>,
+    /// How the top folders are read: "auto", "libraries" or "series".
+    layout: String,
 }
 
 #[derive(Serialize)]
@@ -344,6 +346,7 @@ fn get_settings(state: State<Shared>) -> CmdResult<Settings> {
             .map_err(err)?
             .and_then(|s| serde_json::from_str(&s).ok()),
         scanning: state.scanning.load(Ordering::SeqCst),
+        layout: db::get_setting(&conn, scan::Layout::SETTING).map_err(err)?.unwrap_or_else(|| "auto".to_string()),
         options,
         data_dir: state.data_dir.display().to_string(),
         yacreader,
@@ -469,14 +472,57 @@ fn set_library_root(app: AppHandle, state: State<Shared>, path: String) -> CmdRe
     Ok(())
 }
 
-/// Where comic files dropped on the window would go (see `intake::plan`).
+/// Starting fresh: a Comics folder in Documents becomes the comics folder. Returns where it is.
 #[tauri::command]
-fn plan_add(state: State<Shared>, paths: Vec<String>, series_id: Option<i64>, collection_id: Option<i64>) -> CmdResult<Vec<intake::Placement>> {
-    let root = state.root().ok_or("No comics folder set")?;
-    intake::plan(&state.conn.lock().unwrap(), &root, &paths, series_id, collection_id).map_err(err)
+fn start_fresh(app: AppHandle, state: State<Shared>) -> CmdResult<String> {
+    let documents = match test_home() {
+        Some(home) => home.join("Documents"),
+        None => app.path().document_dir().map_err(err)?,
+    };
+    let dir = documents.join("Comics");
+    std::fs::create_dir_all(&dir).map_err(err)?;
+    let path = dir.to_string_lossy().into_owned();
+    set_library_root(app, state, path.clone())?;
+    Ok(path)
 }
 
-/// Copy dropped comic files into the comics folder, then rescan. Returns how many were added.
+/// How the top folders are read (see `scan::Layout`); takes effect with a rescan.
+#[tauri::command]
+fn set_layout(app: AppHandle, state: State<Shared>, layout: String) -> CmdResult<()> {
+    db::set_setting(&state.conn.lock().unwrap(), scan::Layout::SETTING, &layout).map_err(err)?;
+    start_scan(&app, &state);
+    Ok(())
+}
+
+/// A new, empty library. Returns its id.
+#[tauri::command]
+fn new_library(state: State<Shared>, name: String) -> CmdResult<i64> {
+    let root = state.root().ok_or("No comics folder set")?;
+    intake::new_library(&state.conn.lock().unwrap(), &root, &name).map_err(err)
+}
+
+/// Where comic files dropped on the window would go (see `intake::plan`).
+#[tauri::command]
+async fn plan_add(
+    state: State<'_, Shared>,
+    paths: Vec<String>,
+    series_id: Option<i64>,
+    collection_id: Option<i64>,
+    name: Option<String>,
+) -> CmdResult<Vec<intake::Placement>> {
+    let st = state.inner().clone();
+    tauri::async_runtime::spawn_blocking(move || {
+        let root = st.root().ok_or_else(|| anyhow::anyhow!("No comics folder set"))?;
+        let found = intake::gather_all(&paths);
+        intake::plan(&st.conn.lock().unwrap(), &root, found, series_id, collection_id, name.as_deref())
+    })
+    .await
+    .map_err(err)?
+    .map_err(err)
+}
+
+/// Copy dropped comics into the comics folder (unpacking bundles, packing folders of pages), then
+/// rescan. Tells the window how far it's got as "add-progress". Returns how many were added.
 #[tauri::command]
 async fn add_comics(
     app: AppHandle,
@@ -484,13 +530,18 @@ async fn add_comics(
     paths: Vec<String>,
     series_id: Option<i64>,
     collection_id: Option<i64>,
+    name: Option<String>,
 ) -> CmdResult<usize> {
     let state = state.inner().clone();
     let st = state.clone();
+    let win = app.clone();
     let added = tauri::async_runtime::spawn_blocking(move || -> anyhow::Result<usize> {
         let root = st.root().ok_or_else(|| anyhow::anyhow!("No comics folder set"))?;
-        let placed = intake::plan(&st.conn.lock().unwrap(), &root, &paths, series_id, collection_id)?;
-        intake::copy_in(&root, &placed)
+        let found = intake::gather_all(&paths);
+        let placed = intake::plan(&st.conn.lock().unwrap(), &root, found, series_id, collection_id, name.as_deref())?;
+        intake::copy_in(&root, &placed, &mut |p| {
+            let _ = win.emit("add-progress", p);
+        })
     })
     .await
     .map_err(err)?
@@ -1200,6 +1251,11 @@ fn handle_image(state: &AppState, req: &Request<Vec<u8>>) -> Response<Vec<u8>> {
     }
 }
 
+/// For testing a fresh start: a folder to keep all of the app's own data in, instead of the real ones.
+fn test_home() -> Option<PathBuf> {
+    std::env::var_os("AION_TEST_HOME").map(PathBuf::from)
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     let mut builder = tauri::Builder::default();
@@ -1225,8 +1281,10 @@ pub fn run() {
             });
         })
         .setup(|app| {
-            let data_dir = app.path().app_data_dir()?;
-            let cache_dir = app.path().app_cache_dir()?;
+            let (data_dir, cache_dir) = match test_home() {
+                Some(home) => (home.join("data"), home.join("cache")),
+                None => (app.path().app_data_dir()?, app.path().app_cache_dir()?),
+            };
             let thumbs_dir = cache_dir.join("thumbs");
             std::fs::create_dir_all(&data_dir)?;
             std::fs::create_dir_all(&thumbs_dir)?;
@@ -1373,6 +1431,9 @@ pub fn run() {
             cv_apply_book,
             plan_add,
             add_comics,
+            start_fresh,
+            set_layout,
+            new_library,
             take_open_request
         ])
         .build(tauri::generate_context!())

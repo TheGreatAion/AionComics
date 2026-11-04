@@ -21,6 +21,7 @@
   import Stats from "$lib/views/Stats.svelte";
   import Duplicates from "$lib/views/Duplicates.svelte";
   import Settings from "$lib/views/Settings.svelte";
+  import Welcome from "$lib/views/Welcome.svelte";
 
   const route = $derived(nav.current);
   let refreshTimer: ReturnType<typeof setTimeout> | undefined;
@@ -68,7 +69,10 @@
 
   $effect(() => {
     void lib.version;
-    api.nav().then((n) => (lib.collections = n.collections));
+    api.nav().then((n) => {
+      lib.collections = n.collections;
+      lib.collectionsLoaded = true;
+    });
   });
 
   // The library stays mounted under the reader; stop it scrolling meanwhile. Its scrollbar gutter goes
@@ -94,7 +98,7 @@
   // the slide made it stutter.
   let shown: boolean | null = null;
   $effect(() => {
-    const open = side.open && !!lib.hasRoot;
+    const open = side.open && !!lib.hasRoot && !lib.welcoming;
     document.documentElement.style.setProperty("--side-now", open ? "var(--side)" : "0px");
     const main = document.querySelector("main");
     if (shown !== null && shown !== open && main) {
@@ -138,9 +142,9 @@
 
 <svelte:window onkeydown={onkey} {onmouseup} />
 
-{#if lib.hasRoot === false}
+{#if lib.hasRoot === false || lib.welcoming}
   <div class="bare" data-tauri-drag-region><WindowControls /></div>
-  <Settings welcome />
+  <Welcome />
 {:else}
   <TopBar />
   <SidePanel />

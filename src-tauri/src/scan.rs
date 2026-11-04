@@ -1,10 +1,10 @@
 //! Library scanning: walk the comics folder, mirror it into the database,
 //! and pull metadata + reading progress from an existing YACReader library.
 //!
-//! Folder convention: `Collection / Series / [sections…] / file`.
-//! Files sitting directly inside a collection become one-book series.
+//! Folder convention: `Collection / Series / [sections…] / file`, read loosely (see `lay_out`) so
+//! other ways of keeping comics work too. Nothing on disk is ever rearranged to fit.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::path::Path;
 use std::sync::LazyLock;
 use std::time::{SystemTime, UNIX_EPOCH};
@@ -41,6 +41,8 @@ pub fn now() -> i64 {
 
 struct Found {
     collection: String,
+    /// The library for series that sit straight in the comics folder, with no folder of its own.
+    at_top: bool,
     series: String,
     series_rel: String,
     section: String,
@@ -50,7 +52,14 @@ struct Found {
     mtime: i64,
 }
 
-fn walk(root: &Path) -> Vec<Found> {
+/// A comic file as it sits on disk: its path inside the comics folder, piece by piece.
+struct Raw {
+    parts: Vec<String>,
+    size: i64,
+    mtime: i64,
+}
+
+fn walk(root: &Path) -> Vec<Raw> {
     let mut out = Vec::new();
     let walker = WalkDir::new(root)
         .min_depth(1)
@@ -73,23 +82,6 @@ fn walk(root: &Path) -> Vec<Found> {
             .components()
             .map(|c| c.as_os_str().to_string_lossy().into_owned())
             .collect();
-        if parts.len() < 2 {
-            continue; // loose files at the library root
-        }
-        let file_name = parts[parts.len() - 1].clone();
-        let (series, series_rel, section) = if parts.len() == 2 {
-            let stem = Path::new(&file_name)
-                .file_stem()
-                .map(|s| s.to_string_lossy().into_owned())
-                .unwrap_or_else(|| file_name.clone());
-            (clean_name(&stem), parts.join("/"), String::new())
-        } else {
-            (
-                parts[1].clone(),
-                format!("{}/{}", parts[0], parts[1]),
-                parts[2..parts.len() - 1].join(" / "),
-            )
-        };
         let meta = e.metadata().ok();
         let mtime = meta
             .as_ref()
@@ -97,18 +89,177 @@ fn walk(root: &Path) -> Vec<Found> {
             .and_then(|t| t.duration_since(UNIX_EPOCH).ok())
             .map(|d| d.as_secs() as i64)
             .unwrap_or(0);
-        out.push(Found {
-            collection: parts[0].clone(),
-            series,
-            series_rel,
-            section,
-            rel: parts.join("/"),
-            file_name,
-            size: meta.map(|m| m.len() as i64).unwrap_or(0),
-            mtime,
-        });
+        out.push(Raw { parts, size: meta.map(|m| m.len() as i64).unwrap_or(0), mtime });
     }
     out
+}
+
+/// How the folders at the top of the comics folder are read.
+#[derive(Clone, Copy, PartialEq, Debug)]
+pub enum Layout {
+    /// Worked out folder by folder.
+    Auto,
+    /// Every one is a library.
+    Libraries,
+    /// Every one is a series.
+    Series,
+}
+
+impl Layout {
+    pub const SETTING: &str = "library_layout";
+    pub fn parse(s: Option<&str>) -> Layout {
+        match s {
+            Some("libraries") => Layout::Libraries,
+            Some("series") => Layout::Series,
+            _ => Layout::Auto,
+        }
+    }
+}
+
+/// What a folder at the top holds.
+#[derive(Default)]
+struct Top<'a> {
+    loose: Vec<&'a str>,
+    subs: Vec<&'a str>,
+}
+
+/// The name of the series a top folder is, when it's a series rather than a library. It is when its
+/// subfolders only number it ("Saga / Vol 1"), or its books are named after it, only by number, or
+/// all alike. Comics in folders with names of their own make it a library.
+fn top_series(name: &str, top: &Top, layout: Layout) -> Option<String> {
+    use crate::intake::{norm, says_nothing, series_guess};
+    match layout {
+        Layout::Libraries => return None,
+        Layout::Series => return Some(name.to_string()),
+        Layout::Auto => {}
+    }
+    if !top.subs.is_empty() {
+        return top.subs.iter().all(|s| says_nothing(s)).then(|| name.to_string());
+    }
+    let guesses: Vec<String> = top.loose.iter().map(|f| series_guess(f)).collect();
+    let folder = norm(name);
+    let fits = |g: &String| says_nothing(g) || norm(g) == folder || norm(g).starts_with(&format!("{folder} "));
+    if guesses.iter().all(fits) {
+        return Some(name.to_string());
+    }
+    let alike = guesses.len() >= 2 && guesses.iter().all(|g| norm(g) == norm(&guesses[0]));
+    alike.then(|| guesses[0].clone())
+}
+
+/// Which series each loose book in a folder belongs to: (name, the series' place in the comics
+/// folder). Books that share a name are one series, and join a series folder beside them of that
+/// name; the place is where a folder for it would be. A book on its own is a series of one.
+fn group_loose(prefix: &str, files: &[&str], beside: &HashMap<String, (String, String)>) -> HashMap<String, (String, String)> {
+    use crate::intake::{norm, safe_folder, says_nothing, series_guess};
+    let place = |name: &str| if prefix.is_empty() { name.to_string() } else { format!("{prefix}/{name}") };
+    let guesses: Vec<(&str, String)> = files.iter().map(|f| (*f, series_guess(f))).collect();
+    let mut first: HashMap<String, (&str, usize)> = HashMap::new();
+    for (_, g) in &guesses {
+        first.entry(norm(g)).or_insert((g, 0)).1 += 1;
+    }
+    let mut out = HashMap::new();
+    for (file, g) in &guesses {
+        let key = norm(g);
+        let (name, n) = first[&key];
+        let series = match beside.get(&key) {
+            Some(home) if !key.is_empty() => home.clone(),
+            _ if n >= 2 && !says_nothing(g) && !safe_folder(name).is_empty() => (name.to_string(), place(&safe_folder(name))),
+            _ => {
+                let stem = Path::new(file).file_stem().map(|s| s.to_string_lossy().into_owned()).unwrap_or_else(|| file.to_string());
+                (clean_name(&stem), place(file))
+            }
+        };
+        out.insert(file.to_string(), series);
+    }
+    out
+}
+
+/// Comic files as libraries and series. `home` names the library for series at the very top.
+fn lay_out(raw: Vec<Raw>, home: &str, layout: Layout) -> Vec<Found> {
+    let mut tops: HashMap<&str, Top> = HashMap::new();
+    let mut at_root: Vec<&str> = Vec::new();
+    for r in &raw {
+        match r.parts.as_slice() {
+            [file] => at_root.push(file),
+            [top, file] => tops.entry(top).or_default().loose.push(file),
+            [top, sub, ..] => {
+                let t = tops.entry(top).or_default();
+                if !t.subs.contains(&sub.as_str()) {
+                    t.subs.push(sub);
+                }
+            }
+            [] => {}
+        }
+    }
+    let series_tops: HashMap<&str, String> =
+        tops.iter().filter_map(|(name, top)| top_series(name, top, layout).map(|s| (*name, s))).collect();
+    // A library of the same name is its own folder: the top's library says which it is.
+    let clash = tops.keys().any(|t| !series_tops.contains_key(t) && t.eq_ignore_ascii_case(home));
+    let home = if clash { format!("{home} (main folder)") } else { home.to_string() };
+
+    let mut root_beside = HashMap::new();
+    for (folder, name) in &series_tops {
+        root_beside.insert(crate::intake::norm(folder), (name.clone(), folder.to_string()));
+        root_beside.insert(crate::intake::norm(name), (name.clone(), folder.to_string()));
+    }
+    let loose_at_root = group_loose("", &at_root, &root_beside);
+    let loose_in: HashMap<&str, HashMap<String, (String, String)>> = tops
+        .iter()
+        .filter(|(name, _)| !series_tops.contains_key(*name))
+        .map(|(name, top)| {
+            let beside = top.subs.iter().map(|s| (crate::intake::norm(s), (s.to_string(), format!("{name}/{s}")))).collect();
+            (*name, group_loose(name, &top.loose, &beside))
+        })
+        .collect();
+
+    raw.iter()
+        .map(|r| {
+            let parts = &r.parts;
+            let file_name = parts[parts.len() - 1].clone();
+            let top_name = series_tops.get(parts[0].as_str());
+            let (collection, at_top, series, series_rel, section) = if parts.len() == 1 {
+                let (s, rel) = loose_at_root[&file_name].clone();
+                (home.clone(), true, s, rel, String::new())
+            } else if let Some(s) = top_name {
+                (home.clone(), true, s.clone(), parts[0].clone(), parts[1..parts.len() - 1].join(" / "))
+            } else if parts.len() == 2 {
+                let (s, rel) = loose_in[parts[0].as_str()][&file_name].clone();
+                (parts[0].clone(), false, s, rel, String::new())
+            } else {
+                (parts[0].clone(), false, parts[1].clone(), format!("{}/{}", parts[0], parts[1]), parts[2..parts.len() - 1].join(" / "))
+            };
+            Found { collection, at_top, series, series_rel, section, rel: parts.join("/"), file_name, size: r.size, mtime: r.mtime }
+        })
+        .collect()
+}
+
+/// Folders at the very top with no comics in them: libraries waiting for their first series.
+fn empty_libraries(root: &Path, raw: &[Raw], layout: Layout) -> Vec<String> {
+    if layout == Layout::Series {
+        return Vec::new();
+    }
+    let used: HashSet<&str> = raw.iter().filter(|r| r.parts.len() > 1).map(|r| r.parts[0].as_str()).collect();
+    let Ok(dir) = std::fs::read_dir(root) else { return Vec::new() };
+    dir.flatten()
+        .filter(|e| {
+            let hidden = e.metadata().map(|m| hidden_or_system(&m)).unwrap_or(true);
+            e.file_type().is_ok_and(|t| t.is_dir()) && !hidden && !e.file_name().to_string_lossy().starts_with('.')
+        })
+        .map(|e| e.file_name().to_string_lossy().into_owned())
+        .filter(|n| !used.contains(n.as_str()))
+        .collect()
+}
+
+/// Windows' own folders on a drive ("System Volume Information", the recycle bin) aren't libraries.
+#[cfg(windows)]
+fn hidden_or_system(m: &std::fs::Metadata) -> bool {
+    use std::os::windows::fs::MetadataExt;
+    m.file_attributes() & 0x6 != 0
+}
+
+#[cfg(not(windows))]
+fn hidden_or_system(_: &std::fs::Metadata) -> bool {
+    false
 }
 
 // ---------- YACReader import ----------
@@ -321,7 +472,11 @@ pub fn scan(conn: &mut Connection, root: &Path) -> Result<ScanStats> {
     if !root.is_dir() {
         anyhow::bail!("Your library folder ({}) isn't available. Is the drive connected?", root.display());
     }
-    let found = walk(root);
+    let layout = Layout::parse(crate::db::get_setting(conn, Layout::SETTING)?.as_deref());
+    let home = root.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_else(|| "Library".to_string());
+    let raw = walk(root);
+    let empties = empty_libraries(root, &raw, layout);
+    let found = lay_out(raw, &home, layout);
     let known: i64 = conn.query_row("SELECT COUNT(*) FROM comics", [], |r| r.get(0))?;
     if found.is_empty() && known > 0 {
         anyhow::bail!("No comics were found in {}. Nothing was changed.", root.display());
@@ -333,8 +488,8 @@ pub fn scan(conn: &mut Connection, root: &Path) -> Result<ScanStats> {
     tx.execute("UPDATE comics SET seen=0", [])?;
     {
         let mut ins_col = tx.prepare(
-            "INSERT INTO collections(name, is_manga) VALUES(?1, ?2)
-             ON CONFLICT(name) DO UPDATE SET is_manga=excluded.is_manga RETURNING id",
+            "INSERT INTO collections(name, is_manga, at_top) VALUES(?1, ?2, ?3)
+             ON CONFLICT(name) DO UPDATE SET is_manga=excluded.is_manga, at_top=excluded.at_top RETURNING id",
         )?;
         let mut ins_series = tx.prepare(
             "INSERT INTO series(collection_id, name, rel_path) VALUES(?1, ?2, ?3)
@@ -370,7 +525,7 @@ pub fn scan(conn: &mut Connection, root: &Path) -> Result<ScanStats> {
                 Some(v) => *v,
                 None => {
                     let manga = f.collection.eq_ignore_ascii_case("manga");
-                    let id: i64 = ins_col.query_row(params![f.collection, manga], |r| r.get(0))?;
+                    let id: i64 = ins_col.query_row(params![f.collection, manga, f.at_top], |r| r.get(0))?;
                     col_ids.insert(f.collection.clone(), (id, manga));
                     (id, manga)
                 }
@@ -480,6 +635,9 @@ pub fn scan(conn: &mut Connection, root: &Path) -> Result<ScanStats> {
                 note_yac_read.execute(params![id, y.read])?;
             }
         }
+        for name in &empties {
+            ins_col.query_row(params![name, name.eq_ignore_ascii_case("manga"), false], |r| r.get::<_, i64>(0))?;
+        }
     }
     // Losing more than a third of the library in one scan means a folder or drive dropped out, not
     // that you deleted that much. Keep those books until they're really gone.
@@ -490,10 +648,15 @@ pub fn scan(conn: &mut Connection, root: &Path) -> Result<ScanStats> {
         stats.removed = tx.execute("DELETE FROM comics WHERE seen=0", [])? as i64;
     }
     tx.execute("DELETE FROM series WHERE id NOT IN (SELECT DISTINCT series_id FROM comics)", [])?;
-    tx.execute(
-        "DELETE FROM collections WHERE id NOT IN (SELECT DISTINCT collection_id FROM series)",
-        [],
-    )?;
+    let unused: Vec<(i64, String)> = tx
+        .prepare("SELECT id, name FROM collections WHERE id NOT IN (SELECT DISTINCT collection_id FROM series)")?
+        .query_map([], |r| Ok((r.get(0)?, r.get(1)?)))?
+        .collect::<rusqlite::Result<_>>()?;
+    for (id, name) in unused {
+        if !empties.contains(&name) {
+            tx.execute("DELETE FROM collections WHERE id=?1", [id])?;
+        }
+    }
     // Put Comic Vine data and hand edits back on top of what was just imported.
     crate::db::apply_meta(&tx, None)?;
     assign_sort_keys(&tx)?;
@@ -700,6 +863,142 @@ mod yacreader_marks {
         // A second scan changes nothing more.
         scan(&mut conn, Path::new(r"H:\Comics")).unwrap();
         assert_eq!(reading(&conn), after);
+    }
+}
+
+#[cfg(test)]
+mod layouts {
+    use super::*;
+
+    fn sorted(paths: &[&str], layout: Layout) -> Vec<(String, String, String, String)> {
+        let raw = paths
+            .iter()
+            .map(|p| Raw { parts: p.split('/').map(str::to_string).collect(), size: 1, mtime: 1 })
+            .collect();
+        lay_out(raw, "Comics", layout).into_iter().map(|f| (f.collection, f.series, f.series_rel, f.section)).collect()
+    }
+    fn row(c: &str, s: &str, r: &str, x: &str) -> (String, String, String, String) {
+        (c.into(), s.into(), r.into(), x.into())
+    }
+
+    #[test]
+    fn libraries_as_always() {
+        let got = sorted(&["DC/Absolute Batman/Absolute Batman 001.cbz", "DC/Saga/Vol 1/Saga 001.cbz"], Layout::Auto);
+        assert_eq!(got[0], row("DC", "Absolute Batman", "DC/Absolute Batman", ""));
+        assert_eq!(got[1], row("DC", "Saga", "DC/Saga", "Vol 1"));
+    }
+
+    #[test]
+    fn a_folder_per_series() {
+        let books = ["Saga/Saga 001.cbz", "Saga/Saga 002.cbz", "Vinland Saga/v01.cbz", "Batman/Batman - Year One.cbz", "Hulk (2008)/Hulk 001.cbz", "Bone/Vol 1/01.cbz", "Bone/Vol 2/01.cbz"];
+        let got = sorted(&books, Layout::Auto);
+        assert_eq!(got[0], row("Comics", "Saga", "Saga", ""));
+        assert_eq!(got[1], row("Comics", "Saga", "Saga", ""));
+        assert_eq!(got[2], row("Comics", "Vinland Saga", "Vinland Saga", ""));
+        assert_eq!(got[3], row("Comics", "Batman", "Batman", ""));
+        assert_eq!(got[4], row("Comics", "Hulk (2008)", "Hulk (2008)", ""));
+        assert_eq!(got[5], row("Comics", "Bone", "Bone", "Vol 1"));
+    }
+
+    #[test]
+    fn loose_in_the_comics_folder() {
+        let got = sorted(&["Saga 001.cbz", "Saga 002.cbz", "Maus.cbz", "Bone/Bone 001.cbz", "Bone 002.cbz"], Layout::Auto);
+        assert_eq!(got[0], row("Comics", "Saga", "Saga", ""));
+        assert_eq!(got[1], row("Comics", "Saga", "Saga", ""));
+        assert_eq!(got[2], row("Comics", "Maus", "Maus.cbz", ""));
+        assert_eq!(got[3], row("Comics", "Bone", "Bone", ""));
+        assert_eq!(got[4], row("Comics", "Bone", "Bone", ""), "joins the series folder beside it");
+    }
+
+    #[test]
+    fn loose_in_a_library() {
+        let got = sorted(&["Marvel/Saga 001.cbz", "Marvel/Saga 002.cbz", "Marvel/Hulk 001.cbz", "Marvel/Thor/Thor 001.cbz", "Marvel/Thor 002.cbz"], Layout::Auto);
+        assert_eq!(got[0], row("Marvel", "Saga", "Marvel/Saga", ""));
+        assert_eq!(got[1], row("Marvel", "Saga", "Marvel/Saga", ""));
+        assert_eq!(got[2], row("Marvel", "Hulk 001", "Marvel/Hulk 001.cbz", ""));
+        assert_eq!(got[4], row("Marvel", "Thor", "Marvel/Thor", ""));
+    }
+
+    #[test]
+    fn your_call_beats_the_guess() {
+        let books = ["Saga/Saga 001.cbz", "Marvel/Thor/Thor 001.cbz"];
+        assert_eq!(sorted(&books, Layout::Libraries)[0], row("Saga", "Saga 001", "Saga/Saga 001.cbz", ""));
+        assert_eq!(sorted(&books, Layout::Series)[1], row("Comics", "Marvel", "Marvel", "Thor"));
+    }
+
+    #[test]
+    fn mixed_and_named_like_the_folder() {
+        let got = sorted(&["Saga/Saga 001.cbz", "Marvel/Thor/Thor 001.cbz", "Comics/Thor/Thor 001.cbz"], Layout::Auto);
+        assert_eq!(got[0], row("Comics (main folder)", "Saga", "Saga", ""));
+        assert_eq!(got[1], row("Marvel", "Thor", "Marvel/Thor", ""));
+        assert_eq!(got[2], row("Comics", "Thor", "Comics/Thor", ""));
+    }
+
+    #[test]
+    fn empty_folders_are_libraries_waiting() {
+        let base = std::env::temp_dir().join(format!("aion-empties-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&base);
+        let root = base.join("Comics");
+        std::fs::create_dir_all(root.join("Favorites")).unwrap();
+        std::fs::create_dir_all(root.join(".hidden")).unwrap();
+        std::fs::create_dir_all(root.join("Marvel/Thor")).unwrap();
+        std::fs::write(root.join("Marvel/Thor/Thor 001.cbz"), b"PK").unwrap();
+        let mut conn = crate::db::open(&base.join("t.db")).unwrap();
+        let names = |c: &Connection| -> Vec<String> {
+            c.prepare("SELECT name FROM collections ORDER BY name").unwrap().query_map([], |r| r.get(0)).unwrap().map(Result::unwrap).collect()
+        };
+        scan(&mut conn, &root).unwrap();
+        assert_eq!(names(&conn), ["Favorites", "Marvel"]);
+        std::fs::remove_dir_all(root.join("Favorites")).unwrap();
+        scan(&mut conn, &root).unwrap();
+        assert_eq!(names(&conn), ["Marvel"], "and go when the folder does");
+        let _ = std::fs::remove_dir_all(&base);
+    }
+
+    /// Your real library, scanned into a copy of your database by these rules: every library, series,
+    /// book and reading position must come out as it went in. Nothing real is written.
+    /// `cargo test --lib real_layout -- --ignored --nocapture`
+    #[test]
+    #[ignore]
+    fn real_layout_changes_nothing() {
+        let real = Path::new(&std::env::var("APPDATA").unwrap()).join("com.aion.comics").join("library.db");
+        let copy = std::env::temp_dir().join("aion-real-layout.db");
+        let _ = std::fs::remove_file(&copy);
+        Connection::open_with_flags(&real, rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY)
+            .unwrap()
+            .execute("VACUUM INTO ?1", [copy.to_string_lossy()])
+            .unwrap();
+        let mut conn = crate::db::open(&copy).unwrap();
+        let rows = |c: &Connection, sql: &str| -> Vec<String> {
+            let mut st = c.prepare(sql).unwrap();
+            let n = st.column_count();
+            let mut got: Vec<String> = st
+                .query_map([], |r| {
+                    Ok((0..n).map(|i| format!("{:?}", r.get_ref(i).unwrap())).collect::<Vec<_>>().join(" | "))
+                })
+                .unwrap()
+                .map(Result::unwrap)
+                .collect();
+            got.sort();
+            got
+        };
+        const SQL: [&str; 3] = [
+            "SELECT id, name, is_manga FROM collections",
+            "SELECT id, collection_id, name, rel_path FROM series",
+            "SELECT id, series_id, section, rel_path, file_name, label, read, current_page, last_read_at FROM comics",
+        ];
+        let before: Vec<_> = SQL.iter().map(|q| rows(&conn, q)).collect();
+        let stats = scan(&mut conn, Path::new(r"H:\Comics")).unwrap();
+        println!("{} libraries, {} series, {} books", stats.collections, stats.series, stats.comics);
+        for (q, was) in SQL.iter().zip(&before) {
+            let now = rows(&conn, q);
+            let gone: Vec<_> = was.iter().filter(|r| !now.contains(r)).take(20).collect();
+            let new: Vec<_> = now.iter().filter(|r| !was.contains(r)).take(20).collect();
+            println!("{q}\n  {} rows; {} gone, {} new", now.len(), gone.len(), new.len());
+            assert!(gone.is_empty() && new.is_empty(), "gone: {gone:#?}\nnew: {new:#?}");
+        }
+        let at_top: i64 = conn.query_row("SELECT COUNT(*) FROM collections WHERE at_top<>0", [], |r| r.get(0)).unwrap();
+        assert_eq!(at_top, 0);
     }
 }
 
