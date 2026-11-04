@@ -68,7 +68,7 @@
 <div class="welcome">
   <h1>AionComics</h1>
   {#if step === "start"}
-    <p>A place for your comics and manga. It never moves, renames or deletes what's in your comics folder.</p>
+    <p>A place for your comics and manga. It never moves or renames what's in your comics folder, and only deletes what you ask it to.</p>
     <div class="choices">
       <button class="btn" onclick={() => pick("Choose your comics folder")}><Icon name="folder" size={16} />I have a comics folder</button>
       <button class="btn quiet" onclick={() => (step = "fresh")}><Icon name="plus" size={16} />I'm starting fresh</button>

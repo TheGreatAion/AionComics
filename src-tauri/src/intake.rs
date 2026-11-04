@@ -17,7 +17,7 @@ use regex::Regex;
 use rusqlite::{Connection, OptionalExtension};
 use serde::Serialize;
 
-const EXTENSIONS: [&str; 4] = ["cbz", "cbr", "zip", "rar"];
+use crate::archive::EXTENSIONS;
 
 fn is_comic(p: &Path) -> bool {
     p.extension().map(|e| e.to_string_lossy().to_ascii_lowercase()).is_some_and(|e| EXTENSIONS.contains(&e.as_str()))

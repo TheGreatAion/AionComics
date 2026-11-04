@@ -1,4 +1,5 @@
 import { open } from "@tauri-apps/plugin-dialog";
+import { COMIC_FILES } from "./api";
 import { showMenu } from "./state.svelte";
 
 /** What a + button adds to: a series, a new series in a collection, or with neither, a first series. */
@@ -17,7 +18,7 @@ async function choose(target: AddTarget, folder: boolean) {
     : await open({
         multiple: true,
         title: `Add to ${target.title}`,
-        filters: [{ name: "Comics", extensions: ["cbz", "cbr", "zip", "rar"] }],
+        filters: COMIC_FILES,
       });
   const paths = [picked ?? []].flat();
   if (paths.length) adding.ask = { paths, target };

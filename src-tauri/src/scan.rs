@@ -15,7 +15,7 @@ use rusqlite::{params, Connection, OpenFlags, OptionalExtension};
 use serde::Serialize;
 use walkdir::WalkDir;
 
-const EXTENSIONS: [&str; 4] = ["cbz", "cbr", "zip", "rar"];
+use crate::archive::EXTENSIONS;
 
 #[derive(Serialize, Clone, Default)]
 #[serde(rename_all = "camelCase")]
@@ -234,7 +234,7 @@ fn lay_out(raw: Vec<Raw>, home: &str, layout: Layout) -> Vec<Found> {
 }
 
 /// Folders at the very top with no comics in them: libraries waiting for their first series.
-fn empty_libraries(root: &Path, raw: &[Raw], layout: Layout) -> Vec<String> {
+fn empty_libraries(root: &Path, raw: &[Raw], layout: Layout, hidden: &[String]) -> Vec<String> {
     if layout == Layout::Series {
         return Vec::new();
     }
@@ -246,7 +246,7 @@ fn empty_libraries(root: &Path, raw: &[Raw], layout: Layout) -> Vec<String> {
             e.file_type().is_ok_and(|t| t.is_dir()) && !hidden && !e.file_name().to_string_lossy().starts_with('.')
         })
         .map(|e| e.file_name().to_string_lossy().into_owned())
-        .filter(|n| !used.contains(n.as_str()))
+        .filter(|n| !used.contains(n.as_str()) && !hidden.contains(n))
         .collect()
 }
 
@@ -474,8 +474,15 @@ pub fn scan(conn: &mut Connection, root: &Path) -> Result<ScanStats> {
     }
     let layout = Layout::parse(crate::db::get_setting(conn, Layout::SETTING)?.as_deref());
     let home = root.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_else(|| "Library".to_string());
-    let raw = walk(root);
-    let empties = empty_libraries(root, &raw, layout);
+    // What you've hidden is passed over: a file, or everything in a folder.
+    let hidden: Vec<String> =
+        conn.prepare("SELECT rel_path FROM hidden")?.query_map([], |r| r.get(0))?.collect::<rusqlite::Result<_>>()?;
+    let mut raw = walk(root);
+    raw.retain(|r| {
+        let rel = r.parts.join("/");
+        !hidden.iter().any(|h| rel == *h || rel.starts_with(&format!("{h}/")))
+    });
+    let empties = empty_libraries(root, &raw, layout, &hidden);
     let found = lay_out(raw, &home, layout);
     let known: i64 = conn.query_row("SELECT COUNT(*) FROM comics", [], |r| r.get(0))?;
     if found.is_empty() && known > 0 {
@@ -493,7 +500,7 @@ pub fn scan(conn: &mut Connection, root: &Path) -> Result<ScanStats> {
         )?;
         let mut ins_series = tx.prepare(
             "INSERT INTO series(collection_id, name, rel_path) VALUES(?1, ?2, ?3)
-             ON CONFLICT(rel_path) DO UPDATE SET name=excluded.name, collection_id=excluded.collection_id RETURNING id",
+             ON CONFLICT(rel_path) DO UPDATE SET name=excluded.name, collection_id=excluded.collection_id RETURNING id, reading",
         )?;
         let mut existing = tx.prepare(
             "SELECT id, read, last_read_at, yac_read FROM comics WHERE rel_path=?1",
@@ -516,9 +523,10 @@ pub fn scan(conn: &mut Connection, root: &Path) -> Result<ScanStats> {
             "UPDATE comics SET current_page=?2, read=?3, last_read_at=?4 WHERE id=?1",
         )?;
         let mut note_yac_read = tx.prepare("UPDATE comics SET yac_read=?2 WHERE id=?1")?;
+        let mut was_hidden = tx.prepare("DELETE FROM hidden_reading WHERE rel_path=?1 RETURNING current_page, read, last_read_at")?;
 
         let mut col_ids: HashMap<String, (i64, bool)> = HashMap::new();
-        let mut series_ids: HashMap<String, i64> = HashMap::new();
+        let mut series_ids: HashMap<String, (i64, Option<String>)> = HashMap::new();
 
         for f in &found {
             let (col_id, is_manga) = match col_ids.get(&f.collection) {
@@ -530,15 +538,17 @@ pub fn scan(conn: &mut Connection, root: &Path) -> Result<ScanStats> {
                     (id, manga)
                 }
             };
-            let series_id = match series_ids.get(&f.series_rel) {
-                Some(id) => *id,
+            let (series_id, reading) = match series_ids.get(&f.series_rel) {
+                Some(s) => s.clone(),
                 None => {
-                    let id: i64 =
-                        ins_series.query_row(params![col_id, f.series, f.series_rel], |r| r.get(0))?;
-                    series_ids.insert(f.series_rel.clone(), id);
-                    id
+                    let s: (i64, Option<String>) =
+                        ins_series.query_row(params![col_id, f.series, f.series_rel], |r| Ok((r.get(0)?, r.get(1)?)))?;
+                    series_ids.insert(f.series_rel.clone(), s.clone());
+                    s
                 }
             };
+            // Your say for the series comes before its library's name.
+            let is_manga = reading.map_or(is_manga, |r| r == "manga");
             let y = yac.get(&f.rel);
             let prior: Option<(i64, bool, Option<i64>, Option<bool>)> = existing
                 .query_row([&f.rel], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?)))
@@ -555,6 +565,13 @@ pub fn scan(conn: &mut Connection, root: &Path) -> Result<ScanStats> {
                         |r| r.get(0),
                     )?;
                     stats.added += 1;
+                    // Back from being hidden: where you'd read to.
+                    let back: Option<(i64, bool, Option<i64>)> = was_hidden
+                        .query_row([&f.rel], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)))
+                        .optional()?;
+                    if let Some((page, read, last)) = back {
+                        update_progress.execute(params![id, page, read, last])?;
+                    }
                     (id, false, None, None)
                 }
             };
@@ -974,7 +991,11 @@ mod layouts {
             let n = st.column_count();
             let mut got: Vec<String> = st
                 .query_map([], |r| {
-                    Ok((0..n).map(|i| format!("{:?}", r.get_ref(i).unwrap())).collect::<Vec<_>>().join(" | "))
+                    let cell = |i| match r.get_ref(i).unwrap() {
+                        rusqlite::types::ValueRef::Text(t) => String::from_utf8_lossy(t).into_owned(),
+                        other => format!("{other:?}"),
+                    };
+                    Ok((0..n).map(cell).collect::<Vec<_>>().join(" | "))
                 })
                 .unwrap()
                 .map(Result::unwrap)
@@ -982,6 +1003,8 @@ mod layouts {
             got.sort();
             got
         };
+        // PDFs and EPUBs read now: those may be new. Everything that was here must still be.
+        let newly_read = |r: &&String| r.contains(".pdf") || r.contains(".epub") || r.contains("Zelda Encyclopedia") || r.contains("Field Guide");
         const SQL: [&str; 3] = [
             "SELECT id, name, is_manga FROM collections",
             "SELECT id, collection_id, name, rel_path FROM series",
@@ -993,7 +1016,7 @@ mod layouts {
         for (q, was) in SQL.iter().zip(&before) {
             let now = rows(&conn, q);
             let gone: Vec<_> = was.iter().filter(|r| !now.contains(r)).take(20).collect();
-            let new: Vec<_> = now.iter().filter(|r| !was.contains(r)).take(20).collect();
+            let new: Vec<_> = now.iter().filter(|r| !was.contains(r) && !newly_read(r)).take(20).collect();
             println!("{q}\n  {} rows; {} gone, {} new", now.len(), gone.len(), new.len());
             assert!(gone.is_empty() && new.is_empty(), "gone: {gone:#?}\nnew: {new:#?}");
         }

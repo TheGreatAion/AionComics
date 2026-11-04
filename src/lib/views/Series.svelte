@@ -2,6 +2,8 @@
   import { tick } from "svelte";
   import { slide } from "svelte/transition";
   import { addMenu } from "$lib/add.svelte";
+  import CvNudge from "$lib/components/CvNudge.svelte";
+  import { readAsItems, removing } from "$lib/manage.svelte";
   import { api, chapterList, listText, plainText, printUrl, storyTitle, unitWord, type ComicCard, type ComicMeta, type EditionKind, type MetaField, type SeriesView } from "$lib/api";
   import { lib, nav, openReader, reader, search, sheets, showMenu, undoable, undoableWith, type MenuItem } from "$lib/state.svelte";
   import { bareEnter, nearest } from "$lib/keynav";
@@ -231,12 +233,27 @@
     if (!data) return;
     const sid = data.id;
     const name = data.name.trim();
+    const allBooks = data.sections.reduce((n, sec) => n + sec.comics.length, 0);
     showMenu(e, [
       { label: "Mark series as read", action: () => undoable(`${name} marked as read`, () => api.setSeriesRead(sid, true)) },
       { label: "Mark series as unread", action: () => undoable(`${name} marked as unread`, () => api.setSeriesRead(sid, false)) },
       "separator",
+      { label: "Read as", items: readAsItems(data.reading, (r) => api.setSeriesReading(sid, r)) },
+      "separator",
       { label: data.cvVolumeId ? "Match again on Comic Vine…" : "Find on Comic Vine…", action: findOnCv },
       { label: "Show in Explorer", action: () => first && api.reveal(first.id) },
+      "separator",
+      {
+        label: "Remove…",
+        action: () =>
+          (removing.target = {
+            series: sid,
+            title: name,
+            detail: `${allBooks} ${unitWord(data!.isManga, allBooks)}`,
+            what: "its files",
+            leaves: true,
+          }),
+      },
     ]);
   }
 
@@ -258,6 +275,7 @@
       { label: "Edit details…", action: () => (sheets.editing = c.id) },
       { label: "Find on Comic Vine…", action: () => data && (sheets.matching = { seriesId: data.id, isManga: data.isManga, name: data.name, comicId: c.id, label: c.label, count: data.editions.find((x) => x.kind === c.edition)?.sections.reduce((n, s) => n + s.comics.length, 0) }) },
       { label: "Show in Explorer", action: () => api.reveal(c.id) },
+      { label: "Remove…", action: () => askRemove([c], name) },
       "separator",
       // Its format, when its name gave the wrong idea. Kept in AionComics; the file isn't touched.
       formatMenu([c], name),
@@ -303,9 +321,24 @@
       ...(unread.length ? [{ label: "Mark as read", action: () => undoable(`${who} marked as read`, each(unread, (id) => api.setRead(id, true))) }] : []),
       ...(read.length ? [{ label: "Mark as unread", action: () => undoable(`${who} marked as unread`, each(read, (id) => api.setRead(id, false))) }] : []),
       ...(going.length ? [{ label: "Remove from Continue reading", action: () => undoable(`${going.length} books taken off`, each(going, api.hideFromReading)) }] : []),
+      { label: "Remove…", action: () => askRemove(books, who) },
       "separator",
       formatMenu(books, who),
     ]);
+  }
+  // The Remove box for these books. Taking every book there is takes the page with it.
+  function askRemove(books: ComicCard[], title: string) {
+    if (!data) return;
+    const all = data.sections.reduce((n, sec) => n + sec.comics.length, 0);
+    const one = books.length === 1;
+    many = [];
+    removing.target = {
+      books: books.map((b) => b.id),
+      title,
+      detail: `${books.length} ${unitWord(data.isManga, books.length)}`,
+      what: one ? "the file" : "the files",
+      leaves: books.length >= all,
+    };
   }
   function clickPick(e: MouseEvent, c: ComicCard) {
     if (e.ctrlKey || e.metaKey) {
@@ -465,6 +498,8 @@
         <button class="ico" title="More" aria-label="More" onclick={seriesMenu} oncontextmenu={seriesMenu}><Icon name="more" size={18} /></button>
       </div>
     </header>
+
+    {#if !data.cvVolumeId}<CvNudge onsaved={findOnCv} />{/if}
 
     {#if data.backfill}
       {@const b = data.backfill}

@@ -11,6 +11,8 @@ mod rarindex;
 mod scan;
 mod stats;
 mod warm;
+mod pdf;
+mod removal;
 mod yacsync;
 
 /// Bump when panel detection changes so cached results are recomputed.
@@ -501,6 +503,86 @@ fn new_library(state: State<Shared>, name: String) -> CmdResult<i64> {
     intake::new_library(&state.conn.lock().unwrap(), &root, &name).map_err(err)
 }
 
+/// Say how a series reads ("comic", "manga", "webtoon"), or None to have it worked out.
+#[tauri::command]
+fn set_series_reading(app: AppHandle, state: State<Shared>, id: i64, reading: Option<String>) -> CmdResult<()> {
+    db::set_series_reading(&state.conn.lock().unwrap(), id, reading.as_deref()).map_err(err)?;
+    // Book labels ("Vol. 2", "#2") follow it.
+    start_scan(&app, &state);
+    Ok(())
+}
+
+/// The same for every series in a library.
+#[tauri::command]
+fn set_library_reading(app: AppHandle, state: State<Shared>, id: i64, reading: Option<String>) -> CmdResult<()> {
+    db::set_library_reading(&state.conn.lock().unwrap(), id, reading.as_deref()).map_err(err)?;
+    start_scan(&app, &state);
+    Ok(())
+}
+
+/// Take books, a series or a library out: hidden, or with `delete`, moved to the Recycle Bin.
+#[tauri::command]
+async fn remove_books(
+    app: AppHandle,
+    state: State<'_, Shared>,
+    books: Option<Vec<i64>>,
+    series: Option<i64>,
+    library: Option<i64>,
+    label: String,
+    delete: bool,
+) -> CmdResult<()> {
+    let target = match (books, series, library) {
+        (Some(b), None, None) => removal::Target::Books(b),
+        (None, Some(s), None) => removal::Target::Series(s),
+        (None, None, Some(l)) => removal::Target::Library(l),
+        _ => return Err("Nothing to remove".into()),
+    };
+    let st = state.inner().clone();
+    let outcome = tauri::async_runtime::spawn_blocking(move || -> anyhow::Result<()> {
+        let root = st.root().ok_or_else(|| anyhow::anyhow!("No comics folder set"))?;
+        let found = removal::find(&st.conn.lock().unwrap(), &root, &target)?;
+        let clear = |id: i64| {
+            st.archives.release(id);
+            let _ = std::fs::remove_file(st.thumbs_dir.join(format!("{id}.jpg")));
+            let _ = std::fs::remove_file(st.thumbs_dir.join("prints").join(format!("{id}.jpg")));
+        };
+        if !delete {
+            removal::hide(&st.conn.lock().unwrap(), &found, &label, scan::now())?;
+            found.books.iter().for_each(|id| clear(*id));
+            return Ok(());
+        }
+        found.books.iter().for_each(|id| st.archives.release(*id));
+        let result = removal::delete(&root, &found, &mut |path| {
+            trash::delete(path).map_err(|e| anyhow::anyhow!("Couldn't delete {}: {e}", path.display()))
+        });
+        // Whatever really went, even if something after it couldn't.
+        let conn = st.conn.lock().unwrap();
+        let gone = removal::gone(&conn, &root, &found)?;
+        removal::forget(&conn, &gone)?;
+        drop(conn);
+        gone.iter().for_each(|id| clear(*id));
+        result
+    })
+    .await
+    .map_err(err)?;
+    start_scan(&app, state.inner());
+    outcome.map_err(err)
+}
+
+/// What's been hidden, for Settings.
+#[tauri::command]
+fn hidden_list(state: State<Shared>) -> CmdResult<Vec<removal::Hidden>> {
+    removal::hidden(&state.conn.lock().unwrap()).map_err(err)
+}
+
+/// Stop hiding something; it's back with the next scan, which this starts.
+#[tauri::command]
+fn put_back(app: AppHandle, state: State<Shared>, label: String, at: i64) -> CmdResult<()> {
+    removal::put_back(&state.conn.lock().unwrap(), &label, at).map_err(err)?;
+    start_scan(&app, &state);
+    Ok(())
+}
+
 /// Where comic files dropped on the window would go (see `intake::plan`).
 #[tauri::command]
 async fn plan_add(
@@ -538,7 +620,17 @@ async fn add_comics(
     let added = tauri::async_runtime::spawn_blocking(move || -> anyhow::Result<usize> {
         let root = st.root().ok_or_else(|| anyhow::anyhow!("No comics folder set"))?;
         let found = intake::gather_all(&paths);
-        let placed = intake::plan(&st.conn.lock().unwrap(), &root, found, series_id, collection_id, name.as_deref())?;
+        let placed = {
+            let conn = st.conn.lock().unwrap();
+            let placed = intake::plan(&conn, &root, found, series_id, collection_id, name.as_deref())?;
+            // Adding to somewhere you've hidden means you want it back.
+            for p in placed.iter().filter(|p| matches!(p.status, "add" | "new-series")) {
+                if let Some(folder) = &p.folder {
+                    removal::unhide_folder(&conn, folder)?;
+                }
+            }
+            placed
+        };
         intake::copy_in(&root, &placed, &mut |p| {
             let _ = win.emit("add-progress", p);
         })
@@ -562,7 +654,7 @@ fn take_open_request(state: State<Shared>) -> Option<String> {
 fn comic_arg(args: impl IntoIterator<Item = String>) -> Option<String> {
     args.into_iter().skip(1).find(|a| {
         let p = Path::new(a);
-        p.is_file() && p.extension().is_some_and(|e| ["cbz", "cbr", "zip", "rar"].contains(&e.to_string_lossy().to_ascii_lowercase().as_str()))
+        p.is_file() && p.extension().is_some_and(|e| archive::EXTENSIONS.contains(&e.to_string_lossy().to_ascii_lowercase().as_str()))
     })
 }
 
@@ -1000,17 +1092,24 @@ async fn open_comic(state: State<'_, Shared>, id: i64, screen: Option<u32>) -> C
         let next = next_id.map(|n| db::card_by_id(&conn, n)).transpose()?;
         let start = if comic.read { 0 } else { (comic.current_page.max(0) as usize).min(n - 1) };
         let bookmarks = db::bookmarks(&conn, id)?;
-        let kind = db::yac_type(&conn, id)?;
+        let facts = db::reading_facts(&conn, id)?;
         drop(conn);
-        let rtl = match kind {
-            Some(1) => true,
-            Some(2 | 3) => false,
-            _ => comic.is_manga,
+        // Long pages only matter, and are only looked at once, when nothing else has said how it reads.
+        let unsaid = facts.said.is_none() && !matches!(facts.yac_type, Some(1..=3));
+        let tall = match facts.tall {
+            Some(tall) => tall,
+            None if unsaid => {
+                let tall = facts.cover_ratio.is_some_and(|r| r >= 2.0) || state.archives.pages_look_tall(id, &path);
+                db::set_tall(&state.conn.lock().unwrap(), id, tall)?;
+                tall
+            }
+            None => false,
         };
+        let (rtl, webtoon) = db::reads_as(facts.said.as_deref(), facts.yac_type, tall, comic.is_manga);
         warm::start(&state, id, n, start, screen);
         let s = state.clone();
         std::thread::spawn(move || tidy_cache(&s, Some(id)));
-        Ok(ReaderInfo { comic, page_count: n, start_page: start, prev_id, next, bookmarks, external: false, rtl, webtoon: kind == Some(3) })
+        Ok(ReaderInfo { comic, page_count: n, start_page: start, prev_id, next, bookmarks, external: false, rtl, webtoon })
     })
     .await
     .map_err(err)?
@@ -1432,6 +1531,11 @@ pub fn run() {
             plan_add,
             add_comics,
             start_fresh,
+            set_series_reading,
+            set_library_reading,
+            remove_books,
+            hidden_list,
+            put_back,
             set_layout,
             new_library,
             take_open_request

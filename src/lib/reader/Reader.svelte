@@ -18,6 +18,7 @@
   import PanelEditor from "./PanelEditor.svelte";
   import { prefs } from "./prefs.svelte";
   import ScrollView from "./ScrollView.svelte";
+  import Hints from "./Hints.svelte";
   import Shortcuts from "./Shortcuts.svelte";
   import Ticks from "./Ticks.svelte";
 
@@ -515,6 +516,7 @@
     {/if}
 
     <div class="note" class:on={!!c.note}>{c.note}</div>
+    <Hints {c} {overrides} />
   {:else if !arriving}
     <div class="center spinner"></div>
   {/if}

@@ -59,6 +59,18 @@
     s = await api.settings();
   }
 
+  // What you've hidden from the app, with the way back.
+  let hiddenItems = $state<{ label: string; at: number }[]>([]);
+  $effect(() => {
+    void lib.version;
+    api.hiddenList().then((v) => (hiddenItems = v));
+  });
+  async function unhide(h: { label: string; at: number }) {
+    hiddenItems = hiddenItems.filter((x) => x !== h);
+    lib.scanning = true;
+    await api.putBack(h.label, h.at);
+  }
+
   async function putBack(c: ComicCard) {
     await api.unhideFromReading(c.id);
     lib.version++;
@@ -446,8 +458,8 @@
                 <span
                   class="mono path"
                   title={s.options.yacreaderSync && s.yacreader
-                    ? "Only read, except to add comics and libraries you ask for and to send your reading to YACReader. Nothing there is moved or deleted."
-                    : "Only read, except to add comics and libraries you ask for. Nothing there is moved, changed or deleted."}>{s.libraryRoot ?? "Not set"}</span>
+                    ? "Only read, except to add comics and libraries you ask for and to send your reading to YACReader. Nothing there is moved or deleted unless you ask."
+                    : "Only read, except to add comics and libraries you ask for. Nothing there is moved, changed or deleted unless you ask."}>{s.libraryRoot ?? "Not set"}</span>
                 {#if s.lastScan}
                   <small class="mono">{s.lastScan.comics.toLocaleString()} books · {s.lastScan.series.toLocaleString()} series · scanned {when(s.lastScan.finishedAt)}</small>
                 {/if}
@@ -474,6 +486,17 @@
                 "Folders in your comics folder",
               )}
             </div>
+            {#if hiddenItems.length}
+              <div class="row open">
+                <div class="lbl">Hidden from AionComics<small>Put one back and it's in your library again, at the page you were on</small></div>
+              </div>
+              {#each hiddenItems as h (`${h.label}-${h.at}`)}
+                <div class="row book">
+                  <div class="lbl">{h.label}<small class="mono">hidden {when(h.at)}</small></div>
+                  <button class="ico" title="Put back" aria-label="Put {h.label} back" onclick={() => unhide(h)}><Icon name="undo" size={17} /></button>
+                </div>
+              {/each}
+            {/if}
             <div class="row">
               <div class="lbl">Watch for new comics<small>Adds books as soon as they land in the folder</small></div>
               {@render toggle(s.options.watchFolder, () => setOption("watchFolder", !s!.options.watchFolder), "Watch for new comics")}

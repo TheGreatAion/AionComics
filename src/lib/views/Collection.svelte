@@ -1,6 +1,7 @@
 <script lang="ts">
   import { untrack } from "svelte";
   import { addMenu } from "$lib/add.svelte";
+  import { libraryMenu } from "$lib/manage.svelte";
   import { api, listText, plainText, printUrl, unitWord, type CollectionView, type SeriesSummary, type SeriesView } from "$lib/api";
   import { lib, nav, openReader } from "$lib/state.svelte";
   import Cover from "$lib/components/Cover.svelte";
@@ -186,6 +187,14 @@
     <button class="ico add" title="Add a series" aria-label="Add a series" onclick={(e) => addMenu(e, { collection: data!.id, title: data!.name })}>
       <Icon name="plus" size={18} />
     </button>
+    <button
+      class="ico add"
+      title="More"
+      aria-label="More"
+      onclick={(e) => libraryMenu(e, { id: data!.id, name: data!.name, seriesCount: data!.series.length, comicCount: total }, true)}
+    >
+      <Icon name="more" size={18} />
+    </button>
   </div>
 
   {#if !data.series.length}
@@ -314,7 +323,7 @@
   /* Beside the filter and sorts, and still here on a collection with nothing in it. */
   .add {
     flex: none;
-    margin: 0 0 10px -24px;
+    margin: 0 0 10px -32px;
   }
   .sorts {
     display: flex;

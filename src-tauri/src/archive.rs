@@ -1,4 +1,4 @@
-//! Reading pages out of comic archives (CBZ/ZIP and CBR/RAR) and plain folders of images.
+//! Reading pages out of comic archives (CBZ/ZIP, CBR/RAR, CB7/7z, EPUB, PDF) and plain folders of images.
 //!
 //! ZIP archives support random access, so pages are read on demand from a
 //! small pool of open archives. unrar can only read a RAR front to back, but
@@ -7,11 +7,13 @@
 //! CBR whose pages can't be is unpacked whole into a cache folder by a
 //! background thread, from the page you're on to the end and then the start,
 //! and kept between sessions, up to PAGES_CAP. Page lists are remembered on
-//! disk, because listing a big CBR means reading through it.
+//! disk, because listing a big CBR means reading through it. A CB7 is treated like a solid CBR, an
+//! EPUB is a ZIP with its pages in the order its contents say, and PDF pages are drawn by Windows
+//! (see pdf.rs) and kept in the same cache folder.
 
 use std::collections::{HashMap, HashSet};
 use std::fs::{self, File};
-use std::io::{BufReader, Read};
+use std::io::{BufReader, Cursor, Read};
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Condvar, Mutex};
@@ -33,6 +35,9 @@ const STALE: usize = 4;
 /// Open copies of one ZIP kept for reading pages side by side.
 const ZIP_SPARE: usize = 3;
 
+/// The kinds of file that are comics.
+pub const EXTENSIONS: [&str; 8] = ["cbz", "cbr", "cb7", "zip", "rar", "7z", "pdf", "epub"];
+
 // unrar's C++ sources use registry/crypto APIs from advapi32. Tauri happens to
 // link it already, but tests and tools built from this crate need it too.
 #[cfg(windows)]
@@ -45,6 +50,8 @@ pub enum Kind {
     Rar,
     /// A directory of image files, read in natural order.
     Folder,
+    SevenZ,
+    Pdf,
 }
 
 /// Sniff the real archive type; plenty of `.cbz` files are RARs and vice versa.
@@ -60,7 +67,9 @@ pub fn detect(path: &Path) -> Result<Kind> {
     } else if n >= 4 && &b[..4] == b"Rar!" {
         Ok(Kind::Rar)
     } else if n >= 6 && b[..6] == [b'7', b'z', 0xBC, 0xAF, 0x27, 0x1C] {
-        bail!("7-Zip archives aren't supported yet")
+        Ok(Kind::SevenZ)
+    } else if n >= 5 && &b[..5] == b"%PDF-" {
+        Ok(Kind::Pdf)
     } else {
         bail!("Unrecognized archive format")
     }
@@ -133,20 +142,126 @@ pub struct Part {
     crc: u32,
 }
 
+/// An attribute of an XML tag, by name.
+fn xml_attr<'a>(tag: &'a str, name: &str) -> Option<&'a str> {
+    let wanted = format!("{name}=");
+    let (start, _) = tag.match_indices(&wanted).find(|(i, _)| tag[..*i].ends_with(char::is_whitespace))?;
+    let value = &tag[start + wanted.len()..];
+    let quote = value.chars().next()?;
+    let rest = &value[1..];
+    Some(&rest[..rest.find(quote)?])
+}
+
+/// A path as an EPUB writes it (relative to `base`, maybe with %20s) as the name inside the ZIP.
+fn epub_path(base: &str, href: &str) -> String {
+    let mut bytes = Vec::new();
+    let raw = href.split(['#', '?']).next().unwrap_or("").as_bytes();
+    let mut i = 0;
+    while i < raw.len() {
+        let hex = (raw[i] == b'%' && i + 3 <= raw.len()).then(|| std::str::from_utf8(&raw[i + 1..i + 3]).ok()).flatten();
+        match hex.and_then(|h| u8::from_str_radix(h, 16).ok()) {
+            Some(b) => {
+                bytes.push(b);
+                i += 3;
+            }
+            None => {
+                bytes.push(raw[i]);
+                i += 1;
+            }
+        }
+    }
+    let href = String::from_utf8_lossy(&bytes);
+    let mut parts: Vec<&str> = if href.starts_with('/') { Vec::new() } else { base.split('/').filter(|p| !p.is_empty()).collect() };
+    for p in href.split('/') {
+        match p {
+            "" | "." => {}
+            ".." => {
+                parts.pop();
+            }
+            p => parts.push(p),
+        }
+    }
+    parts.join("/")
+}
+
+/// An EPUB's pictures in reading order: each page its contents list, and the pictures on it.
+fn epub_pages(z: &mut Zip) -> Option<Vec<String>> {
+    fn text(z: &mut Zip, name: &str) -> Option<String> {
+        let mut s = String::new();
+        z.by_name(name).ok()?.read_to_string(&mut s).ok()?;
+        Some(s)
+    }
+    let tag = regex::Regex::new(r"<[^>]+>").ok()?;
+    let picture = regex::Regex::new(r#"(?is)<(?:img|image)\b[^>]*?\s(?:src|href|xlink:href)\s*=\s*["']([^"']+)["']"#).ok()?;
+    let container = text(z, "META-INF/container.xml")?;
+    let rootfile = tag.find_iter(&container).map(|m| m.as_str()).find(|t| t.starts_with("<rootfile") && !t.starts_with("<rootfiles"))?;
+    let opf_name = xml_attr(rootfile, "full-path")?.to_string();
+    let opf = text(z, &opf_name)?;
+    let base = opf_name.rsplit_once('/').map_or("", |(d, _)| d).to_string();
+    let mut items: HashMap<String, String> = HashMap::new();
+    let mut spine = Vec::new();
+    for t in tag.find_iter(&opf).map(|m| m.as_str()) {
+        if t.starts_with("<item") && !t.starts_with("<itemref") {
+            if let (Some(id), Some(href)) = (xml_attr(t, "id"), xml_attr(t, "href")) {
+                items.insert(id.to_string(), epub_path(&base, href));
+            }
+        } else if t.starts_with("<itemref") {
+            if let Some(id) = xml_attr(t, "idref") {
+                spine.push(id.to_string());
+            }
+        }
+    }
+    let mut pages: Vec<String> = Vec::new();
+    for id in spine {
+        let Some(name) = items.get(&id) else { continue };
+        if is_image(name) {
+            pages.push(name.clone());
+            continue;
+        }
+        let Some(page) = text(z, name) else { continue };
+        let dir = name.rsplit_once('/').map_or("", |(d, _)| d);
+        pages.extend(picture.captures_iter(&page).map(|c| epub_path(dir, &c[1])).filter(|p| is_image(p)));
+    }
+    let names: HashSet<String> = z.file_names().filter_map(|n| n.ok().map(|n| n.into_owned())).collect();
+    let mut seen = HashSet::new();
+    pages.retain(|p| names.contains(p) && seen.insert(p.clone()));
+    (!pages.is_empty()).then_some(pages)
+}
+
 pub fn list(path: &Path) -> Result<Listing> {
     let kind = detect(path)?;
     let mut pages = Vec::new();
     let mut solid = false;
     let (mut parts, mut head) = (Vec::new(), 0);
+    // An EPUB says what order its pages go in; anything else goes by their names.
+    let mut in_order = false;
     match kind {
         Kind::Zip => {
-            let z = open_zip(path)?;
-            for n in z.file_names() {
-                let n = n?;
-                if is_image(&n) {
-                    pages.push(n.into_owned());
+            let mut z = open_zip(path)?;
+            let epub = path.extension().is_some_and(|e| e.eq_ignore_ascii_case("epub"));
+            match epub.then(|| epub_pages(&mut z)).flatten() {
+                Some(ordered) => {
+                    pages = ordered;
+                    in_order = true;
+                }
+                None => {
+                    for n in z.file_names() {
+                        let n = n?;
+                        if is_image(&n) {
+                            pages.push(n.into_owned());
+                        }
+                    }
                 }
             }
+        }
+        Kind::SevenZ => {
+            let arc = sevenz_rust2::Archive::open(path)?;
+            pages = arc.files.iter().filter(|f| !f.is_directory() && is_image(f.name())).map(|f| f.name().to_string()).collect();
+            solid = true;
+            parts = vec![None; pages.len()];
+        }
+        Kind::Pdf => {
+            pages = (1..=crate::pdf::page_count(path)?).map(|n| format!("{n:05}.png")).collect();
         }
         Kind::Folder => {
             for e in fs::read_dir(path)? {
@@ -194,7 +309,9 @@ pub fn list(path: &Path) -> Result<Listing> {
     if pages.is_empty() {
         bail!("No pages found in this archive");
     }
-    sort_pages(&mut pages);
+    if !in_order {
+        sort_pages(&mut pages);
+    }
     Ok(Listing { kind, solid, pages, parts, head })
 }
 
@@ -229,6 +346,10 @@ impl<V: Clone> Lru<V> {
         Some(v)
     }
     /// Inserts and returns whatever got evicted.
+    fn remove(&mut self, k: i64) -> Option<V> {
+        let i = self.items.iter().position(|(key, _)| *key == k)?;
+        Some(self.items.remove(i).1)
+    }
     fn put(&mut self, k: i64, v: V) -> Option<V> {
         self.items.retain(|(key, _)| *key != k);
         self.items.push((k, v));
@@ -423,8 +544,9 @@ impl Archives {
             .ok_or_else(|| anyhow!("page {index} out of range"))?;
         let data = match listing.kind {
             Kind::Zip => self.zip_read(id, path, name)?,
-            Kind::Rar => self.rar_read(id, path, &listing, index)?,
+            Kind::Rar | Kind::SevenZ => self.rar_read(id, path, &listing, index)?,
             Kind::Folder => fs::read(path.join(name))?,
+            Kind::Pdf => self.pdf_read(id, path, index)?,
         };
         Ok((data, mime_for(name)))
     }
@@ -449,7 +571,7 @@ impl Archives {
     pub fn page_if_ready(&self, id: i64, path: &Path, index: usize) -> Result<Option<Vec<u8>>> {
         let listing = self.listing(id, path)?;
         match listing.kind {
-            Kind::Rar => match fs::read(self.book_dir(id, path)?.join(index.to_string())) {
+            Kind::Rar | Kind::SevenZ => match fs::read(self.book_dir(id, path)?.join(index.to_string())) {
                 Ok(data) => Ok(Some(data)),
                 Err(_) => Ok(self.rar_direct(path, &listing, index)),
             },
@@ -501,7 +623,56 @@ impl Archives {
                 None => rar_read_one(path, &listing.pages[0]),
             },
             Kind::Folder => Ok(fs::read(path.join(&listing.pages[0]))?),
+            Kind::SevenZ => Ok(sevenz_rust2::ArchiveReader::open(path, sevenz_rust2::Password::empty())?.read_file(&listing.pages[0])?),
+            Kind::Pdf => self.pdf_read(id, path, 0),
         }
+    }
+
+    /// A PDF page, drawn once and kept in the book's cache folder.
+    fn pdf_read(&self, id: i64, path: &Path, index: usize) -> Result<Vec<u8>> {
+        let file = self.book_dir(id, path)?.join(index.to_string());
+        if let Ok(data) = fs::read(&file) {
+            return Ok(data);
+        }
+        let data = crate::pdf::page_png(path, index)?;
+        let tmp = file.with_extension(format!("{}.part", self.scratch.fetch_add(1, Ordering::Relaxed)));
+        if fs::write(&tmp, &data).is_ok() && fs::rename(&tmp, &file).is_err() {
+            let _ = fs::remove_file(&tmp);
+        }
+        Ok(data)
+    }
+
+    /// Whether a book's pages are the long kind a webtoon is made of, from a few in the middle.
+    /// Asks nothing of a book that would need unpacking first, or of a PDF, which has no such pages.
+    pub fn pages_look_tall(&self, id: i64, path: &Path) -> bool {
+        const TALL: f64 = 2.0;
+        let Ok(listing) = self.listing(id, path) else { return false };
+        let n = listing.pages.len();
+        if listing.kind == Kind::Pdf || n < 3 {
+            return false;
+        }
+        let ratios: Vec<f64> = [n / 3, n / 2, n * 2 / 3]
+            .iter()
+            .filter_map(|&i| self.page_if_ready(id, path, i).ok().flatten())
+            .filter_map(|bytes| image::ImageReader::new(Cursor::new(bytes)).with_guessed_format().ok()?.into_dimensions().ok())
+            .map(|(w, h)| f64::from(h) / f64::from(w.max(1)))
+            .collect();
+        ratios.iter().filter(|r| **r >= TALL).count() * 2 > ratios.len()
+    }
+
+    /// Let go of a book's file, so it can be deleted: open copies, unpacking and its cache folder.
+    pub fn release(&self, id: i64) {
+        self.zips.lock().unwrap().remove(id);
+        self.listings.lock().unwrap().remove(id);
+        self.gates.lock().unwrap().remove(id);
+        if let Some(job) = self.rars.lock().unwrap().remove(id) {
+            job.cancel.store(true, Ordering::Relaxed);
+            job.cv.notify_all();
+            let st = job.state.lock().unwrap();
+            let _ = job.cv.wait_timeout_while(st, Duration::from_secs(5), |s| !s.done);
+        }
+        self.forget_book(id);
+        let _ = fs::remove_file(self.listings_dir.join(format!("{id}.json")));
     }
 
     fn zip_read(&self, id: i64, path: &Path, name: &str) -> Result<Vec<u8>> {
@@ -649,7 +820,7 @@ impl Archives {
         drop(rars);
         let (j, path, listing, pages_dir) = (job.clone(), path.to_path_buf(), listing.clone(), self.pages_dir.clone());
         std::thread::spawn(move || {
-            let res = extract_rar(&j, &path, &listing, from);
+            let res = if listing.kind == Kind::SevenZ { extract_7z(&j, &path, &listing) } else { extract_rar(&j, &path, &listing, from) };
             let mut st = j.state.lock().unwrap();
             st.done = true;
             st.error = res.err().map(|e| e.to_string());
@@ -690,6 +861,31 @@ fn extract_rar(job: &RarJob, path: &Path, listing: &Listing, from: usize) -> Res
             arc = next;
         }
     }
+    Ok(())
+}
+
+/// A CB7 unpacked front to back, the only way most can be.
+fn extract_7z(job: &RarJob, path: &Path, listing: &Listing) -> Result<()> {
+    let index: HashMap<&str, usize> = listing.pages.iter().enumerate().map(|(i, n)| (n.as_str(), i)).collect();
+    let mut arc = sevenz_rust2::ArchiveReader::open(path, sevenz_rust2::Password::empty())?;
+    arc.for_each_entries(|entry, reader| {
+        if job.cancel.load(Ordering::Relaxed) {
+            return Ok(false);
+        }
+        let page = index.get(entry.name()).copied().filter(|i| !job.dir.join(i.to_string()).exists());
+        let Some(i) = page else {
+            std::io::copy(reader, &mut std::io::sink())?;
+            return Ok(true);
+        };
+        let mut data = Vec::new();
+        reader.read_to_end(&mut data)?;
+        let tmp = job.dir.join(format!("{i}.part"));
+        fs::write(&tmp, &data)?;
+        fs::rename(&tmp, job.dir.join(i.to_string()))?;
+        job.state.lock().unwrap().last = Some(i);
+        job.cv.notify_all();
+        Ok(true)
+    })?;
     Ok(())
 }
 
@@ -905,5 +1101,173 @@ mod tests {
         let gray = cover_color(&jpeg(|x, _| if x < 100 { [240, 240, 240] } else { [20, 20, 20] })).unwrap();
         let [r, g, b] = [1, 3, 5].map(|i| u8::from_str_radix(&gray[i..i + 2], 16).unwrap());
         assert!(r.abs_diff(g) < 6 && g.abs_diff(b) < 6 && (90..170).contains(&r), "{gray}");
+    }
+}
+
+
+#[cfg(test)]
+mod new_kinds {
+    use super::*;
+    use std::io::Write as _;
+
+    fn dir(name: &str) -> PathBuf {
+        let d = std::env::temp_dir().join(format!("aion-kinds-{name}-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&d);
+        fs::create_dir_all(&d).unwrap();
+        d
+    }
+    /// A small real picture, `w` by `h`.
+    fn png(w: u32, h: u32) -> Vec<u8> {
+        let mut out = Cursor::new(Vec::new());
+        image::RgbImage::new(w, h).write_to(&mut out, image::ImageFormat::Png).unwrap();
+        out.into_inner()
+    }
+
+    #[test]
+    fn cb7_pages() {
+        let d = dir("cb7");
+        let file = d.join("Book 001.cb7");
+        let mut w = sevenz_rust2::ArchiveWriter::create(&file).unwrap();
+        for name in ["pages/10.png", "pages/2.png", "pages/1.png", "notes.txt"] {
+            w.push_archive_entry(sevenz_rust2::ArchiveEntry::new_file(name), Some(Cursor::new(name.as_bytes().to_vec()))).unwrap();
+        }
+        w.finish().unwrap();
+        let listing = list(&file).unwrap();
+        assert_eq!(listing.kind, Kind::SevenZ);
+        assert_eq!(listing.pages, ["pages/1.png", "pages/2.png", "pages/10.png"]);
+        let archives = Archives::new(&d.join("cache"));
+        assert_eq!(archives.page(1, &file, 2).unwrap().0, b"pages/10.png");
+        assert_eq!(archives.page(1, &file, 0).unwrap().0, b"pages/1.png");
+        assert_eq!(archives.first_page(1, &file).unwrap(), b"pages/1.png");
+        archives.release(1);
+        fs::remove_file(&file).unwrap();
+        let _ = fs::remove_dir_all(&d);
+    }
+
+    #[test]
+    fn epub_pages_follow_its_contents() {
+        let d = dir("epub");
+        let file = d.join("Book.epub");
+        let mut z = zip::ZipWriter::new(File::create(&file).unwrap());
+        let o = zip::write::SimpleFileOptions::default();
+        let opf = r#"<?xml version="1.0"?><package><manifest>
+            <item id="b" href="text/b.xhtml" media-type="application/xhtml+xml"/>
+            <item media-type="application/xhtml+xml" id="a" href="text/a.xhtml"/>
+            <item id="c" href="images/z%20cover.jpg" media-type="image/jpeg"/>
+          </manifest><spine><itemref idref="c"/><itemref idref="b"/><itemref idref="a"/></spine></package>"#;
+        for (name, data) in [
+            ("META-INF/container.xml", r#"<container><rootfiles><rootfile full-path="OEBPS/content.opf" media-type="x"/></rootfiles></container>"#),
+            ("OEBPS/content.opf", opf),
+            ("OEBPS/text/b.xhtml", r#"<html><body><img class="p" src="../images/b.jpg"/><svg><image xlink:href="../images/b2.png"/></svg></body></html>"#),
+            ("OEBPS/text/a.xhtml", r#"<html><body><img src='../images/a.jpg'/><img src="../images/missing.jpg"/></body></html>"#),
+            ("OEBPS/images/z cover.jpg", "cover"),
+            ("OEBPS/images/b.jpg", "b"),
+            ("OEBPS/images/b2.png", "b2"),
+            ("OEBPS/images/a.jpg", "a"),
+            ("OEBPS/images/extra.jpg", "extra"),
+        ] {
+            z.start_file(name, o).unwrap();
+            z.write_all(data.as_bytes()).unwrap();
+        }
+        z.finish().unwrap();
+        let listing = list(&file).unwrap();
+        assert_eq!(listing.kind, Kind::Zip);
+        assert_eq!(listing.pages, ["OEBPS/images/z cover.jpg", "OEBPS/images/b.jpg", "OEBPS/images/b2.png", "OEBPS/images/a.jpg"]);
+        let archives = Archives::new(&d.join("cache"));
+        assert_eq!(archives.page(2, &file, 1).unwrap().0, b"b");
+        archives.release(2);
+
+        // With no contents to go by, its pictures in name order.
+        let plain = d.join("Plain.epub");
+        let mut z = zip::ZipWriter::new(File::create(&plain).unwrap());
+        for name in ["10.jpg", "2.jpg"] {
+            z.start_file(name, o).unwrap();
+            z.write_all(b"x").unwrap();
+        }
+        z.finish().unwrap();
+        assert_eq!(list(&plain).unwrap().pages, ["2.jpg", "10.jpg"]);
+        let _ = fs::remove_dir_all(&d);
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn pdf_pages_are_drawn() {
+        // A small real PDF: two pages, the second wider than it is tall.
+        let d = dir("pdf");
+        let file = d.join("Book.pdf");
+        let objects = [
+            "<< /Type /Catalog /Pages 2 0 R >>".to_string(),
+            "<< /Type /Pages /Kids [3 0 R 4 0 R] /Count 2 >>".to_string(),
+            "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 300 600] >>".to_string(),
+            "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 800 400] >>".to_string(),
+        ];
+        let mut pdf = String::from("%PDF-1.4\n");
+        let mut at = Vec::new();
+        for (i, o) in objects.iter().enumerate() {
+            at.push(pdf.len());
+            pdf.push_str(&format!("{} 0 obj\n{o}\nendobj\n", i + 1));
+        }
+        let xref = pdf.len();
+        pdf.push_str(&format!("xref\n0 {}\n0000000000 65535 f \n", objects.len() + 1));
+        for a in at {
+            pdf.push_str(&format!("{a:010} 00000 n \n"));
+        }
+        pdf.push_str(&format!("trailer\n<< /Size {} /Root 1 0 R >>\nstartxref\n{xref}\n%%EOF\n", objects.len() + 1));
+        fs::write(&file, pdf).unwrap();
+
+        let listing = list(&file).unwrap();
+        assert_eq!(listing.kind, Kind::Pdf);
+        assert_eq!(listing.pages.len(), 2);
+        let archives = Archives::new(&d.join("cache"));
+        let (bytes, mime) = archives.page(3, &file, 1).unwrap();
+        assert_eq!(mime, "image/png");
+        let img = image::load_from_memory(&bytes).unwrap();
+        assert_eq!((img.width(), img.height()), (2400, 1200));
+        assert!(fs::read(archives.book_dir(3, &file).unwrap().join("1")).is_ok(), "kept for next time");
+        assert!(image::load_from_memory(&archives.first_page(3, &file).unwrap()).is_ok());
+        archives.release(3);
+        let _ = fs::remove_dir_all(&d);
+    }
+
+    /// Your real PDFs and EPUB, only read: their pages, and a first page of each drawn into a temporary
+    /// cache. `cargo test --lib real_new_kinds -- --ignored --nocapture`
+    #[test]
+    #[ignore]
+    fn real_new_kinds() {
+        let d = dir("real");
+        let archives = Archives::new(&d.join("cache"));
+        for (id, f) in [
+            (11, r"H:\Comics\Indie\The Legend of Zelda Encyclopedia\The Legend of Zelda Encyclopedia (2018).pdf"),
+            (12, r"H:\Comics\Manga\Fullmetal Alchemist\Fullmetal Alchemist - The Abducted Alchemist.epub"),
+        ] {
+            let started = std::time::Instant::now();
+            let listing = list(Path::new(f)).unwrap();
+            let middle = listing.pages.len() / 2;
+            let (bytes, mime) = archives.page(id, Path::new(f), middle).unwrap();
+            let img = image::load_from_memory(&bytes).unwrap();
+            println!("{f}: {:?}, {} pages; page {middle} is {mime}, {}x{}, {} KB, in {:?}", listing.kind, listing.pages.len(), img.width(), img.height(), bytes.len() / 1024, started.elapsed());
+            archives.release(id);
+        }
+        let _ = fs::remove_dir_all(&d);
+    }
+
+    #[test]
+    fn tall_pages_are_noticed() {
+        let d = dir("tall");
+        let book = |name: &str, w: u32, h: u32| {
+            let file = d.join(name);
+            let mut z = zip::ZipWriter::new(File::create(&file).unwrap());
+            for p in 1..=6 {
+                z.start_file(format!("{p}.png"), zip::write::SimpleFileOptions::default()).unwrap();
+                z.write_all(&png(w, h)).unwrap();
+            }
+            z.finish().unwrap();
+            file
+        };
+        let archives = Archives::new(&d.join("cache"));
+        assert!(archives.pages_look_tall(4, &book("Webtoon.cbz", 80, 400)));
+        assert!(!archives.pages_look_tall(5, &book("Comic.cbz", 200, 300)));
+        assert!(!archives.pages_look_tall(6, &book("Wide.cbz", 400, 200)));
+        let _ = fs::remove_dir_all(&d);
     }
 }

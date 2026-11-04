@@ -9,10 +9,10 @@ Built with Tauri 2 (Rust core), SvelteKit 5 and SQLite.
 ```sh
 npm install
 npm run tauri dev      # development
-npm run tauri build    # installer in src-tauri/target/release/bundle
+npm run tauri build    # the app, and an installer at src-tauri/target/release/bundle/nsis
 ```
 
-On first launch, choose your comics folder, or start fresh with a new one. AionComics **only reads that folder**, with one exception you start yourself: comics and libraries you add are put there (under their own names; nothing is ever renamed, overwritten, moved or deleted; see *Adding comics*). Its database (`library.db`) and cover thumbnails live in the app data and cache folders (`%APPDATA%\com.aion.comics`, `%LOCALAPPDATA%\com.aion.comics`).
+On first launch, choose your comics folder, or start fresh with a new one. AionComics **only reads that folder**, with exceptions you start yourself: comics and libraries you add are put there (under their own names; nothing is ever renamed, overwritten or moved; see *Adding comics*), and what you choose to delete goes to the Recycle Bin (see *Removing comics*). Its database (`library.db`) and cover thumbnails live in the app data and cache folders (`%APPDATA%\com.aion.comics`, `%LOCALAPPDATA%\com.aion.comics`).
 
 ## Library layout
 
@@ -28,6 +28,14 @@ If `<root>/.yacreaderlibrary/library.ydb` exists, AionComics reads it on every s
 
 **Send my reading to YACReader** (Settings › Library, off until you turn it on) works the other way: the page you're on and the books you finish or mark read or unread are saved into YACReader's library too, so the two apps agree. It's the one thing AionComics writes in the comics folder besides comics you drop in, and it changes only those reading fields, never YACReader's book details or folders. Changes wait while YACReader is open and go once it's closed (and when AionComics closes). A book you opened in YACReader after changing it in AionComics keeps YACReader's reading. Before the first change, a copy of YACReader's database is saved to `yacreader-backup` in the AionComics data folder.
 
+## File types
+
+.cbz, .cbr and .cb7 comics (and .zip, .rar and .7z holding pages), .pdf, drawn by Windows' built-in reader, and .epub, read as its pictures in the order its contents give, so an EPUB novel shows only its illustrations. A .zip or .rar holding several comics is unpacked when added; a .7z is read as one book.
+
+## How each series reads
+
+A series is a Comic (left to right), a Manga (right to left) or a Webtoon (scrolling top to bottom), set from its page's ⋯ menu under *Read as*. Left to *Work it out*: YACReader's mark for a book counts first, then long, narrow pages make it a webtoon, then a library's folder being called Manga makes it manga. A library's ⋯ menu sets all of its series at once.
+
 ## How your folders are read
 
 Any way of keeping comics works, and nothing on disk is rearranged to fit:
@@ -38,6 +46,10 @@ Any way of keeping comics works, and nothing on disk is rearranged to fit:
 - An empty folder at the top is a library waiting for its first series.
 
 If the guess is wrong, *Settings › Library › Folders in your comics folder* says which they are. It only changes how they show.
+
+## Removing comics
+
+*Remove…* is on a book's right-click menu, a series' ⋯ menu, and a library's ⋯ or right-click menu. **Hide it** leaves the files alone and keeps them out of the app, until you put them back from *Settings › Library*, reading position included. **Delete it**, after asking again, moves the file or folder to the Recycle Bin and forgets the book's details and bookmarks. Nothing outside the comics folder, nor the folder itself, can be deleted.
 
 ## Adding comics
 

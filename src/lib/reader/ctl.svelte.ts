@@ -2,7 +2,7 @@
 
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { open, save } from "@tauri-apps/plugin-dialog";
-import { api, pageUrl, previewUrl, screenUrl, thumbUrl, type Panel, type ReaderInfo } from "$lib/api";
+import { COMIC_FILES, api, pageUrl, previewUrl, screenUrl, thumbUrl, type Panel, type ReaderInfo } from "$lib/api";
 import { keepView, prefs, viewFor, type Fit, type View } from "./prefs.svelte";
 
 export type Overlay = null | "flow" | "bookmarks" | "shortcuts" | "options" | "extract" | "editor";
@@ -452,7 +452,7 @@ export class Ctl {
   async openFile() {
     const path = await open({
       title: "Open a comic",
-      filters: [{ name: "Comics", extensions: ["cbz", "cbr", "zip", "rar"] }],
+      filters: COMIC_FILES,
     });
     if (typeof path === "string") this.openPath(path);
   }

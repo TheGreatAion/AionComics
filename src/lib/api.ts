@@ -104,6 +104,8 @@ export interface SeriesView {
   collectionId: number;
   collectionName: string;
   isManga: boolean;
+  /** How you've said this series reads, if you have. */
+  reading: "comic" | "manga" | "webtoon" | null;
   writer: string | null;
   /** Penciller or artist, when known. */
   artist: string | null;
@@ -332,6 +334,9 @@ export type Placement = {
 /** How far copying dropped comics has got ("add-progress"). */
 export type AddProgress = { done: number; total: number; bytes: number; totalBytes: number };
 
+/** The kinds of file that are comics, for file pickers. */
+export const COMIC_FILES = [{ name: "Comics", extensions: ["cbz", "cbr", "cb7", "pdf", "epub", "zip", "rar", "7z"] }];
+
 export const api = {
   settings: () => invoke<Settings>("get_settings"),
   setOptions: (options: Options) => invoke<void>("set_options", { options }),
@@ -343,6 +348,13 @@ export const api = {
   /** A Comics folder in Documents becomes the comics folder. Returns where it is. */
   startFresh: () => invoke<string>("start_fresh"),
   setLayout: (layout: string) => invoke<void>("set_layout", { layout }),
+  setSeriesReading: (id: number, reading: string | null) => invoke<void>("set_series_reading", { id, reading }),
+  setLibraryReading: (id: number, reading: string | null) => invoke<void>("set_library_reading", { id, reading }),
+  /** Hide books, a series or a library; with `del`, move their files to the Recycle Bin. */
+  removeBooks: (t: { books?: number[]; series?: number; library?: number; title: string }, del: boolean) =>
+    invoke<void>("remove_books", { books: t.books ?? null, series: t.series ?? null, library: t.library ?? null, label: t.title, delete: del }),
+  hiddenList: () => invoke<{ label: string; at: number }[]>("hidden_list"),
+  putBack: (label: string, at: number) => invoke<void>("put_back", { label, at }),
   /** A new, empty library: a folder at the top of the comics folder. Returns its id. */
   newLibrary: (name: string) => invoke<number>("new_library", { name }),
   backups: () => invoke<Backup[]>("backups"),

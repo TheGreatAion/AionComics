@@ -9,6 +9,7 @@
   import UndoBar from "$lib/components/UndoBar.svelte";
   import Matcher from "$lib/components/Matcher.svelte";
   import MetaEditor from "$lib/components/MetaEditor.svelte";
+  import RemoveBox from "$lib/components/RemoveBox.svelte";
   import SearchOverlay from "$lib/components/SearchOverlay.svelte";
   import TopBar from "$lib/components/TopBar.svelte";
   import SidePanel, { side, toggleSide } from "$lib/components/SidePanel.svelte";
@@ -189,6 +190,7 @@
 {#if sheets.matching}<Matcher seriesId={sheets.matching.seriesId} isManga={sheets.matching.isManga} name={sheets.matching.name} comicId={sheets.matching.comicId} label={sheets.matching.label} count={sheets.matching.count} />{/if}
 <ContextMenu />
 <DropZone />
+<RemoveBox />
 <UndoBar />
 
 <style>

@@ -52,6 +52,14 @@ pub fn read(path: &Path) -> Result<Option<String>> {
             let Some(name) = found else { return Ok(None) };
             archive::rar_read_one(path, &name)?
         }
+        Kind::SevenZ => {
+            let arc = sevenz_rust2::Archive::open(path)?;
+            let Some(e) = arc.files.iter().find(|f| !f.is_directory() && is_info(f.name()) && f.size() <= MAX_SIZE) else {
+                return Ok(None);
+            };
+            sevenz_rust2::ArchiveReader::open(path, sevenz_rust2::Password::empty())?.read_file(e.name())?
+        }
+        Kind::Pdf => return Ok(None),
         Kind::Folder => {
             let Some(e) = fs::read_dir(path)?.filter_map(|e| e.ok()).find(|e| is_info(&e.file_name().to_string_lossy())) else {
                 return Ok(None);
