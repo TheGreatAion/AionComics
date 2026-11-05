@@ -20,6 +20,8 @@ pub enum Target {
 pub struct Found {
     pub books: Vec<i64>,
     pub places: Vec<String>,
+    /// Series folders to tidy away if deleting single books leaves them empty.
+    pub folders: Vec<String>,
 }
 
 fn books_of(conn: &Connection, series: i64) -> Result<Vec<(i64, String)>> {
@@ -46,13 +48,20 @@ fn add_series(conn: &Connection, root: &Path, series: i64, out: &mut Found) -> R
 }
 
 pub fn find(conn: &Connection, root: &Path, target: &Target) -> Result<Found> {
-    let mut out = Found { books: Vec::new(), places: Vec::new() };
+    let mut out = Found { books: Vec::new(), places: Vec::new(), folders: Vec::new() };
     match target {
         Target::Books(ids) => {
             for id in ids {
-                let rel: String = conn.query_row("SELECT rel_path FROM comics WHERE id=?1", [id], |r| r.get(0))?;
+                let (rel, series): (String, String) = conn.query_row(
+                    "SELECT c.rel_path, s.rel_path FROM comics c JOIN series s ON s.id=c.series_id WHERE c.id=?1",
+                    [id],
+                    |r| Ok((r.get(0)?, r.get(1)?)),
+                )?;
                 out.books.push(*id);
                 out.places.push(rel);
+                if !out.folders.contains(&series) {
+                    out.folders.push(series);
+                }
             }
         }
         Target::Series(id) => add_series(conn, root, *id, &mut out)?,
@@ -78,20 +87,36 @@ pub fn find(conn: &Connection, root: &Path, target: &Target) -> Result<Found> {
 /// Forget books: their rows, and everything kept about them except your reading history. A later
 /// book could otherwise be given the same number, and with it these books' details.
 pub fn forget(conn: &Connection, books: &[i64]) -> Result<()> {
-    const ABOUT_A_BOOK: [&str; 10] =
-        ["panels", "bookmarks", "user_panels", "meta_layer", "cv_queue", "comicinfo_seen", "cv_auto", "edition_override", "reading_hidden", "yac_outbox"];
+    let tx = conn.unchecked_transaction()?;
+    forget_now(&tx, books)?;
+    tx.commit()?;
+    Ok(())
+}
+
+const ABOUT_A_BOOK: [&str; 10] =
+    ["panels", "bookmarks", "user_panels", "meta_layer", "cv_queue", "comicinfo_seen", "cv_auto", "edition_override", "reading_hidden", "yac_outbox"];
+
+fn forget_now(conn: &Connection, books: &[i64]) -> Result<()> {
     for id in books {
-        for table in ABOUT_A_BOOK {
-            conn.execute(&format!("DELETE FROM {table} WHERE comic_id=?1"), [id])?;
-        }
         conn.execute("DELETE FROM comics WHERE id=?1", [id])?;
     }
+    clear_leftovers(conn)?;
     conn.execute("DELETE FROM series WHERE id NOT IN (SELECT DISTINCT series_id FROM comics)", [])?;
+    Ok(())
+}
+
+/// Everything kept about books that are gone, except your reading history.
+pub fn clear_leftovers(conn: &Connection) -> Result<()> {
+    for table in ABOUT_A_BOOK {
+        conn.execute(&format!("DELETE FROM {table} WHERE comic_id NOT IN (SELECT id FROM comics)"), [])?;
+    }
     Ok(())
 }
 
 /// Hide: their files stay, the scan passes over them, and where you'd read to is kept for coming back.
 pub fn hide(conn: &Connection, found: &Found, label: &str, now: i64) -> Result<()> {
+    let tx = conn.unchecked_transaction()?;
+    let conn = &*tx;
     for place in &found.places {
         conn.execute("INSERT OR REPLACE INTO hidden(rel_path, label, at) VALUES(?1, ?2, ?3)", params![place, label, now])?;
     }
@@ -102,7 +127,9 @@ pub fn hide(conn: &Connection, found: &Found, label: &str, now: i64) -> Result<(
             [id],
         )?;
     }
-    forget(conn, &found.books)
+    forget_now(conn, &found.books)?;
+    tx.commit()?;
+    Ok(())
 }
 
 /// Each place's full path, refusing anything that isn't strictly inside the comics folder.
@@ -129,6 +156,11 @@ pub fn delete(root: &Path, found: &Found, bin: &mut dyn FnMut(&Path) -> Result<(
             Err(e) => return Err(e),
         };
         bin(&full)?;
+    }
+    // A series folder left with nothing in it would read as an empty library at the very top. This
+    // only ever removes an empty folder.
+    for folder in &found.folders {
+        let _ = std::fs::remove_dir(crate::intake::as_folder(&root.join(folder)));
     }
     Ok(())
 }
@@ -166,7 +198,7 @@ pub fn put_back(conn: &Connection, label: &str, at: i64) -> Result<()> {
 /// Comics you've just added to somewhere hidden: you want that place back.
 pub fn unhide_folder(conn: &Connection, folder: &str) -> Result<()> {
     conn.execute(
-        "DELETE FROM hidden WHERE rel_path=?1 OR ?1 LIKE rel_path || '/%'",
+        "DELETE FROM hidden WHERE rel_path=?1 OR substr(?1, 1, length(rel_path) + 1) = rel_path || '/'",
         [folder],
     )?;
     Ok(())
@@ -292,7 +324,7 @@ mod tests {
         // Nothing outside the comics folder, or the folder itself.
         std::fs::write(base.join("outside.cbz"), b"PK").unwrap();
         for place in ["../outside.cbz", "", ".", "Marvel/.."] {
-            let found = Found { books: vec![], places: vec![place.to_string()] };
+            let found = Found { books: vec![], places: vec![place.to_string()], folders: vec![] };
             assert!(delete(&root, &found, &mut |_| panic!("must not get here")).is_err(), "{place}");
         }
         assert!(base.join("outside.cbz").exists());

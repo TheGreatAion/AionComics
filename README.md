@@ -36,6 +36,8 @@ If `<root>/.yacreaderlibrary/library.ydb` exists, AionComics reads it on every s
 
 A series is a Comic (left to right), a Manga (right to left) or a Webtoon (scrolling top to bottom), set from its page's ⋯ menu under *Read as*. Left to *Work it out*: YACReader's mark for a book counts first, then long, narrow pages make it a webtoon, then a library's folder being called Manga makes it manga. A library's ⋯ menu sets all of its series at once, and any added later; one series can still be told otherwise.
 
+Moving or renaming a book or folder in Explorer keeps its place and details, when there's exactly one book it could be: the same name and size, or for a big file the same size and date.
+
 ## How your folders are read
 
 Any way of keeping comics works, and nothing on disk is rearranged to fit:

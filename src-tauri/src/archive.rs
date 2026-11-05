@@ -754,8 +754,13 @@ impl Archives {
     /// Clear a book's cache folder (it's made again if the book is opened again), unless its
     /// CBR is being unpacked right now.
     pub fn forget_book(&self, id: i64) {
-        if self.rars.lock().unwrap().items.iter().any(|(k, j)| *k == id && !j.state.lock().unwrap().done) {
-            return;
+        {
+            let mut rars = self.rars.lock().unwrap();
+            if rars.items.iter().any(|(k, j)| *k == id && !j.state.lock().unwrap().done) {
+                return;
+            }
+            // Its finished unpacking goes too, or opening it again would find no pages and no job to make them.
+            rars.remove(id);
         }
         let _ = fs::remove_dir_all(self.pages_dir.join(id.to_string()));
         self.checked.lock().unwrap().remove(&id);
@@ -1141,6 +1146,28 @@ mod new_kinds {
         assert_eq!(archives.first_page(1, &file).unwrap(), b"pages/1.png");
         archives.release(1);
         fs::remove_file(&file).unwrap();
+        let _ = fs::remove_dir_all(&d);
+    }
+
+    #[test]
+    fn a_finished_book_can_be_opened_again() {
+        // Finishing a book clears its unpacked pages when you open the next; going back must still work.
+        let d = dir("reopen");
+        let file = d.join("Book.cb7");
+        let mut w = sevenz_rust2::ArchiveWriter::create(&file).unwrap();
+        for name in ["1.png", "2.png"] {
+            w.push_archive_entry(sevenz_rust2::ArchiveEntry::new_file(name), Some(Cursor::new(name.as_bytes().to_vec()))).unwrap();
+        }
+        w.finish().unwrap();
+        let archives = Archives::new(&d.join("cache"));
+        assert_eq!(archives.page(7, &file, 0).unwrap().0, b"1.png");
+        archives.page(7, &file, 1).unwrap();
+        let job = archives.rars.lock().unwrap().get(7).unwrap();
+        let st = job.state.lock().unwrap();
+        drop(job.cv.wait_timeout_while(st, Duration::from_secs(5), |s| !s.done).unwrap());
+        archives.forget_book(7);
+        assert_eq!(archives.page(7, &file, 1).unwrap().0, b"2.png");
+        archives.release(7);
         let _ = fs::remove_dir_all(&d);
     }
 

@@ -62,6 +62,8 @@
         by: [...new Set(names)].slice(0, 2).join(" · "),
         secsPerPage: s && s.pages >= 5 ? s.seconds / s.pages : null,
       };
+    }).catch(() => {
+      // The book's gone (removed just now); the pile is about to change.
     });
     return () => (live = false);
   });
@@ -72,8 +74,6 @@
     if (mins < 3) return "A few minutes left";
     return mins < 60 ? `About ${mins} min left` : `About ${Math.floor(mins / 60)} hr ${mins % 60} min left`;
   });
-  // Each collection's panel is wider the more books it holds.
-  const most = $derived(Math.max(1, ...lib.collections.map((c) => c.comicCount)));
 
   const pages = new Map<number, HTMLImageElement>();
   const resume = () => hero && openReader(hero.id, pages.get(hero.id) ?? null);
@@ -383,10 +383,10 @@
       <section class="library" aria-label="Library">
         <div class="cols">
           {#each lib.collections as c (c.id)}
-            <div class="slot" role="group" style:flex-grow={3 + c.comicCount / most} oncontextmenu={(e) => libraryMenu(e, c, false)}>
+            <div class="slot" role="group" oncontextmenu={(e) => libraryMenu(e, c, false)}>
               <button class="col" data-nav onclick={() => nav.root({ name: "collection", id: c.id })}>
                 <div class="caption">
-                  {c.name}<span class="mono">{c.seriesCount.toLocaleString()} series · {c.comicCount.toLocaleString()}</span>
+                  <span class="named">{c.name}</span><span class="mono">{c.seriesCount.toLocaleString()} series · {c.comicCount.toLocaleString()}</span>
                 </div>
                 <div class="fan">
                   {#each c.covers as id (id)}<Cover {id} width={112} pages={null} />{/each}
@@ -595,22 +595,22 @@
     white-space: nowrap;
   }
 
+  /* Every panel the same width, on every row. */
   .cols {
-    display: flex;
-    flex-wrap: wrap;
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
     gap: 20px;
   }
   .slot {
     position: relative;
     display: flex;
-    flex: 3 1 200px;
     min-width: 0;
   }
-  /* In the panel's corner, across from its caption box. */
+  /* In the panel's corner, under its caption box. */
   .slot > .add {
     position: absolute;
-    right: 8px;
-    top: 8px;
+    right: 6px;
+    top: 42px;
     z-index: 3;
   }
   .col {
@@ -622,14 +622,26 @@
     border: 4px solid var(--ink);
     background: var(--raised);
   }
+  /* The panel's whole width, so every box is one length: the name, and its counts at the far end. */
   .col > .caption {
     position: absolute;
     left: -4px;
+    right: -4px;
     top: -4px;
     z-index: 2;
+    width: auto;
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: 10px;
+  }
+  .caption .named {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
   }
   .caption .mono {
-    margin-left: 10px;
+    flex: none;
     font-size: 12px;
     letter-spacing: 0;
     text-transform: none;

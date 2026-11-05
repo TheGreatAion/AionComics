@@ -40,9 +40,11 @@
     const subs = [
       listen("scan-started", () => (lib.scanning = true)),
       listen<ScanStats | null>("library-changed", (e) => {
-        lib.scanning = false;
         const kept = e.payload?.keptMissing ?? 0;
+        // Only a scan's own report means it's finished: covers worked out after one also send this,
+        // and could otherwise end the wait for the next.
         if (e.payload) {
+          lib.scanning = false;
           lib.notice = kept
             ? `${kept.toLocaleString()} books couldn't be found, so they were kept. Reconnect the drive and rescan.`
             : "";

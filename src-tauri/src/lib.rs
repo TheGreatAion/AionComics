@@ -468,7 +468,19 @@ fn set_library_root(app: AppHandle, state: State<Shared>, path: String) -> CmdRe
     if !Path::new(&path).is_dir() {
         return Err(format!("{path} isn't a folder"));
     }
-    db::set_setting(&state.conn.lock().unwrap(), "library_root", &path).map_err(err)?;
+    {
+        let conn = state.conn.lock().unwrap();
+        let tidy = |p: &str| p.replace('\\', "/").trim_end_matches('/').to_lowercase();
+        let old = db::get_setting(&conn, "library_root").map_err(err)?;
+        if old.is_some_and(|old| tidy(&old) != tidy(&path)) {
+            // What's kept about the old folder's books goes with them, so keep a copy first.
+            if let Err(e) = backup::make(&conn, &backup::dir(&state.data_dir), scan::now()) {
+                eprintln!("backup failed: {e}");
+            }
+            db::note_new_root(&conn).map_err(err)?;
+        }
+        db::set_setting(&conn, "library_root", &path).map_err(err)?;
+    }
     watch_library(&state);
     start_scan(&app, &state);
     Ok(())

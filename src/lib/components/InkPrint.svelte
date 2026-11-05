@@ -15,6 +15,13 @@
 
   const filterId = `ink-${++count}`;
   let sharp = $state(false);
+  // Once the sharp print has faded in, the soft one under it is only more to paint.
+  let settled = $state(false);
+  $effect(() => {
+    void id;
+    sharp = false;
+    settled = false;
+  });
 
   const near = (hex: string) => [1, 3, 5].map((i) => parseInt(hex.slice(i, i + 2), 16) / 255);
   const ink = $derived.by(() => {
@@ -35,7 +42,9 @@
     </filter>
   </svg>
   {#key id}
-    <img class="soon" src={coverUrl(id)} alt="" style:object-position="50% {at}%" style:filter="url(#{filterId}) blur(3px)" />
+    {#if !settled}
+      <img class="soon" src={coverUrl(id)} alt="" style:object-position="50% {at}%" style:filter="url(#{filterId}) blur(3px)" />
+    {/if}
     <img
       class="sharp"
       class:in={sharp}
@@ -44,6 +53,7 @@
       style:object-position="50% {at}%"
       style:filter="url(#{filterId})"
       onload={() => (sharp = true)}
+      ontransitionend={() => (settled = true)}
     />
   {/key}
 </div>

@@ -950,6 +950,8 @@
     font-size: 52px;
     line-height: 0.9;
     letter-spacing: 0.005em;
+    /* A file name with no spaces would otherwise run off the page. */
+    overflow-wrap: anywhere;
   }
   /* Over a title, the number is a quiet line in the text face. */
   .label.small {

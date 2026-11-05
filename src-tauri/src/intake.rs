@@ -110,10 +110,25 @@ static NUMBER_TAIL: LazyLock<Regex> = LazyLock::new(|| {
     Regex::new(r"(?i)[\s_.-]+(?:v(?:ol(?:ume)?)?\.?\s*\d+(?:\.\d+)?|#?\d{1,4}(?:\.\d+)?)(?:[\s_.-]+.*)?$").unwrap()
 });
 
+/// Two numbers in a row: the last is the issue, the first part of the name ("Spider-Man 2099 001").
+static TWO_NUMBERS: LazyLock<Regex> =
+    LazyLock::new(|| Regex::new(r"^(.*\s\d{1,4})[\s_.-]+#?\d{1,4}(?:[\s_.-]+.*)?$").unwrap());
+
+/// A folder's path in a form Windows won't trim: without a slash on the end, it quietly drops spaces
+/// from the end of the last name, and so means, or makes, a different folder.
+pub(crate) fn as_folder(p: &Path) -> PathBuf {
+    let mut s = p.as_os_str().to_owned();
+    s.push(std::path::MAIN_SEPARATOR_STR);
+    s.into()
+}
+
 /// The series a file name belongs to: "Absolute Batman 018 (2026) (Digital).cbz" → "Absolute Batman".
 pub fn series_guess(file_name: &str) -> String {
     let stem = Path::new(file_name).file_stem().map(|s| s.to_string_lossy().into_owned()).unwrap_or_default();
     let clean = crate::scan::clean_name(&stem.replace('_', " "));
+    if let Some(c) = TWO_NUMBERS.captures(&clean) {
+        return c[1].trim().to_string();
+    }
     let cut = NUMBER_TAIL.replace(&clean, "").trim().to_string();
     if cut.is_empty() { clean } else { cut }
 }
@@ -569,7 +584,7 @@ pub fn copy_in(root: &Path, placements: &[Placement], progress: &mut dyn FnMut(&
         if name.components().count() != 1 || !matches!(name.components().next(), Some(std::path::Component::Normal(_))) {
             bail!("Refusing an odd file name: {}", p.file_name);
         }
-        let dir = root.join(folder);
+        let dir = as_folder(&root.join(folder));
         std::fs::create_dir_all(&dir)?;
         // Belt and braces: the folder really is inside the comics folder.
         if !std::fs::canonicalize(&dir)?.starts_with(&root_real) {
@@ -676,6 +691,36 @@ mod tests {
         let mut bad = place("Absolute Batman 019.cbz", "add");
         bad.folder = Some("../Downloads".into());
         assert!(copy_in(&root, &[bad]).is_err());
+        let _ = std::fs::remove_dir_all(&base);
+    }
+
+    #[test]
+    fn two_numbers_keep_the_first_in_the_name() {
+        assert_eq!(series_guess("Spider-Man 2099 001 (2014) (Digital).cbz"), "Spider-Man 2099");
+        assert_eq!(series_guess("Batman 66 012.cbz"), "Batman 66");
+        assert_eq!(series_guess("100 Bullets 001.cbz"), "100 Bullets");
+        assert_eq!(series_guess("Saga 054 - The War for Phang.cbr"), "Saga");
+        assert_eq!(series_guess("Saga 054 - Book 2.cbr"), "Saga");
+    }
+
+    #[test]
+    fn adding_to_a_folder_whose_name_ends_in_a_space_makes_no_stray_folder() {
+        let base = std::env::temp_dir().join(format!("aion-space-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&base);
+        let (root, src) = (base.join("Comics"), base.join("Downloads"));
+        std::fs::create_dir_all(format!("{}/DC/Arrow /", root.display())).unwrap();
+        std::fs::write(format!("{}/DC/Arrow /Arrow 001.cbz", root.display()), b"PK").unwrap();
+        std::fs::create_dir_all(&src).unwrap();
+        std::fs::write(src.join("Arrow 002.cbz"), b"PK two").unwrap();
+        let mut conn = crate::db::open(&base.join("t.db")).unwrap();
+        crate::scan::scan(&mut conn, &root).unwrap();
+        let id: i64 = conn.query_row("SELECT id FROM series", [], |r| r.get(0)).unwrap();
+        let paths = vec![src.join("Arrow 002.cbz").to_string_lossy().into_owned()];
+        let placed = plan(&conn, &root, gather_all(&paths), Some(id), None, None).unwrap();
+        assert_eq!(copy_in(&root, &placed, &mut |_| {}).unwrap(), 1);
+        assert!(std::path::Path::new(&format!("{}/DC/Arrow /Arrow 002.cbz", root.display())).exists());
+        let folders: Vec<String> = std::fs::read_dir(root.join("DC")).unwrap().map(|e| e.unwrap().file_name().to_string_lossy().into_owned()).collect();
+        assert_eq!(folders, ["Arrow "], "no second folder beside it");
         let _ = std::fs::remove_dir_all(&base);
     }
 

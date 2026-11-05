@@ -1127,6 +1127,12 @@ pub fn reads_as(said: Option<&str>, yac_type: Option<i64>, tall: bool, in_manga:
     }
 }
 
+/// The comics folder has just been changed, on purpose: the next scan takes what's there as the
+/// library, with no holding on to books as if a drive had dropped out (see `scan`).
+pub fn note_new_root(conn: &Connection) -> Result<()> {
+    set_setting(conn, crate::scan::NEW_ROOT, "1")
+}
+
 /// Say how a series reads, or None to have it worked out.
 pub fn set_series_reading(conn: &Connection, id: i64, reading: Option<&str>) -> Result<()> {
     conn.execute("UPDATE series SET reading=?2 WHERE id=?1", params![id, reading])?;

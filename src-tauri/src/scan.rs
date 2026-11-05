@@ -39,6 +39,16 @@ pub fn now() -> i64 {
         .unwrap_or(0)
 }
 
+/// Set when the comics folder has been changed on purpose, until the next scan has done its work.
+pub const NEW_ROOT: &str = "new_root";
+/// The highest number a book has been given, so none is ever used twice.
+const HIGHEST_BOOK: &str = "comics_high";
+
+/// Folders that are never comics, wherever they turn up: hidden ones, and Windows' own on a drive.
+fn not_comics(name: &str) -> bool {
+    name.starts_with('.') || ["$RECYCLE.BIN", "RECYCLER", "System Volume Information"].iter().any(|n| name.eq_ignore_ascii_case(n))
+}
+
 struct Found {
     collection: String,
     /// The library for series that sit straight in the comics folder, with no folder of its own.
@@ -64,7 +74,7 @@ fn walk(root: &Path) -> Vec<Raw> {
     let walker = WalkDir::new(root)
         .min_depth(1)
         .into_iter()
-        .filter_entry(|e| !e.file_name().to_string_lossy().starts_with('.'));
+        .filter_entry(|e| !not_comics(&e.file_name().to_string_lossy()));
     for e in walker.filter_map(|e| e.ok()) {
         if !e.file_type().is_file() {
             continue;
@@ -130,17 +140,17 @@ fn top_series(name: &str, top: &Top, layout: Layout) -> Option<String> {
     use crate::intake::{norm, says_nothing, series_guess};
     match layout {
         Layout::Libraries => return None,
-        Layout::Series => return Some(name.to_string()),
+        Layout::Series => return Some(name.trim().to_string()),
         Layout::Auto => {}
     }
     if !top.subs.is_empty() {
-        return top.subs.iter().all(|s| says_nothing(s)).then(|| name.to_string());
+        return top.subs.iter().all(|s| says_nothing(s)).then(|| name.trim().to_string());
     }
     let guesses: Vec<String> = top.loose.iter().map(|f| series_guess(f)).collect();
     let folder = norm(name);
     let fits = |g: &String| says_nothing(g) || norm(g) == folder || norm(g).starts_with(&format!("{folder} "));
     if guesses.iter().all(fits) {
-        return Some(name.to_string());
+        return Some(name.trim().to_string());
     }
     let alike = guesses.len() >= 2 && guesses.iter().all(|g| norm(g) == norm(&guesses[0]));
     alike.then(|| guesses[0].clone())
@@ -207,7 +217,7 @@ fn lay_out(raw: Vec<Raw>, home: &str, layout: Layout) -> Vec<Found> {
         .iter()
         .filter(|(name, _)| !series_tops.contains_key(*name))
         .map(|(name, top)| {
-            let beside = top.subs.iter().map(|s| (crate::intake::norm(s), (s.to_string(), format!("{name}/{s}")))).collect();
+            let beside = top.subs.iter().map(|s| (crate::intake::norm(s), (s.trim().to_string(), format!("{name}/{s}")))).collect();
             (*name, group_loose(name, &top.loose, &beside))
         })
         .collect();
@@ -226,7 +236,7 @@ fn lay_out(raw: Vec<Raw>, home: &str, layout: Layout) -> Vec<Found> {
                 let (s, rel) = loose_in[parts[0].as_str()][&file_name].clone();
                 (parts[0].clone(), false, s, rel, String::new())
             } else {
-                (parts[0].clone(), false, parts[1].clone(), format!("{}/{}", parts[0], parts[1]), parts[2..parts.len() - 1].join(" / "))
+                (parts[0].clone(), false, parts[1].trim().to_string(), format!("{}/{}", parts[0], parts[1]), parts[2..parts.len() - 1].join(" / "))
             };
             Found { collection, at_top, series, series_rel, section, rel: parts.join("/"), file_name, size: r.size, mtime: r.mtime }
         })
@@ -243,7 +253,7 @@ fn empty_libraries(root: &Path, raw: &[Raw], layout: Layout, hidden: &[String]) 
     dir.flatten()
         .filter(|e| {
             let hidden = e.metadata().map(|m| hidden_or_system(&m)).unwrap_or(true);
-            e.file_type().is_ok_and(|t| t.is_dir()) && !hidden && !e.file_name().to_string_lossy().starts_with('.')
+            e.file_type().is_ok_and(|t| t.is_dir()) && !hidden && !not_comics(&e.file_name().to_string_lossy())
         })
         .map(|e| e.file_name().to_string_lossy().into_owned())
         .filter(|n| !used.contains(n.as_str()) && !hidden.contains(n))
@@ -474,22 +484,30 @@ pub fn scan(conn: &mut Connection, root: &Path) -> Result<ScanStats> {
     }
     let layout = Layout::parse(crate::db::get_setting(conn, Layout::SETTING)?.as_deref());
     let home = root.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_else(|| "Library".to_string());
+    // A new comics folder is taken as it is: what was hidden in the old one means nothing here.
+    let new_root = crate::db::get_setting(conn, NEW_ROOT)?.is_some();
+    if new_root {
+        conn.execute_batch("DELETE FROM hidden; DELETE FROM hidden_reading;")?;
+    }
     // What you've hidden is passed over: a file, or everything in a folder.
     let hidden: Vec<String> =
         conn.prepare("SELECT rel_path FROM hidden")?.query_map([], |r| r.get(0))?.collect::<rusqlite::Result<_>>()?;
     let mut raw = walk(root);
+    // Before those are passed over: a folder of only hidden books isn't empty.
+    let empties = empty_libraries(root, &raw, layout, &hidden);
     raw.retain(|r| {
         let rel = r.parts.join("/");
         !hidden.iter().any(|h| rel == *h || rel.starts_with(&format!("{h}/")))
     });
-    let empties = empty_libraries(root, &raw, layout, &hidden);
     let found = lay_out(raw, &home, layout);
     let known: i64 = conn.query_row("SELECT COUNT(*) FROM comics", [], |r| r.get(0))?;
-    if found.is_empty() && known > 0 {
+    if found.is_empty() && known > 0 && !new_root {
         anyhow::bail!("No comics were found in {}. Nothing was changed.", root.display());
     }
     let yac = read_yac(root);
     let mut stats = ScanStats::default();
+    let highest: i64 = crate::db::get_setting(conn, HIGHEST_BOOK)?.and_then(|v| v.parse().ok()).unwrap_or(0);
+    let mut next_book = highest.max(conn.query_row("SELECT COALESCE(MAX(id), 0) FROM comics", [], |r| r.get(0))?) + 1;
 
     let tx = conn.transaction()?;
     tx.execute("UPDATE comics SET seen=0", [])?;
@@ -506,8 +524,8 @@ pub fn scan(conn: &mut Connection, root: &Path) -> Result<ScanStats> {
             "SELECT id, read, last_read_at, yac_read FROM comics WHERE rel_path=?1",
         )?;
         let mut insert = tx.prepare(
-            "INSERT INTO comics(series_id, section, rel_path, file_name, size, mtime, added_at)
-             VALUES(?1, ?2, ?3, ?4, ?5, ?6, ?7) RETURNING id",
+            "INSERT INTO comics(id, series_id, section, rel_path, file_name, size, mtime, added_at)
+             VALUES(?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
         )?;
         let mut update_file = tx.prepare(
             "UPDATE comics SET series_id=?2, section=?3, file_name=?4, size=?5, mtime=?6, seen=1 WHERE id=?1",
@@ -523,6 +541,33 @@ pub fn scan(conn: &mut Connection, root: &Path) -> Result<ScanStats> {
             "UPDATE comics SET current_page=?2, read=?3, last_read_at=?4 WHERE id=?1",
         )?;
         let mut note_yac_read = tx.prepare("UPDATE comics SET yac_read=?2 WHERE id=?1")?;
+        // A book that's disappeared, and one that's appeared with its name and size, or for a big
+        // file its size and date, is the same book moved or renamed: it keeps its place, details and
+        // number. Only when exactly one could be it.
+        let mut move_book = tx.prepare("UPDATE comics SET rel_path=?2 WHERE id=?1")?;
+        let mut moved_book = tx.prepare("SELECT read, last_read_at, yac_read FROM comics WHERE id=?1")?;
+        const BIG_ENOUGH: i64 = 1 << 20;
+        let here: HashSet<&str> = found.iter().map(|f| f.rel.as_str()).collect();
+        let mut by_name: HashMap<(String, i64), Option<i64>> = HashMap::new();
+        let mut by_date: HashMap<(i64, i64), Option<i64>> = HashMap::new();
+        {
+            let mut st = tx.prepare("SELECT id, rel_path, file_name, size, mtime FROM comics")?;
+            let rows = st.query_map([], |r| {
+                Ok((r.get::<_, i64>(0)?, r.get::<_, String>(1)?, r.get::<_, String>(2)?, r.get::<_, Option<i64>>(3)?, r.get::<_, Option<i64>>(4)?))
+            })?;
+            for row in rows {
+                let (id, rel, name, size, mtime) = row?;
+                if here.contains(rel.as_str()) {
+                    continue;
+                }
+                let (size, mtime) = (size.unwrap_or(0), mtime.unwrap_or(0));
+                by_name.entry((name, size)).and_modify(|v| *v = None).or_insert(Some(id));
+                if size >= BIG_ENOUGH {
+                    by_date.entry((size, mtime)).and_modify(|v| *v = None).or_insert(Some(id));
+                }
+            }
+        }
+        let mut claimed: HashSet<i64> = HashSet::new();
         let mut was_hidden = tx.prepare("DELETE FROM hidden_reading WHERE rel_path=?1 RETURNING current_page, read, last_read_at")?;
 
         let mut col_ids: HashMap<String, (i64, bool)> = HashMap::new();
@@ -561,12 +606,24 @@ pub fn scan(conn: &mut Connection, root: &Path) -> Result<ScanStats> {
                     update_file.execute(params![id, series_id, f.section, f.file_name, f.size, f.mtime])?;
                     (id, read, last, yac_read)
                 }
+                None if let Some(id) = by_name
+                    .get(&(f.file_name.clone(), f.size))
+                    .copied()
+                    .flatten()
+                    .or_else(|| by_date.get(&(f.size, f.mtime)).copied().flatten())
+                    .filter(|id| claimed.insert(*id)) =>
+                {
+                    move_book.execute(params![id, f.rel])?;
+                    update_file.execute(params![id, series_id, f.section, f.file_name, f.size, f.mtime])?;
+                    let (read, last, yac_read) = moved_book.query_row([id], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)))?;
+                    (id, read, last, yac_read)
+                }
                 None => {
                     let added = y.and_then(|y| y.added).filter(|a| *a > 0).unwrap_or(f.mtime.max(1));
-                    let id: i64 = insert.query_row(
-                        params![series_id, f.section, f.rel, f.file_name, f.size, f.mtime, added],
-                        |r| r.get(0),
-                    )?;
+                    // Never a number a book has had: covers and details are kept by it.
+                    let id = next_book;
+                    next_book += 1;
+                    insert.execute(params![id, series_id, f.section, f.rel, f.file_name, f.size, f.mtime, added])?;
                     stats.added += 1;
                     // Back from being hidden: where you'd read to.
                     let back: Option<(i64, bool, Option<i64>)> = was_hidden
@@ -659,14 +716,17 @@ pub fn scan(conn: &mut Connection, root: &Path) -> Result<ScanStats> {
             ins_col.query_row(params![name, name.eq_ignore_ascii_case("manga"), false], |r| r.get::<_, i64>(0))?;
         }
     }
+    crate::db::set_setting(&tx, HIGHEST_BOOK, &(next_book - 1).to_string())?;
+    tx.execute("DELETE FROM settings WHERE key=?1", [NEW_ROOT])?;
     // Losing more than a third of the library in one scan means a folder or drive dropped out, not
     // that you deleted that much. Keep those books until they're really gone.
     let missing: i64 = tx.query_row("SELECT COUNT(*) FROM comics WHERE seen=0", [], |r| r.get(0))?;
-    if missing > 0 && known > 30 && missing * 3 > known {
+    if missing > 0 && known > 30 && missing * 3 > known && !new_root {
         stats.kept_missing = missing;
     } else {
         stats.removed = tx.execute("DELETE FROM comics WHERE seen=0", [])? as i64;
     }
+    crate::removal::clear_leftovers(&tx)?;
     tx.execute("DELETE FROM series WHERE id NOT IN (SELECT DISTINCT series_id FROM comics)", [])?;
     let unused: Vec<(i64, String)> = tx
         .prepare("SELECT id, name FROM collections WHERE id NOT IN (SELECT DISTINCT collection_id FROM series)")?
@@ -1061,7 +1121,7 @@ mod layouts {
         let newly_read = |r: &&String| r.contains(".pdf") || r.contains(".epub") || r.contains("Zelda Encyclopedia") || r.contains("Field Guide");
         const SQL: [&str; 3] = [
             "SELECT id, name, is_manga FROM collections",
-            "SELECT id, collection_id, name, rel_path FROM series",
+            "SELECT id, collection_id, trim(name), rel_path FROM series",
             "SELECT id, series_id, section, rel_path, file_name, label, read, current_page, last_read_at FROM comics",
         ];
         let before: Vec<_> = SQL.iter().map(|q| rows(&conn, q)).collect();
@@ -1076,6 +1136,193 @@ mod layouts {
         }
         let at_top: i64 = conn.query_row("SELECT COUNT(*) FROM collections WHERE at_top<>0", [], |r| r.get(0)).unwrap();
         assert_eq!(at_top, 0);
+    }
+}
+
+#[cfg(test)]
+mod found_by_hunting {
+    use super::*;
+
+    fn fresh(name: &str) -> (std::path::PathBuf, std::path::PathBuf, Connection) {
+        let base = std::env::temp_dir().join(format!("aion-hunt-{name}-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&base);
+        let root = base.join("Comics");
+        std::fs::create_dir_all(&root).unwrap();
+        let conn = crate::db::open(&base.join("t.db")).unwrap();
+        (base, root, conn)
+    }
+    fn put(root: &Path, rel: &str, bytes: usize) {
+        let p = root.join(rel);
+        std::fs::create_dir_all(p.parent().unwrap()).unwrap();
+        std::fs::write(p, vec![b'P'; bytes]).unwrap();
+    }
+    fn count(c: &Connection, sql: &str) -> i64 {
+        c.query_row(sql, [], |r| r.get(0)).unwrap()
+    }
+
+    #[test]
+    fn a_new_book_never_takes_a_gone_books_number() {
+        let (base, root, mut conn) = fresh("number");
+        put(&root, "DC/Saga/Saga 001.cbz", 10);
+        put(&root, "DC/Saga/Saga 002.cbz", 20);
+        scan(&mut conn, &root).unwrap();
+        let old: i64 = conn.query_row("SELECT id FROM comics WHERE file_name='Saga 002.cbz'", [], |r| r.get(0)).unwrap();
+        crate::db::toggle_bookmark(&conn, old, 3, 1).unwrap();
+        // The newest book goes, then a different one arrives.
+        std::fs::remove_file(root.join("DC/Saga/Saga 002.cbz")).unwrap();
+        scan(&mut conn, &root).unwrap();
+        put(&root, "DC/Maus/Maus.cbz", 30);
+        scan(&mut conn, &root).unwrap();
+        let new: i64 = conn.query_row("SELECT id FROM comics WHERE file_name='Maus.cbz'", [], |r| r.get(0)).unwrap();
+        assert_ne!(new, old, "the new book would get the old one's cover and details");
+        assert_eq!(count(&conn, "SELECT COUNT(*) FROM bookmarks"), 0, "nothing kept about a book that's gone");
+        let _ = std::fs::remove_dir_all(&base);
+    }
+
+    #[test]
+    fn moving_or_renaming_keeps_your_place() {
+        let (base, root, mut conn) = fresh("moved");
+        put(&root, "DC/Saga/Saga 001.cbz", 2000);
+        put(&root, "DC/Other/Book.cbz", 3 << 20);
+        put(&root, "DC/Same/Twin.cbz", 5000);
+        put(&root, "DC/Same2/Twin.cbz", 5000);
+        scan(&mut conn, &root).unwrap();
+        for (file, page) in [("Saga 001.cbz", 7), ("Book.cbz", 9)] {
+            conn.execute("UPDATE comics SET current_page=?2, last_read_at=100 WHERE file_name=?1", params![file, page]).unwrap();
+        }
+        let saga: i64 = conn.query_row("SELECT id FROM comics WHERE file_name='Saga 001.cbz'", [], |r| r.get(0)).unwrap();
+        crate::db::toggle_bookmark(&conn, saga, 3, 1).unwrap();
+
+        // A folder renamed in Explorer.
+        std::fs::rename(root.join("DC/Saga"), root.join("DC/Saga (2012)")).unwrap();
+        // A big file renamed, keeping its size and date.
+        std::fs::rename(root.join("DC/Other/Book.cbz"), root.join("DC/Other/Better Name.cbz")).unwrap();
+        // Two look-alikes, one moved: can't tell which, so nothing is assumed.
+        std::fs::rename(root.join("DC/Same2/Twin.cbz"), root.join("DC/Same/Twin 2.cbz")).unwrap();
+        scan(&mut conn, &root).unwrap();
+
+        assert_eq!(count(&conn, "SELECT current_page FROM comics WHERE rel_path='DC/Saga (2012)/Saga 001.cbz'"), 7);
+        assert_eq!(count(&conn, "SELECT id FROM comics WHERE rel_path='DC/Saga (2012)/Saga 001.cbz'"), saga, "the same book");
+        assert_eq!(count(&conn, "SELECT COUNT(*) FROM bookmarks"), 1);
+        assert_eq!(count(&conn, "SELECT current_page FROM comics WHERE file_name='Better Name.cbz'"), 9);
+        assert_eq!(count(&conn, "SELECT COUNT(*) FROM series WHERE rel_path='DC/Saga'"), 0);
+        assert_eq!(count(&conn, "SELECT COUNT(*) FROM comics"), 4);
+        let _ = std::fs::remove_dir_all(&base);
+    }
+
+    #[test]
+    fn a_small_look_alike_is_not_a_rename() {
+        let (base, root, mut conn) = fresh("alike");
+        put(&root, "DC/A/One.cbz", 500);
+        scan(&mut conn, &root).unwrap();
+        conn.execute("UPDATE comics SET current_page=4 WHERE file_name='One.cbz'", []).unwrap();
+        std::fs::remove_file(root.join("DC/A/One.cbz")).unwrap();
+        put(&root, "DC/A/Two.cbz", 500);
+        scan(&mut conn, &root).unwrap();
+        assert_eq!(count(&conn, "SELECT current_page FROM comics WHERE file_name='Two.cbz'"), 0);
+        let _ = std::fs::remove_dir_all(&base);
+    }
+
+    #[test]
+    fn the_recycle_bin_is_not_comics() {
+        let (base, root, mut conn) = fresh("bin");
+        put(&root, "DC/Saga/Saga 001.cbz", 10);
+        put(&root, "$RECYCLE.BIN/S-1-5-21/$R12345.cbz", 10);
+        put(&root, "System Volume Information/x.cbz", 10);
+        scan(&mut conn, &root).unwrap();
+        assert_eq!(count(&conn, "SELECT COUNT(*) FROM comics"), 1);
+        let names: Vec<String> = conn.prepare("SELECT name FROM collections").unwrap().query_map([], |r| r.get(0)).unwrap().map(Result::unwrap).collect();
+        assert_eq!(names, ["DC"]);
+        let _ = std::fs::remove_dir_all(&base);
+    }
+
+    #[test]
+    fn changing_the_comics_folder_really_changes_it() {
+        let (base, root, mut conn) = fresh("change");
+        for i in 0..40 {
+            put(&root, &format!("DC/Saga/Saga {i:03}.cbz"), 100 + i);
+        }
+        scan(&mut conn, &root).unwrap();
+        // Another folder with other books: the old ones aren't "missing", and don't linger.
+        let other = base.join("Other");
+        put(&other, "Indie/Maus/Maus.cbz", 7);
+        crate::db::note_new_root(&conn).unwrap();
+        let stats = scan(&mut conn, &other).unwrap();
+        assert_eq!(stats.kept_missing, 0);
+        assert_eq!(count(&conn, "SELECT COUNT(*) FROM comics"), 1);
+        // And an empty one is empty, once you've chosen it.
+        let empty = base.join("Empty");
+        std::fs::create_dir_all(&empty).unwrap();
+        crate::db::note_new_root(&conn).unwrap();
+        scan(&mut conn, &empty).unwrap();
+        assert_eq!(count(&conn, "SELECT COUNT(*) FROM comics"), 0);
+        // The guard is still there for a folder that wasn't changed.
+        put(&empty, "DC/A/A.cbz", 9);
+        scan(&mut conn, &empty).unwrap();
+        std::fs::remove_file(empty.join("DC/A/A.cbz")).unwrap();
+        assert!(scan(&mut conn, &empty).is_err(), "a folder gone empty by itself is still refused");
+        let _ = std::fs::remove_dir_all(&base);
+    }
+
+    #[test]
+    fn hiding_every_book_in_a_folder_makes_no_library() {
+        let (base, root, mut conn) = fresh("hideall");
+        put(&root, "Saga/Saga 001.cbz", 10);
+        put(&root, "Marvel/Thor/Thor 001.cbz", 10);
+        scan(&mut conn, &root).unwrap();
+        let book: i64 = conn.query_row("SELECT id FROM comics WHERE file_name='Saga 001.cbz'", [], |r| r.get(0)).unwrap();
+        let found = crate::removal::find(&conn, &root, &crate::removal::Target::Books(vec![book])).unwrap();
+        crate::removal::hide(&conn, &found, "Saga #1", 100).unwrap();
+        scan(&mut conn, &root).unwrap();
+        let names: Vec<String> = conn.prepare("SELECT name FROM collections").unwrap().query_map([], |r| r.get(0)).unwrap().map(Result::unwrap).collect();
+        assert_eq!(names, ["Marvel"], "the folder isn't an empty library");
+        let _ = std::fs::remove_dir_all(&base);
+    }
+
+    #[test]
+    fn deleting_a_series_last_book_makes_no_library() {
+        let (base, root, mut conn) = fresh("lastbook");
+        put(&root, "Saga/Saga 001.cbz", 10);
+        put(&root, "Marvel/Thor/Thor 001.cbz", 10);
+        scan(&mut conn, &root).unwrap();
+        let book: i64 = conn.query_row("SELECT id FROM comics WHERE file_name='Saga 001.cbz'", [], |r| r.get(0)).unwrap();
+        let found = crate::removal::find(&conn, &root, &crate::removal::Target::Books(vec![book])).unwrap();
+        crate::removal::delete(&root, &found, &mut |p| Ok(std::fs::remove_file(p)?)).unwrap();
+        crate::removal::forget(&conn, &crate::removal::gone(&conn, &root, &found).unwrap()).unwrap();
+        scan(&mut conn, &root).unwrap();
+        let names: Vec<String> = conn.prepare("SELECT name FROM collections").unwrap().query_map([], |r| r.get(0)).unwrap().map(Result::unwrap).collect();
+        assert_eq!(names, ["Marvel"], "its empty folder isn't a new library");
+        assert!(!root.join("Saga").exists());
+        let _ = std::fs::remove_dir_all(&base);
+    }
+
+    #[test]
+    fn names_lose_stray_spaces_but_not_their_folders() {
+        let (base, root, mut conn) = fresh("spaces");
+        // A folder name ending in a space can only be made with a slash after it, on Windows.
+        std::fs::create_dir_all(format!("{}/DC/Arrow /", root.display())).unwrap();
+        std::fs::write(format!("{}/DC/Arrow /Arrow 001.cbz", root.display()), b"PK").unwrap();
+        scan(&mut conn, &root).unwrap();
+        let (name, rel): (String, String) = conn.query_row("SELECT name, rel_path FROM series", [], |r| Ok((r.get(0)?, r.get(1)?))).unwrap();
+        assert_eq!((name.as_str(), rel.as_str()), ("Arrow", "DC/Arrow "));
+        let _ = std::fs::remove_dir_all(&base);
+    }
+
+    #[test]
+    fn a_big_removal_is_quick() {
+        let (base, root, mut conn) = fresh("big");
+        for i in 0..1500 {
+            put(&root, &format!("DC/Saga/Saga {i:04}.cbz"), 10);
+        }
+        scan(&mut conn, &root).unwrap();
+        let dc: i64 = conn.query_row("SELECT id FROM collections WHERE name='DC'", [], |r| r.get(0)).unwrap();
+        let found = crate::removal::find(&conn, &root, &crate::removal::Target::Library(dc)).unwrap();
+        let started = std::time::Instant::now();
+        crate::removal::hide(&conn, &found, "DC", 1).unwrap();
+        println!("hid 1500 books in {:?}", started.elapsed());
+        assert!(started.elapsed().as_secs_f64() < 3.0, "took {:?}, with the whole app waiting", started.elapsed());
+        assert_eq!(count(&conn, "SELECT COUNT(*) FROM comics"), 0);
+        let _ = std::fs::remove_dir_all(&base);
     }
 }
 
