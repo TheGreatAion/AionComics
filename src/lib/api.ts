@@ -104,6 +104,8 @@ export interface SeriesView {
   collectionId: number;
   collectionName: string;
   isManga: boolean;
+  /** Its books whose cover is already printed: those show at once behind its name. */
+  printed: number[];
   /** How you've said this series reads, if you have. */
   reading: "comic" | "manga" | "webtoon" | null;
   writer: string | null;

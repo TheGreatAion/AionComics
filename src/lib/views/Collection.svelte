@@ -2,7 +2,7 @@
   import { untrack } from "svelte";
   import { addMenu } from "$lib/add.svelte";
   import { libraryMenu } from "$lib/manage.svelte";
-  import { api, listText, plainText, printUrl, unitWord, type CollectionView, type SeriesSummary, type SeriesView } from "$lib/api";
+  import { api, listText, plainText, unitWord, type CollectionView, type SeriesSummary, type SeriesView } from "$lib/api";
   import { lib, nav, openReader } from "$lib/state.svelte";
   import Cover from "$lib/components/Cover.svelte";
   import LetterHeadline from "$lib/components/LetterHeadline.svelte";
@@ -78,7 +78,7 @@
   // A cover already printed (made smaller and kept, see `print` in lib.rs; every series' cover gets
   // one after a scan) comes first, so it's there with the page. The pick then holds while you're
   // here, even as a refresh brings news of more prints.
-  let backdrop = $state<{ id: number; hue: number; at: number } | null>(null);
+  let backdrop = $state<{ id: number; hue: number | null; at: number } | null>(null);
   $effect(() => {
     const pool = (data?.series ?? [])
       .filter((s) => {
@@ -89,9 +89,15 @@
     const free = pool.filter((s) => !letterCovers.includes(s.coverId!));
     const choice = free.length ? free : pool;
     const kept = untrack(() => backdrop);
-    if (!choice.length || (kept && choice.some((s) => s.coverId === kept.id))) return;
+    if (kept && choice.some((s) => s.coverId === kept.id)) return;
     const s = choice.find((s) => s.printed) ?? choice[0];
-    backdrop = { id: s.coverId!, hue: hue(s.coverColor)!.h, at: 20 + (shuffled(s.id) % 61) };
+    if (s) {
+      backdrop = { id: s.coverId!, hue: hue(s.coverColor)!.h, at: 20 + (shuffled(s.id) % 61) };
+      return;
+    }
+    // Nothing here prints in a color: a cover in gray, rather than an empty panel.
+    const any = data?.series.find((s) => s.coverId != null);
+    if (any && !kept) backdrop = { id: any.coverId!, hue: null, at: 20 + (shuffled(any.id) % 61) };
   });
   // The grid's caption box: what's shown, in what order.
   const section = $derived(
@@ -160,7 +166,7 @@
     {/if}
   </div>
   {#if look.backdrop && backdrop}
-    <InkPrint src={printUrl(backdrop.id)} hue={backdrop.hue} at={backdrop.at} />
+    <InkPrint id={backdrop.id} hue={backdrop.hue} at={backdrop.at} />
   {/if}
     {#if data.series.length === 1 && features[0]}
       <LetterHeadline text={data.name} covers={letterCovers} bind:beside>

@@ -488,13 +488,24 @@ fn series_summary(r: &Row) -> rusqlite::Result<SeriesSummary> {
 /// Every series' cover (its first book) with enough color to print behind its collection's name,
 /// for making those prints ahead of time. The same test as the collection page's (Collection.svelte):
 /// some color, and never teal.
-pub fn series_covers(conn: &Connection) -> Result<Vec<i64>> {
-    let mut stmt = conn.prepare(
-        "SELECT c.id, c.cover_color FROM series s
-           JOIN comics c ON c.id = (SELECT c2.id FROM comics c2 WHERE c2.series_id=s.id ORDER BY c2.sort_key LIMIT 1)",
-    )?;
-    let rows: Vec<(i64, Option<String>)> = stmt.query_map([], |r| Ok((r.get(0)?, r.get(1)?)))?.collect::<rusqlite::Result<_>>()?;
-    Ok(rows.into_iter().filter(|(_, c)| c.as_deref().is_some_and(printable)).map(|(id, _)| id).collect())
+pub fn prints_wanted(conn: &Connection) -> Result<Vec<i64>> {
+    // What you're partway through shows on Home whatever its color, so it comes first.
+    let mut wanted: Vec<i64> = conn
+        .prepare("SELECT id FROM comics WHERE read=0 AND current_page>0 ORDER BY last_read_at DESC LIMIT 50")?
+        .query_map([], |r| r.get(0))?
+        .collect::<rusqlite::Result<_>>()?;
+    // Each series' first cover that prints in a color of its own, as its page and its collection's
+    // pick it, or its first of all, to print in gray.
+    let mut stmt = conn.prepare("SELECT series_id, id, cover_color FROM comics ORDER BY series_id, section!='', sort_key")?;
+    let rows: Vec<(i64, i64, Option<String>)> =
+        stmt.query_map([], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)))?.collect::<rusqlite::Result<_>>()?;
+    for books in rows.chunk_by(|a, b| a.0 == b.0) {
+        let pick = books.iter().find(|b| b.2.as_deref().is_some_and(printable)).unwrap_or(&books[0]);
+        if !wanted.contains(&pick.1) {
+            wanted.push(pick.1);
+        }
+    }
+    Ok(wanted)
 }
 
 fn printable(hex: &str) -> bool {
@@ -589,6 +600,8 @@ pub struct SeriesView {
     pub sections: Vec<Section>,
     pub editions: Vec<Edition>,
     pub backfill: Option<Backfill>,
+    /// Its books whose cover is already printed (see `print` in lib.rs), filled in there.
+    pub printed: Vec<i64>,
     /// The Comic Vine series this one is matched to, if any.
     pub cv_volume_id: Option<String>,
 }
@@ -818,6 +831,7 @@ pub fn series_view(conn: &Connection, id: i64) -> Result<SeriesView> {
         sections,
         editions,
         backfill: backfill(conn, id)?,
+        printed: Vec::new(),
         cv_volume_id: cv.map(|(v, _)| v),
     })
 }
@@ -1586,5 +1600,31 @@ mod meta_tests {
         assert_eq!(get(&conn, "label").as_deref(), Some("Vol. 2"));
         let meta = comic_meta(&conn, id).unwrap();
         assert!(meta.edited.contains(&"number".to_string()) && meta.from_cv.contains(&"penciller".to_string()));
+    }
+}
+
+
+#[cfg(test)]
+mod print_tests {
+    use super::*;
+
+    #[test]
+    fn prints_wanted_covers_every_series() {
+        let path = std::env::temp_dir().join(format!("aion-prints-test-{}.db", std::process::id()));
+        let _ = std::fs::remove_file(&path);
+        let conn = open(&path).unwrap();
+        conn.execute_batch(
+            "INSERT INTO collections(id, name, is_manga) VALUES(1, 'DC', 0);
+             INSERT INTO series(id, collection_id, name, rel_path) VALUES(1, 1, 'Red first', 'DC/1'), (2, 1, 'Teal then red', 'DC/2'), (3, 1, 'All gray', 'DC/3');
+             INSERT INTO comics(id, series_id, rel_path, file_name, label, sort_key, cover_color, current_page, read, last_read_at) VALUES
+               (10, 1, 'DC/1/a', 'a', '1', 1, '#c02020', 0, 0, NULL),
+               (11, 1, 'DC/1/b', 'b', '2', 2, '#2030c0', 0, 0, NULL),
+               (20, 2, 'DC/2/a', 'a', '1', 1, '#59bab3', 0, 0, NULL),
+               (21, 2, 'DC/2/b', 'b', '2', 2, '#c02020', 0, 0, NULL),
+               (30, 3, 'DC/3/a', 'a', '1', 1, '#808080', 0, 0, NULL),
+               (31, 3, 'DC/3/b', 'b', '2', 2, '#59bab3', 5, 0, 100);",
+        )
+        .unwrap();
+        assert_eq!(prints_wanted(&conn).unwrap(), [31, 10, 21, 30], "being read first, then each series' pick");
     }
 }

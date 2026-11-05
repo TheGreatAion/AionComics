@@ -278,7 +278,7 @@
         {#if look.backdrop}
           {#key hero.id}
             <div class="print" transition:fade={{ duration: motionMs(300, 600) }}>
-              <InkPrint src={printUrl(hero.id)} hue={heroHue} at={40} />
+              <InkPrint id={hero.id} hue={heroHue} at={40} />
             </div>
           {/key}
         {/if}

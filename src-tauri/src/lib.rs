@@ -198,10 +198,10 @@ fn watch_library(state: &Shared) {
     *state.watcher.lock().unwrap() = watcher;
 }
 
-/// Make the prints (see `print`) of series covers that don't have one yet, a cover at a time,
+/// Make the prints (see `print`) that pages will ask for and don't have one yet, a cover at a time,
 /// giving way to reading and to a rescan.
 fn make_prints(state: &Shared, conn: &Connection) {
-    let Ok(covers) = db::series_covers(conn) else { return };
+    let Ok(covers) = db::prints_wanted(conn) else { return };
     for id in covers {
         if print_path(state, id).exists() {
             continue;
@@ -290,8 +290,8 @@ fn start_scan(app: &AppHandle, state: &Shared) {
                         let _ = app.emit("library-changed", ());
                     }
                 }
-                // Every series' cover printed for behind its collection's name, so those pages
-                // never wait on one.
+                // A cover printed for behind each series' name and its collection's, and for each
+                // book on Home, so those pages never wait on one.
                 make_prints(&state, &c);
                 // Then the details stored inside the files themselves.
                 if Options::load(&c).read_file_details {
@@ -792,7 +792,9 @@ fn collection(state: State<Shared>, id: i64) -> CmdResult<db::CollectionView> {
 
 #[tauri::command(async)]
 fn series(state: State<Shared>, id: i64) -> CmdResult<db::SeriesView> {
-    db::series_view(&state.conn.lock().unwrap(), id).map_err(err)
+    let mut view = db::series_view(&state.conn.lock().unwrap(), id).map_err(err)?;
+    view.printed = view.sections.iter().flat_map(|s| &s.comics).map(|c| c.id).filter(|c| print_path(&state, *c).exists()).collect();
+    Ok(view)
 }
 
 /// Books that look like copies of one another.

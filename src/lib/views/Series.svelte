@@ -1,10 +1,10 @@
 <script lang="ts">
-  import { tick } from "svelte";
+  import { tick, untrack } from "svelte";
   import { slide } from "svelte/transition";
   import { addMenu } from "$lib/add.svelte";
   import CvNudge from "$lib/components/CvNudge.svelte";
   import { readAsItems, removing } from "$lib/manage.svelte";
-  import { api, chapterList, listText, plainText, printUrl, storyTitle, unitWord, type ComicCard, type ComicMeta, type EditionKind, type MetaField, type SeriesView } from "$lib/api";
+  import { api, chapterList, listText, plainText, storyTitle, unitWord, type ComicCard, type ComicMeta, type EditionKind, type MetaField, type SeriesView } from "$lib/api";
   import { lib, nav, openReader, reader, search, sheets, showMenu, undoable, undoableWith, type MenuItem } from "$lib/state.svelte";
   import { bareEnter, nearest } from "$lib/keynav";
   import { motionMs } from "$lib/look.svelte";
@@ -75,17 +75,28 @@
   const findOnCv = () => data && (sheets.matching = { seriesId: data.id, isManga: data.isManga, name: data.name });
   // The name is set as on collection pages: its letters cut from the series' covers, picked at
   // random each visit, over one more cover printed in a single ink of its own color. That one is
-  // the series' own cover when its color will do (it's printed ahead of time), else another, never
-  // a teal one; only ever a cover, as a page could give the story away.
+  // the first cover whose color will do, preferring one printed already (each series' is, ahead of
+  // time), never a teal one; with none, its first cover prints in gray. Only ever a cover, as a page
+  // could give the story away. The pick holds while you're here, even as details and prints arrive.
   const seed = Math.floor(Math.random() * 2 ** 32);
   const shuffled = (n: number) => Math.imul(n ^ seed, 2654435761) >>> 0;
   const inky = (c: ComicCard) => {
     const h = hue(c.coverColor);
     return !!h && h.chroma > 0.12 && !(h.h >= 150 && h.h <= 200);
   };
-  const backdrop = $derived.by(() => {
-    const c = first && inky(first) ? first : [...all].filter(inky).sort((a, b) => shuffled(a.id) - shuffled(b.id))[0];
-    return c ? { id: c.id, hue: hue(c.coverColor)!.h, at: 20 + (shuffled(c.id) % 61) } : null;
+  const ink = (c: ComicCard) => (inky(c) ? hue(c.coverColor)!.h : null);
+  let backdrop = $state<{ id: number; hue: number | null; at: number } | null>(null);
+  $effect(() => {
+    const books = all;
+    const kept = untrack(() => backdrop);
+    const still = kept && books.find((c) => c.id === kept.id);
+    if (still) {
+      if (ink(still) !== kept.hue) backdrop = { ...kept, hue: ink(still) };
+      return;
+    }
+    const colored = books.filter(inky);
+    const c = colored.find((c) => data?.printed.includes(c.id)) ?? colored[0] ?? books[0];
+    if (c) backdrop = { id: c.id, hue: ink(c), at: 20 + (shuffled(c.id) % 61) };
   });
   const letterCovers = $derived.by(() => {
     const letters = [...headline.title].filter((ch) => ch !== " ").length;
@@ -471,7 +482,7 @@
         {mainCount.toLocaleString()} {!edition ? unitWord(data.isManga, mainCount) : mainCount === 1 ? KIND_NAME[edition.kind] : edition.name} · {mainRead === mainCount && mainCount ? "all read" : `${mainRead.toLocaleString()} read`}
       </div>
       {#if look.backdrop && backdrop}
-        <InkPrint src={printUrl(backdrop.id)} hue={backdrop.hue} at={backdrop.at} />
+        <InkPrint id={backdrop.id} hue={backdrop.hue} at={backdrop.at} />
       {/if}
       <LetterHeadline text={headline.title} covers={letterCovers} maxLines={4} />
       {#if headline.by}<div class="caption byline">{headline.by}</div>{/if}
