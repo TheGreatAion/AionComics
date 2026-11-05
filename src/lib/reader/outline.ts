@@ -37,9 +37,15 @@ export function outline(p: Panel | null, padX: number, padY: number): Pt[] {
   return normalize([[x0, y0], [x1, y0], [x1, y1], [x0, y1]]);
 }
 
-/** A clip-path that keeps everything *outside* the outline: the page rectangle with the outline cut out. */
+/** How far the dimming reaches past the page on every side, in px. The page is drawn to whole screen
+ *  pixels and the dimming's edge isn't, so stopping right at the edge leaves a line of bright page. */
+export const DIM_BLEED = 8;
+
+/** A clip-path that keeps everything *outside* the outline: the dimming's whole box, which is the page
+ *  plus DIM_BLEED all round, with the outline cut out. Points are given as shares of the page, so
+ *  each is moved to where that share of the page falls within the larger box. */
 export function dimClip(pts: Pt[]): string {
-  const pc = ([x, y]: Pt) => `${(x * 100).toFixed(3)}% ${(y * 100).toFixed(3)}%`;
-  const ring = [...pts, pts[0]].map(pc).join(", ");
+  const at = (v: number) => `calc(${(v * 100).toFixed(3)}% + ${(DIM_BLEED * (1 - 2 * v)).toFixed(3)}px)`;
+  const ring = [...pts, pts[0]].map(([x, y]) => `${at(x)} ${at(y)}`).join(", ");
   return `polygon(evenodd, 0% 0%, 100% 0%, 100% 100%, 0% 100%, 0% 0%, ${ring}, 0% 0%)`;
 }

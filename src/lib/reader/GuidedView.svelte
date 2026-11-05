@@ -3,7 +3,7 @@
   import { untrack } from "svelte";
   import { cubicOut } from "svelte/easing";
   import type { Ctl } from "./ctl.svelte";
-  import { dimClip, outline } from "./outline";
+  import { DIM_BLEED, dimClip, outline } from "./outline";
   import PageStatus from "./PageStatus.svelte";
   import { DOUBLE_CLICK_MS, GUIDED_DIM, GUIDED_MS, prefs } from "./prefs.svelte";
 
@@ -344,7 +344,7 @@
           />
         {/each}
         {#if view}
-          <div class="dim" style:--dim={dim} style:clip-path={view.clip}></div>
+          <div class="dim" style:inset="-{DIM_BLEED}px" style:--dim={dim} style:clip-path={view.clip}></div>
         {/if}
       </div>
     </div>
@@ -390,7 +390,6 @@
   }
   .dim {
     position: absolute;
-    inset: 0;
     /* Everything but the stop, in the reader's background color. */
     background: color-mix(in srgb, var(--reader-bg) calc(var(--dim) * 100%), transparent);
     pointer-events: none;
