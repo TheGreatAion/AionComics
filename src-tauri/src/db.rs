@@ -75,6 +75,10 @@ fn migrate(conn: &Connection) -> Result<()> {
     if !conn.prepare("SELECT 1 FROM pragma_table_info('series') WHERE name='reading'")?.exists([])? {
         conn.execute("ALTER TABLE series ADD COLUMN reading TEXT", [])?;
     }
+    // How a library's series read when you've said, those it has and those added later.
+    if !conn.prepare("SELECT 1 FROM pragma_table_info('collections') WHERE name='reading'")?.exists([])? {
+        conn.execute("ALTER TABLE collections ADD COLUMN reading TEXT", [])?;
+    }
     // Whether a book's pages turned out to be the long kind webtoons are made of, once looked at.
     if !conn.prepare("SELECT 1 FROM pragma_table_info('comics') WHERE name='tall'")?.exists([])? {
         conn.execute("ALTER TABLE comics ADD COLUMN tall INTEGER", [])?;
@@ -248,7 +252,7 @@ pub struct ComicCard {
 }
 
 const CARD_COLS: &str = "c.id, c.label, c.title, c.year, s.id, s.name, c.current_page, c.num_pages, c.read,
-  COALESCE(s.reading='manga', col.is_manga), c.cover_ratio, c.last_read_at, c.cover_color";
+  COALESCE(COALESCE(s.reading, col.reading)='manga', col.is_manga), c.cover_ratio, c.last_read_at, c.cover_color";
 const CARD_JOIN: &str = "JOIN series s ON s.id=c.series_id JOIN collections col ON col.id=s.collection_id";
 
 fn card(r: &Row) -> rusqlite::Result<ComicCard> {
@@ -404,6 +408,8 @@ pub struct CollectionSummary {
     pub is_manga: bool,
     pub series_count: i64,
     pub comic_count: i64,
+    /// How you've said its series read, if you have.
+    pub reading: Option<String>,
     /// First-book covers of the three most recently read series, for the fanned stack on Home.
     pub covers: Vec<i64>,
 }
@@ -418,9 +424,10 @@ pub fn collections(conn: &Connection) -> Result<Vec<CollectionSummary>> {
          LIMIT 3",
     )?;
     let mut st = conn.prepare(
-        "SELECT col.id, col.name, col.is_manga,
+        "SELECT col.id, col.name, COALESCE(col.reading='manga', col.is_manga),
            (SELECT COUNT(*) FROM series s WHERE s.collection_id=col.id),
-           (SELECT COUNT(*) FROM comics c JOIN series s ON s.id=c.series_id WHERE s.collection_id=col.id)
+           (SELECT COUNT(*) FROM comics c JOIN series s ON s.id=c.series_id WHERE s.collection_id=col.id),
+           col.reading
          FROM collections col ORDER BY col.name COLLATE NOCASE",
     )?;
     let mut v = st
@@ -431,6 +438,7 @@ pub fn collections(conn: &Connection) -> Result<Vec<CollectionSummary>> {
                 is_manga: r.get(2)?,
                 series_count: r.get(3)?,
                 comic_count: r.get(4)?,
+                reading: r.get(5)?,
                 covers: Vec::new(),
             })
         })?
@@ -458,14 +466,17 @@ pub struct SeriesSummary {
     pub cover_color: Option<String>,
     /// Whether that cover's print is made (see `print` in lib.rs); filled in there.
     pub printed: bool,
+    /// How you've said this series reads, if you have.
+    pub reading: Option<String>,
 }
 
-const SERIES_SELECT: &str = "SELECT s.id, s.name, COALESCE(s.reading='manga', col.is_manga), COUNT(c.id), COALESCE(SUM(c.read),0),
+const SERIES_SELECT: &str = "SELECT s.id, s.name, COALESCE(COALESCE(s.reading, col.reading)='manga', col.is_manga), COUNT(c.id), COALESCE(SUM(c.read),0),
        COALESCE(MAX(c.read=0 AND c.current_page>0),0),
        (SELECT c2.id FROM comics c2 WHERE c2.series_id=s.id ORDER BY c2.sort_key LIMIT 1),
        (SELECT c2.cover_ratio FROM comics c2 WHERE c2.series_id=s.id ORDER BY c2.sort_key LIMIT 1),
        MAX(c.last_read_at), MAX(c.added_at),
-       (SELECT c2.cover_color FROM comics c2 WHERE c2.series_id=s.id ORDER BY c2.sort_key LIMIT 1)
+       (SELECT c2.cover_color FROM comics c2 WHERE c2.series_id=s.id ORDER BY c2.sort_key LIMIT 1),
+       s.reading
      FROM series s JOIN collections col ON col.id=s.collection_id LEFT JOIN comics c ON c.series_id=s.id";
 
 fn series_summary(r: &Row) -> rusqlite::Result<SeriesSummary> {
@@ -482,12 +493,12 @@ fn series_summary(r: &Row) -> rusqlite::Result<SeriesSummary> {
         last_added_at: r.get(9)?,
         cover_color: r.get(10)?,
         printed: false,
+        reading: r.get(11)?,
     })
 }
 
-/// Every series' cover (its first book) with enough color to print behind its collection's name,
-/// for making those prints ahead of time. The same test as the collection page's (Collection.svelte):
-/// some color, and never teal.
+/// The covers pages will ask for a print of, for making those ahead of time. `printable` is the same
+/// test as the pages' (Series.svelte, Collection.svelte): some color, and never teal.
 pub fn prints_wanted(conn: &Connection) -> Result<Vec<i64>> {
     // What you're partway through shows on Home whatever its color, so it comes first.
     let mut wanted: Vec<i64> = conn
@@ -530,7 +541,7 @@ pub struct CollectionView {
 
 pub fn collection_view(conn: &Connection, id: i64) -> Result<CollectionView> {
     let (name, is_manga): (String, bool) = conn.query_row(
-        "SELECT name, is_manga FROM collections WHERE id=?1",
+        "SELECT name, COALESCE(reading='manga', is_manga) FROM collections WHERE id=?1",
         [id],
         |r| Ok((r.get(0)?, r.get(1)?)),
     )?;
@@ -779,7 +790,7 @@ pub fn people_view(conn: &Connection, kind: &str, name: &str) -> Result<PeopleVi
 
 pub fn series_view(conn: &Connection, id: i64) -> Result<SeriesView> {
     let (name, collection_id, collection_name, is_manga, reading): (String, i64, String, bool, Option<String>) = conn.query_row(
-        "SELECT s.name, col.id, col.name, COALESCE(s.reading='manga', col.is_manga), s.reading FROM series s JOIN collections col ON col.id=s.collection_id WHERE s.id=?1",
+        "SELECT s.name, col.id, col.name, COALESCE(COALESCE(s.reading, col.reading)='manga', col.is_manga), s.reading FROM series s JOIN collections col ON col.id=s.collection_id WHERE s.id=?1",
         [id],
         |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?, r.get(4)?)),
     )?;
@@ -1087,7 +1098,8 @@ pub struct ReadingFacts {
 
 pub fn reading_facts(conn: &Connection, id: i64) -> Result<ReadingFacts> {
     Ok(conn.query_row(
-        "SELECT s.reading, c.yac_type, c.tall, c.cover_ratio FROM comics c JOIN series s ON s.id=c.series_id WHERE c.id=?1",
+        "SELECT COALESCE(s.reading, col.reading), c.yac_type, c.tall, c.cover_ratio FROM comics c
+         JOIN series s ON s.id=c.series_id JOIN collections col ON col.id=s.collection_id WHERE c.id=?1",
         [id],
         |r| Ok(ReadingFacts { said: r.get(0)?, yac_type: r.get(1)?, tall: r.get(2)?, cover_ratio: r.get(3)? }),
     )?)
@@ -1098,8 +1110,8 @@ pub fn set_tall(conn: &Connection, id: i64, tall: bool) -> Result<()> {
     Ok(())
 }
 
-/// How a book reads: (right to left, a webtoon). Your say comes first, then YACReader's mark, then
-/// long pages, then the library it's in.
+/// How a book reads: (right to left, a webtoon). Your say comes first, for its series or else its
+/// library, then YACReader's mark, then long pages, then the library's name.
 pub fn reads_as(said: Option<&str>, yac_type: Option<i64>, tall: bool, in_manga: bool) -> (bool, bool) {
     match said {
         Some("comic") => (false, false),
@@ -1121,9 +1133,11 @@ pub fn set_series_reading(conn: &Connection, id: i64, reading: Option<&str>) -> 
     Ok(())
 }
 
-/// The same for every series a library has right now.
+/// Say how a library's series read, or None to have them worked out: every one it has, whatever was
+/// said for them before, and any added later. A series can still be told otherwise afterward.
 pub fn set_library_reading(conn: &Connection, id: i64, reading: Option<&str>) -> Result<()> {
-    conn.execute("UPDATE series SET reading=?2 WHERE collection_id=?1", params![id, reading])?;
+    conn.execute("UPDATE collections SET reading=?2 WHERE id=?1", params![id, reading])?;
+    conn.execute("UPDATE series SET reading=NULL WHERE collection_id=?1", [id])?;
     Ok(())
 }
 
@@ -1247,7 +1261,7 @@ pub fn apply_meta(conn: &Connection, only: Option<&[i64]>) -> Result<usize> {
         type Found = (Option<String>, String, bool, String, String, i64, Option<String>);
         let Some((base, label, manga, section, file, pages, own)): Option<Found> = conn
             .query_row(
-                "SELECT c.meta_base, c.label, COALESCE(s.reading='manga', col.is_manga), c.section, c.file_name, COALESCE(c.num_pages, 0), o.kind
+                "SELECT c.meta_base, c.label, COALESCE(COALESCE(s.reading, col.reading)='manga', col.is_manga), c.section, c.file_name, COALESCE(c.num_pages, 0), o.kind
                  FROM comics c JOIN series s ON s.id=c.series_id JOIN collections col ON col.id=s.collection_id
                  LEFT JOIN edition_override o ON o.comic_id=c.id WHERE c.id=?1",
                 [id],
@@ -1344,7 +1358,7 @@ pub fn comic_meta(conn: &Connection, id: i64) -> Result<ComicMeta> {
     let cols = META_FIELDS.iter().map(|f| format!("c.{f}")).collect::<Vec<_>>().join(", ");
     let (series_id, series_name, label, is_manga, file_name, fields) = conn.query_row(
         &format!(
-            "SELECT s.id, s.name, c.label, COALESCE(s.reading='manga', col.is_manga), c.file_name, {cols} FROM comics c
+            "SELECT s.id, s.name, c.label, COALESCE(COALESCE(s.reading, col.reading)='manga', col.is_manga), c.file_name, {cols} FROM comics c
              JOIN series s ON s.id=c.series_id JOIN collections col ON col.id=s.collection_id WHERE c.id=?1"
         ),
         [id],

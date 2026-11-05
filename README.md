@@ -30,11 +30,11 @@ If `<root>/.yacreaderlibrary/library.ydb` exists, AionComics reads it on every s
 
 ## File types
 
-.cbz, .cbr and .cb7 comics (and .zip, .rar and .7z holding pages), .pdf, drawn by Windows' built-in reader, and .epub, read as its pictures in the order its contents give, so an EPUB novel shows only its illustrations. A .zip or .rar holding several comics is unpacked when added; a .7z is read as one book.
+.cbz, .cbr and .cb7 comics (and .zip, .rar and .7z holding pages), .pdf, drawn by Windows' built-in reader, and .epub, read as its pictures in the order its contents give, so an EPUB novel shows only its illustrations. A .zip, .rar or .7z holding several comics is unpacked when added.
 
 ## How each series reads
 
-A series is a Comic (left to right), a Manga (right to left) or a Webtoon (scrolling top to bottom), set from its page's ⋯ menu under *Read as*. Left to *Work it out*: YACReader's mark for a book counts first, then long, narrow pages make it a webtoon, then a library's folder being called Manga makes it manga. A library's ⋯ menu sets all of its series at once.
+A series is a Comic (left to right), a Manga (right to left) or a Webtoon (scrolling top to bottom), set from its page's ⋯ menu under *Read as*. Left to *Work it out*: YACReader's mark for a book counts first, then long, narrow pages make it a webtoon, then a library's folder being called Manga makes it manga. A library's ⋯ menu sets all of its series at once, and any added later; one series can still be told otherwise.
 
 ## How your folders are read
 

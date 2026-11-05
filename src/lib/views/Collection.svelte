@@ -1,7 +1,7 @@
 <script lang="ts">
   import { untrack } from "svelte";
   import { addMenu } from "$lib/add.svelte";
-  import { libraryMenu } from "$lib/manage.svelte";
+  import { libraryMenu, seriesMenu } from "$lib/manage.svelte";
   import { api, listText, plainText, unitWord, type CollectionView, type SeriesSummary, type SeriesView } from "$lib/api";
   import { lib, nav, openReader } from "$lib/state.svelte";
   import Cover from "$lib/components/Cover.svelte";
@@ -134,7 +134,7 @@
 
 {#snippet feature(v: SeriesView, s: SeriesSummary, width: number)}
   {@const next = nextBook(v)}
-  <div class="feature">
+  <div class="feature" role="group" oncontextmenu={(e) => seriesMenu(e, s, false)}>
     <button class="fcover" data-nav onclick={(e) => open(e, s)} aria-label={s.name}>
       <Cover id={s.coverId} ratio={s.coverRatio} {width} />
     </button>
@@ -197,7 +197,7 @@
       class="ico add"
       title="More"
       aria-label="More"
-      onclick={(e) => libraryMenu(e, { id: data!.id, name: data!.name, seriesCount: data!.series.length, comicCount: total }, true)}
+      onclick={(e) => libraryMenu(e, { id: data!.id, name: data!.name, seriesCount: data!.series.length, comicCount: total, reading: lib.collections.find((c) => c.id === data!.id)?.reading }, true)}
     >
       <Icon name="more" size={18} />
     </button>
@@ -217,7 +217,7 @@
       {#each shown as s (s.id)}
         <!-- Each series' cover on the page, a run of books standing as a small pile behind it. Under
              it, a bar of the cover's own color that fills in as you read. -->
-        <button class="series" data-nav style:--tint={tone(s.coverColor, 0.4, 0.5) ?? "var(--track)"} onclick={(e) => open(e, s)}>
+        <button class="series" data-nav style:--tint={tone(s.coverColor, 0.4, 0.5) ?? "var(--track)"} onclick={(e) => open(e, s)} oncontextmenu={(e) => seriesMenu(e, s, false)}>
           <span class="art">
             {#if s.count > 2}<span class="sheet far"></span>{/if}
             {#if s.count > 1}<span class="sheet"></span>{/if}

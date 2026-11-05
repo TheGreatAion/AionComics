@@ -489,7 +489,7 @@ struct Book {
 /// A series' books in order (sections last), optionally narrowed by a condition on `c`.
 fn series_books(conn: &Connection, series_id: i64, and: &str) -> Result<Vec<Book>> {
     let mut st = conn.prepare(&format!(
-        "SELECT c.id, c.label, c.section, c.number, c.year, c.file_name, COALESCE(c.num_pages, 0), o.kind, COALESCE(s.reading='manga', col.is_manga),
+        "SELECT c.id, c.label, c.section, c.number, c.year, c.file_name, COALESCE(c.num_pages, 0), o.kind, COALESCE(COALESCE(s.reading, col.reading)='manga', col.is_manga),
            json_extract(v.data, '$.cv_id'), json_extract(v.data, '$.cv_volume_id'),
            EXISTS (SELECT 1 FROM cv_auto a WHERE a.comic_id=c.id AND a.settled=1)
          FROM comics c JOIN series s ON s.id=c.series_id JOIN collections col ON col.id=s.collection_id

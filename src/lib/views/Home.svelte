@@ -2,6 +2,7 @@
   import { tick, untrack } from "svelte";
   import { fade, fly } from "svelte/transition";
   import { addMenu, adding } from "$lib/add.svelte";
+  import { libraryMenu } from "$lib/manage.svelte";
   import { ago, api, listText, pageUrl, printUrl, progressOf, storyTitle, unitWord, type ComicCard, type Home } from "$lib/api";
   import { lib, nav, openReader, reader, search, sheets, showMenu, undoable } from "$lib/state.svelte";
   import { bareEnter } from "$lib/keynav";
@@ -382,14 +383,19 @@
       <section class="library" aria-label="Library">
         <div class="cols">
           {#each lib.collections as c (c.id)}
-            <button class="col" data-nav style:flex-grow={3 + c.comicCount / most} onclick={() => nav.root({ name: "collection", id: c.id })}>
-              <div class="caption">
-                {c.name}<span class="mono">{c.seriesCount.toLocaleString()} series · {c.comicCount.toLocaleString()}</span>
-              </div>
-              <div class="fan">
-                {#each c.covers as id (id)}<Cover {id} width={112} pages={null} />{/each}
-              </div>
-            </button>
+            <div class="slot" role="group" style:flex-grow={3 + c.comicCount / most} oncontextmenu={(e) => libraryMenu(e, c, false)}>
+              <button class="col" data-nav onclick={() => nav.root({ name: "collection", id: c.id })}>
+                <div class="caption">
+                  {c.name}<span class="mono">{c.seriesCount.toLocaleString()} series · {c.comicCount.toLocaleString()}</span>
+                </div>
+                <div class="fan">
+                  {#each c.covers as id (id)}<Cover {id} width={112} pages={null} />{/each}
+                </div>
+              </button>
+              <button class="ico add" title="Add a series to {c.name}" aria-label="Add a series to {c.name}" onclick={(e) => addMenu(e, { collection: c.id, title: c.name })}>
+                <Icon name="plus" size={16} />
+              </button>
+            </div>
           {/each}
         </div>
       </section>
@@ -594,10 +600,24 @@
     flex-wrap: wrap;
     gap: 20px;
   }
+  .slot {
+    position: relative;
+    display: flex;
+    flex: 3 1 200px;
+    min-width: 0;
+  }
+  /* In the panel's corner, across from its caption box. */
+  .slot > .add {
+    position: absolute;
+    right: 8px;
+    top: 8px;
+    z-index: 3;
+  }
   .col {
     position: relative;
     display: block;
-    flex: 3 1 200px;
+    flex: 1;
+    min-width: 0;
     padding: 52px 0 20px;
     border: 4px solid var(--ink);
     background: var(--raised);

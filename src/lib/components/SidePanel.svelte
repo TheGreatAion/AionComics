@@ -28,7 +28,7 @@
   // lately, and every collection opening into its series, with a filter over all of them. While
   // it's open it is the app's navigation: the top bar keeps only back, search, stats and settings.
   import { addMenu, adding } from "$lib/add.svelte";
-  import { libraryMenu } from "$lib/manage.svelte";
+  import { libraryMenu, seriesMenu } from "$lib/manage.svelte";
   import { api, progressOf, type ComicCard, type SeriesSummary } from "$lib/api";
   import { lib, nav, openReader, showMenu, undoable } from "$lib/state.svelte";
   import Icon from "./Icon.svelte";
@@ -175,6 +175,7 @@
             class:dropping={dropOn.key === `series:${s.id}`}
             data-drop="series:{s.id}"
             onclick={() => nav.go({ name: "series", id: s.id })}
+            oncontextmenu={(e) => seriesMenu(e, s, seriesHere(s.id))}
           >
             <span class="name">{s.name}</span>
           </button>
@@ -228,6 +229,7 @@
                 class:dropping={dropOn.key === `series:${s.id}`}
                 data-drop="series:{s.id}"
                 onclick={() => nav.go({ name: "series", id: s.id })}
+                oncontextmenu={(e) => seriesMenu(e, s, seriesHere(s.id))}
               >
                 <span class="name">{s.name}</span>
               </button>

@@ -512,7 +512,7 @@ fn set_series_reading(app: AppHandle, state: State<Shared>, id: i64, reading: Op
     Ok(())
 }
 
-/// The same for every series in a library.
+/// Say how a library's series read, those it has and those added later.
 #[tauri::command]
 fn set_library_reading(app: AppHandle, state: State<Shared>, id: i64, reading: Option<String>) -> CmdResult<()> {
     db::set_library_reading(&state.conn.lock().unwrap(), id, reading.as_deref()).map_err(err)?;

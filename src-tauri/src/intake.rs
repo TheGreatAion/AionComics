@@ -80,6 +80,8 @@ pub enum Source {
     Zipped { zip: PathBuf, entry: String },
     /// A comic file inside a .rar of several, unpacked.
     Rarred { rar: PathBuf, entry: String },
+    /// A comic file inside a .7z of several, unpacked.
+    SevenZipped { arc: PathBuf, entry: String },
     /// A folder of loose pages, packed into a .cbz.
     Pages(PathBuf),
 }
@@ -171,7 +173,9 @@ fn skipped_entry(name: &str) -> bool {
     name.split('/').any(|p| p == "__MACOSX" || p.starts_with('.'))
 }
 
-/// The comic files inside a .zip or .rar, when it's a bundle of books rather than a book itself.
+/// The comic files inside a .zip, .rar or .7z, when it's a bundle of books rather than a book itself.
+/// A book can have a stray PDF or the like among its pages, so one with many more pictures than comic
+/// files is a book.
 fn bundled(p: &Path) -> Vec<Found> {
     let shown = p.file_name().map(|f| f.to_string_lossy().into_owned()).unwrap_or_default();
     let stem = p.file_stem().map(|f| f.to_string_lossy().into_owned());
@@ -186,12 +190,14 @@ fn bundled(p: &Path) -> Vec<Found> {
         }
     };
     let mut out = Vec::new();
+    let mut pictures = 0;
     match crate::archive::detect(p) {
         Ok(crate::archive::Kind::Zip) => {
             let Ok(mut z) = crate::archive::open_zip(p) else { return out };
             for i in 0..z.len() {
                 let Ok(f) = z.by_index(i) else { continue };
                 let Ok(name) = f.name().map(|n| n.replace('\\', "/")) else { continue };
+                pictures += usize::from(crate::archive::is_image(&name));
                 if !f.is_dir() && is_comic(Path::new(&name)) && !skipped_entry(&name) {
                     out.push(found(name.clone(), f.size(), Source::Zipped { zip: p.to_path_buf(), entry: name }));
                 }
@@ -201,12 +207,26 @@ fn bundled(p: &Path) -> Vec<Found> {
             let Ok(arc) = unrar::Archive::new(p).open_for_listing() else { return out };
             for e in arc.flatten() {
                 let name = e.filename.to_string_lossy().replace('\\', "/");
+                pictures += usize::from(crate::archive::is_image(&name));
                 if e.is_file() && is_comic(Path::new(&name)) && !skipped_entry(&name) {
                     out.push(found(name.clone(), e.unpacked_size, Source::Rarred { rar: p.to_path_buf(), entry: name }));
                 }
             }
         }
+        Ok(crate::archive::Kind::SevenZ) => {
+            let Ok(arc) = sevenz_rust2::Archive::open(p) else { return out };
+            for e in arc.files.iter().filter(|e| !e.is_directory()) {
+                let name = e.name().replace('\\', "/");
+                pictures += usize::from(crate::archive::is_image(&name));
+                if is_comic(Path::new(&name)) && !skipped_entry(&name) {
+                    out.push(found(name, e.size(), Source::SevenZipped { arc: p.to_path_buf(), entry: e.name().to_string() }));
+                }
+            }
+        }
         _ => {}
+    }
+    if pictures > out.len() + 5 {
+        out.clear();
     }
     out
 }
@@ -328,7 +348,7 @@ pub fn plan(
         for b in books {
             let how = match b.from {
                 Source::File(_) => "copy",
-                Source::Zipped { .. } | Source::Rarred { .. } => "unpack",
+                Source::Zipped { .. } | Source::Rarred { .. } | Source::SevenZipped { .. } => "unpack",
                 Source::Pages(_) => "pack",
             };
             let place = |folder: Option<String>, status| Placement {
@@ -383,7 +403,7 @@ pub fn plan(
             };
             // Already in the comics folder (dragged from it): nothing to copy.
             let inside = match &b.from {
-                Source::File(p) | Source::Pages(p) | Source::Zipped { zip: p, .. } | Source::Rarred { rar: p, .. } => {
+                Source::File(p) | Source::Pages(p) | Source::Zipped { zip: p, .. } | Source::Rarred { rar: p, .. } | Source::SevenZipped { arc: p, .. } => {
                     std::fs::canonicalize(p).is_ok_and(|p| p.starts_with(&root_real))
                 }
             };
@@ -489,6 +509,30 @@ fn write_book(from: &Source, part: &Path, moved: &mut dyn FnMut(u64)) -> Result<
                 arc = h.skip()?;
             }
             bail!("{entry} wasn't in {}", rar.display());
+        }
+        Source::SevenZipped { arc, entry } => {
+            let mut w = std::io::BufWriter::new(File::create(part)?);
+            let mut found = false;
+            sevenz_rust2::ArchiveReader::open(arc, sevenz_rust2::Password::empty())?.for_each_entries(|e, r| {
+                if e.name() != entry {
+                    std::io::copy(r, &mut std::io::sink())?;
+                    return Ok(true);
+                }
+                found = true;
+                let mut buf = vec![0u8; 4 << 20];
+                loop {
+                    let n = r.read(&mut buf)?;
+                    if n == 0 {
+                        return Ok(false);
+                    }
+                    w.write_all(&buf[..n])?;
+                    moved(n as u64);
+                }
+            })?;
+            if !found {
+                bail!("{entry} wasn't in {}", arc.display());
+            }
+            w.into_inner().map_err(|e| e.into_error())?.sync_all()?;
         }
         Source::Pages(dir) => {
             let mut pages: Vec<PathBuf> = std::fs::read_dir(dir)?
@@ -632,6 +676,55 @@ mod tests {
         let mut bad = place("Absolute Batman 019.cbz", "add");
         bad.folder = Some("../Downloads".into());
         assert!(copy_in(&root, &[bad]).is_err());
+        let _ = std::fs::remove_dir_all(&base);
+    }
+
+    #[test]
+    fn seven_zip_bundles_and_books_with_a_stray_comic() {
+        use std::io::Write as _;
+        let base = std::env::temp_dir().join(format!("aion-7z-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&base);
+        let (root, src) = (base.join("Comics"), base.join("Downloads"));
+        std::fs::create_dir_all(root.join("Manga/Berserk")).unwrap();
+        std::fs::write(root.join("Manga/Berserk/Berserk v01.cbz"), b"PK").unwrap();
+        std::fs::create_dir_all(&src).unwrap();
+        let mut conn = crate::db::open(&base.join("t.db")).unwrap();
+        crate::scan::scan(&mut conn, &root).unwrap();
+        let manga: i64 = conn.query_row("SELECT id FROM collections WHERE name='Manga'", [], |r| r.get(0)).unwrap();
+
+        // A .7z of two books, with a cover picture beside them.
+        let bundle = src.join("Berserk bundle.7z");
+        let mut w = sevenz_rust2::ArchiveWriter::create(&bundle).unwrap();
+        for (name, data) in [("Berserk/Berserk v02.cbz", "two"), ("Berserk/Berserk v03.cbz", "three"), ("cover.jpg", "c")] {
+            w.push_archive_entry(sevenz_rust2::ArchiveEntry::new_file(name), Some(std::io::Cursor::new(data.as_bytes()))).unwrap();
+        }
+        w.finish().unwrap();
+        let paths = vec![bundle.to_string_lossy().into_owned()];
+        let placed = plan(&conn, &root, gather_all(&paths), None, Some(manga), None).unwrap();
+        let got: Vec<_> = placed.iter().map(|p| (p.file_name.as_str(), p.folder.as_deref(), p.status, p.how)).collect();
+        assert_eq!(got, [("Berserk v02.cbz", Some("Manga/Berserk"), "add", "unpack"), ("Berserk v03.cbz", Some("Manga/Berserk"), "add", "unpack")]);
+        assert_eq!(copy_in(&root, &placed, &mut |_| {}).unwrap(), 2);
+        assert_eq!(std::fs::read(root.join("Manga/Berserk/Berserk v03.cbz")).unwrap(), b"three");
+        assert!(!root.join("Manga/Berserk/cover.jpg").exists());
+
+        // A comic with a stray PDF among its pages is a comic, of each kind that can hold one.
+        let book = src.join("Saga 001.cbz");
+        let mut z = zip::ZipWriter::new(File::create(&book).unwrap());
+        for name in ["01.jpg", "02.jpg", "03.jpg", "04.jpg", "05.jpg", "06.jpg", "07.jpg", "08.jpg", "credits.pdf"] {
+            z.start_file(name, zip::write::SimpleFileOptions::default()).unwrap();
+            z.write_all(b"x").unwrap();
+        }
+        z.finish().unwrap();
+        let book7 = src.join("Saga 002.cb7");
+        let mut w = sevenz_rust2::ArchiveWriter::create(&book7).unwrap();
+        for name in ["01.jpg", "02.jpg", "03.jpg", "04.jpg", "05.jpg", "06.jpg", "07.jpg", "08.jpg", "credits.pdf"] {
+            w.push_archive_entry(sevenz_rust2::ArchiveEntry::new_file(name), Some(std::io::Cursor::new(b"x".as_slice()))).unwrap();
+        }
+        w.finish().unwrap();
+        let paths = vec![book.to_string_lossy().into_owned(), book7.to_string_lossy().into_owned()];
+        let placed = plan(&conn, &root, gather_all(&paths), None, Some(manga), None).unwrap();
+        let got: Vec<_> = placed.iter().map(|p| (p.file_name.as_str(), p.how)).collect();
+        assert_eq!(got, [("Saga 001.cbz", "copy"), ("Saga 002.cb7", "copy")]);
         let _ = std::fs::remove_dir_all(&base);
     }
 

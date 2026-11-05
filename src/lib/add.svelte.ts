@@ -1,6 +1,6 @@
 import { open } from "@tauri-apps/plugin-dialog";
 import { COMIC_FILES } from "./api";
-import { showMenu } from "./state.svelte";
+import { showMenu, type MenuItem } from "./state.svelte";
 
 /** What a + button adds to: a series, a new series in a collection, or with neither, a first series. */
 export type AddTarget = { series?: number; collection?: number; title: string };
@@ -24,10 +24,13 @@ async function choose(target: AddTarget, folder: boolean) {
   if (paths.length) adding.ask = { paths, target };
 }
 
-/** The + buttons' menu: comic files, or a folder of them. */
+/** The choices for adding: comic files, or a folder of them. */
+export const addItems = (target: AddTarget): MenuItem[] => [
+  { label: "Choose comics…", action: () => choose(target, false) },
+  { label: "Choose a folder…", action: () => choose(target, true) },
+];
+
+/** The + buttons' menu. */
 export function addMenu(e: MouseEvent, target: AddTarget) {
-  showMenu(e, [
-    { label: "Choose comics…", action: () => choose(target, false) },
-    { label: "Choose a folder…", action: () => choose(target, true) },
-  ]);
+  showMenu(e, addItems(target));
 }

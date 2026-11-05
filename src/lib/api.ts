@@ -66,6 +66,8 @@ export interface CollectionSummary {
   isManga: boolean;
   seriesCount: number;
   comicCount: number;
+  /** How you've said its series read, if you have. */
+  reading: "comic" | "manga" | "webtoon" | null;
   /** Covers for the fanned stack on Home: the three most recently read series. */
   covers: number[];
 }
@@ -89,6 +91,8 @@ export interface SeriesSummary {
   coverColor: string | null;
   /** Whether that cover's print (for behind the collection's name) is made yet. */
   printed: boolean;
+  /** How you've said this series reads, if you have. */
+  reading: "comic" | "manga" | "webtoon" | null;
 }
 
 export interface CollectionView {

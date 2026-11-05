@@ -496,7 +496,7 @@ pub fn scan(conn: &mut Connection, root: &Path) -> Result<ScanStats> {
     {
         let mut ins_col = tx.prepare(
             "INSERT INTO collections(name, is_manga, at_top) VALUES(?1, ?2, ?3)
-             ON CONFLICT(name) DO UPDATE SET is_manga=excluded.is_manga, at_top=excluded.at_top RETURNING id",
+             ON CONFLICT(name) DO UPDATE SET is_manga=excluded.is_manga, at_top=excluded.at_top RETURNING id, reading",
         )?;
         let mut ins_series = tx.prepare(
             "INSERT INTO series(collection_id, name, rel_path) VALUES(?1, ?2, ?3)
@@ -533,7 +533,10 @@ pub fn scan(conn: &mut Connection, root: &Path) -> Result<ScanStats> {
                 Some(v) => *v,
                 None => {
                     let manga = f.collection.eq_ignore_ascii_case("manga");
-                    let id: i64 = ins_col.query_row(params![f.collection, manga, f.at_top], |r| r.get(0))?;
+                    let (id, reading): (i64, Option<String>) =
+                        ins_col.query_row(params![f.collection, manga, f.at_top], |r| Ok((r.get(0)?, r.get(1)?)))?;
+                    // Your say for the library comes before its name.
+                    let manga = reading.map_or(manga, |r| r == "manga");
                     col_ids.insert(f.collection.clone(), (id, manga));
                     (id, manga)
                 }
@@ -949,6 +952,57 @@ mod layouts {
         assert_eq!(got[0], row("Comics (main folder)", "Saga", "Saga", ""));
         assert_eq!(got[1], row("Marvel", "Thor", "Marvel/Thor", ""));
         assert_eq!(got[2], row("Comics", "Thor", "Comics/Thor", ""));
+    }
+
+    #[test]
+    fn a_library_remembers_how_it_reads() {
+        let base = std::env::temp_dir().join(format!("aion-remembers-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&base);
+        let root = base.join("Comics");
+        std::fs::create_dir_all(root.join("Shonen/Bleach")).unwrap();
+        std::fs::write(root.join("Shonen/Bleach/Bleach 001.cbz"), b"PK").unwrap();
+        let mut conn = crate::db::open(&base.join("t.db")).unwrap();
+        scan(&mut conn, &root).unwrap();
+        let reads = |c: &Connection, file: &str| {
+            let (id, manga): (i64, bool) = c
+                .query_row(
+                    "SELECT c.id, COALESCE(COALESCE(s.reading, col.reading)='manga', col.is_manga) FROM comics c
+                     JOIN series s ON s.id=c.series_id JOIN collections col ON col.id=s.collection_id WHERE c.file_name=?1",
+                    [file],
+                    |r| Ok((r.get(0)?, r.get(1)?)),
+                )
+                .unwrap();
+            let f = crate::db::reading_facts(c, id).unwrap();
+            crate::db::reads_as(f.said.as_deref(), f.yac_type, false, manga)
+        };
+        let label = |c: &Connection, file: &str| -> String {
+            c.query_row("SELECT label FROM comics WHERE file_name=?1", [file], |r| r.get(0)).unwrap()
+        };
+        assert_eq!(reads(&conn, "Bleach 001.cbz"), (false, false));
+        assert_eq!(label(&conn, "Bleach 001.cbz"), "#1");
+
+        let shonen: i64 = conn.query_row("SELECT id FROM collections WHERE name='Shonen'", [], |r| r.get(0)).unwrap();
+        crate::db::set_library_reading(&conn, shonen, Some("manga")).unwrap();
+        scan(&mut conn, &root).unwrap();
+        assert_eq!(reads(&conn, "Bleach 001.cbz"), (true, false));
+
+        // A series added afterward follows it, labels too, and it survives more scans.
+        std::fs::create_dir_all(root.join("Shonen/Naruto")).unwrap();
+        std::fs::write(root.join("Shonen/Naruto/Naruto v01.cbz"), b"PK").unwrap();
+        scan(&mut conn, &root).unwrap();
+        scan(&mut conn, &root).unwrap();
+        assert_eq!(reads(&conn, "Naruto v01.cbz"), (true, false), "added later");
+        assert!(label(&conn, "Naruto v01.cbz").starts_with("Vol"), "{}", label(&conn, "Naruto v01.cbz"));
+
+        // One series can still differ, until the library is told again.
+        let naruto: i64 = conn.query_row("SELECT id FROM series WHERE rel_path='Shonen/Naruto'", [], |r| r.get(0)).unwrap();
+        crate::db::set_series_reading(&conn, naruto, Some("webtoon")).unwrap();
+        assert_eq!(reads(&conn, "Naruto v01.cbz"), (false, true));
+        assert_eq!(reads(&conn, "Bleach 001.cbz"), (true, false));
+        crate::db::set_library_reading(&conn, shonen, None).unwrap();
+        assert_eq!(reads(&conn, "Naruto v01.cbz"), (false, false));
+        assert_eq!(reads(&conn, "Bleach 001.cbz"), (false, false));
+        let _ = std::fs::remove_dir_all(&base);
     }
 
     #[test]
