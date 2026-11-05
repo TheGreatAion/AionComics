@@ -247,6 +247,13 @@ export interface CvStatus {
   lastError: string | null;
 }
 
+/** A panel in Guided View: the `panel`th stop on `page`, and how far down it if it's read in parts. */
+export interface GuidedSpot {
+  page: number;
+  panel: number;
+  part: number;
+}
+
 export interface ReaderInfo {
   comic: ComicCard;
   pageCount: number;
@@ -261,6 +268,8 @@ export interface ReaderInfo {
   rtl: boolean;
   /** A webtoon, as YACReader says: one long strip, read scrolling. */
   webtoon: boolean;
+  /** The panel the book was left on in Guided View. */
+  guidedSpot: GuidedSpot | null;
 }
 
 /** Normalized (0–1) panel rectangle, in reading order. */
@@ -416,6 +425,7 @@ export const api = {
     invoke<number>("extract_pages", { id, from, to, dir }),
   saveProgress: (id: number, page: number, pageCount: number) =>
     invoke<void>("save_progress", { id, page, pageCount }),
+  saveGuidedSpot: (id: number, spot: GuidedSpot | null) => invoke<void>("save_guided_spot", { id, spot }),
   // These four return how the books were before, for Undo (restoreReading).
   setRead: (id: number, read: boolean) => invoke<ReadState[]>("set_read", { id, read }),
   /** Off Continue reading, with the page you're on kept. Reading it again puts it back. */

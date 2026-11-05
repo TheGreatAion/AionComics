@@ -93,8 +93,19 @@ pub fn forget(conn: &Connection, books: &[i64]) -> Result<()> {
     Ok(())
 }
 
-const ABOUT_A_BOOK: [&str; 10] =
-    ["panels", "bookmarks", "user_panels", "meta_layer", "cv_queue", "comicinfo_seen", "cv_auto", "edition_override", "reading_hidden", "yac_outbox"];
+const ABOUT_A_BOOK: [&str; 11] = [
+    "panels",
+    "bookmarks",
+    "user_panels",
+    "guided_spots",
+    "meta_layer",
+    "cv_queue",
+    "comicinfo_seen",
+    "cv_auto",
+    "edition_override",
+    "reading_hidden",
+    "yac_outbox",
+];
 
 fn forget_now(conn: &Connection, books: &[i64]) -> Result<()> {
     for id in books {
@@ -234,6 +245,9 @@ mod tests {
         let book: i64 = conn.query_row("SELECT id FROM comics WHERE file_name='Thor 001.cbz'", [], |r| r.get(0)).unwrap();
         conn.execute("UPDATE comics SET current_page=7 WHERE id=?1", [book]).unwrap();
         crate::db::toggle_bookmark(&conn, book, 1, 1).unwrap();
+        let spot = crate::db::GuidedSpot { page: 7, panel: 2, part: 1 };
+        crate::db::set_guided_spot(&conn, book, Some(&spot)).unwrap();
+        assert_eq!(crate::db::guided_spot(&conn, book).unwrap(), Some(spot));
 
         let found = find(&conn, &root, &Target::Series(thor)).unwrap();
         assert_eq!(found.places, ["Marvel/Thor"]);
@@ -242,6 +256,7 @@ mod tests {
         assert!(root.join("Marvel/Thor/Thor 001.cbz").exists(), "files stay");
         assert_eq!(count(&conn, "SELECT COUNT(*) FROM comics WHERE file_name LIKE 'Thor%'"), 0);
         assert_eq!(count(&conn, "SELECT COUNT(*) FROM bookmarks"), 0);
+        assert_eq!(count(&conn, "SELECT COUNT(*) FROM guided_spots"), 0);
 
         // A new book in the hidden folder stays hidden too.
         std::fs::write(root.join("Marvel/Thor/Thor 003.cbz"), b"PK").unwrap();

@@ -148,6 +148,12 @@ fn migrate(conn: &Connection) -> Result<()> {
            data TEXT NOT NULL,
            PRIMARY KEY(comic_id, page)
          );
+         CREATE TABLE IF NOT EXISTS guided_spots(
+           comic_id INTEGER PRIMARY KEY,
+           page INTEGER NOT NULL,
+           panel INTEGER NOT NULL,
+           part INTEGER NOT NULL
+         );
          CREATE TABLE IF NOT EXISTS comicinfo_seen(
            comic_id INTEGER PRIMARY KEY,
            size INTEGER NOT NULL,
@@ -1194,6 +1200,36 @@ pub fn toggle_bookmark(conn: &Connection, id: i64, page: i64, now: i64) -> Resul
         params![id, page, now],
     )?;
     Ok(true)
+}
+
+// ---------- the panel a book was left on in Guided View ----------
+
+/// The `panel`th stop on `page`, and how far down it for one read in parts.
+#[derive(Debug, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct GuidedSpot {
+    pub page: i64,
+    pub panel: i64,
+    pub part: i64,
+}
+
+pub fn guided_spot(conn: &Connection, id: i64) -> Result<Option<GuidedSpot>> {
+    Ok(conn
+        .query_row("SELECT page, panel, part FROM guided_spots WHERE comic_id=?1", [id], |r| {
+            Ok(GuidedSpot { page: r.get(0)?, panel: r.get(1)?, part: r.get(2)? })
+        })
+        .optional()?)
+}
+
+/// Remember the spot, or with none (a whole page, or out of Guided View) forget the one there was.
+pub fn set_guided_spot(conn: &Connection, id: i64, spot: Option<&GuidedSpot>) -> Result<()> {
+    match spot {
+        Some(s) => conn.execute(
+            "INSERT OR REPLACE INTO guided_spots(comic_id, page, panel, part) VALUES(?1, ?2, ?3, ?4)",
+            params![id, s.page, s.panel, s.part],
+        )?,
+        None => conn.execute("DELETE FROM guided_spots WHERE comic_id=?1", [id])?,
+    };
+    Ok(())
 }
 
 // ---------- hand-edited panels (always win over detection) ----------

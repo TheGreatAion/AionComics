@@ -1,6 +1,6 @@
 <script lang="ts">
   import { tick } from "svelte";
-  import { api, coverUrl, duration, storyTitle, type BookStats, type ComicCard, type Panel } from "$lib/api";
+  import { api, coverUrl, duration, storyTitle, type BookStats, type ComicCard, type GuidedSpot, type Panel } from "$lib/api";
   import Icon, { type IconName } from "$lib/components/Icon.svelte";
   import WindowControls from "$lib/components/WindowControls.svelte";
   import Wash from "$lib/components/Wash.svelte";
@@ -87,9 +87,15 @@
       });
       c.steps = steps;
       const at = c.zoomAt;
+      const back = c.resume;
+      const stop = back && c.page === c.openedAt ? c.stopOf(back) : -1;
+      c.resume = null;
       if (at && pages.includes(at.page)) {
         c.step = c.stopAt(at.page, at.x, at.y);
         c.part = 0;
+      } else if (back && stop >= 0) {
+        c.step = stop;
+        c.part = back.part;
       } else if (c.landOnLast) c.step = steps.length - 1;
       else if (!prefs.guidedOverview && steps.length && c.step < 0) c.step = 0;
       c.zoomAt = null;
@@ -122,6 +128,28 @@
     pending = [book, p, count];
     clearTimeout(saveTimer);
     saveTimer = setTimeout(flush, 400);
+  });
+
+  // Keep the panel Guided View is on, so the book reopens there. Unlike the page, stepping through a
+  // page's panels counts even if the page never moves.
+  let pendingSpot: [number, GuidedSpot | null] | null = null;
+  let spotTimer: ReturnType<typeof setTimeout> | undefined;
+  function flushSpot() {
+    clearTimeout(spotTimer);
+    if (!pendingSpot) return Promise.resolve();
+    const [book, spot] = pendingSpot;
+    pendingSpot = null;
+    return api.saveGuidedSpot(book, spot);
+  }
+  $effect(() => {
+    // Until the book is back on its saved panel, that's still the one to keep.
+    if (!c.info || c.info.external || c.resume) return;
+    const [book, spot] = [c.id, c.spot];
+    if (pendingSpot && pendingSpot[0] !== book) flushSpot();
+    if (spot === undefined) return;
+    pendingSpot = [book, spot];
+    clearTimeout(spotTimer);
+    spotTimer = setTimeout(flushSpot, 400);
   });
 
   // The end card says how the read went, once the last page's save is in.
@@ -183,7 +211,10 @@
     if (c.fullscreen) c.setFullscreen(false);
     if (pending && pending[0] !== c.id) flush();
     if (c.info && movedIn === c.id) pending = [c.id, c.furthest, c.count];
-    const save = flush();
+    if (pendingSpot && pendingSpot[0] !== c.id) flushSpot();
+    const spot = c.spot;
+    if (c.info && !c.info.external && !c.resume && spot !== undefined) pendingSpot = [c.id, spot];
+    const save = Promise.all([flush(), flushSpot()]);
     const to = reader.from;
     // Shrink back only when the page is shown plainly; from a zoomed or turned page it would jump.
     const plain =

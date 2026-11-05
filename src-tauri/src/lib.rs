@@ -842,6 +842,8 @@ struct ReaderInfo {
     rtl: bool,
     /// A webtoon, as YACReader says: one long strip, read scrolling.
     webtoon: bool,
+    /// The panel the book was left on in Guided View.
+    guided_spot: Option<db::GuidedSpot>,
 }
 
 /// Open a file or folder picked from disk. Books inside the library open as themselves.
@@ -1098,6 +1100,7 @@ async fn open_comic(state: State<'_, Shared>, id: i64, screen: Option<u32>) -> C
                 external: true,
                 rtl: false,
                 webtoon: false,
+                guided_spot: None,
             });
         }
         let conn = state.conn.lock().unwrap();
@@ -1106,6 +1109,7 @@ async fn open_comic(state: State<'_, Shared>, id: i64, screen: Option<u32>) -> C
         let next = next_id.map(|n| db::card_by_id(&conn, n)).transpose()?;
         let start = if comic.read { 0 } else { (comic.current_page.max(0) as usize).min(n - 1) };
         let bookmarks = db::bookmarks(&conn, id)?;
+        let guided_spot = db::guided_spot(&conn, id)?;
         let facts = db::reading_facts(&conn, id)?;
         drop(conn);
         // Long pages only matter, and are only looked at once, when nothing else has said how it reads.
@@ -1123,7 +1127,7 @@ async fn open_comic(state: State<'_, Shared>, id: i64, screen: Option<u32>) -> C
         warm::start(&state, id, n, start, screen);
         let s = state.clone();
         std::thread::spawn(move || tidy_cache(&s, Some(id)));
-        Ok(ReaderInfo { comic, page_count: n, start_page: start, prev_id, next, bookmarks, external: false, rtl, webtoon })
+        Ok(ReaderInfo { comic, page_count: n, start_page: start, prev_id, next, bookmarks, external: false, rtl, webtoon, guided_spot })
     })
     .await
     .map_err(err)?
@@ -1179,6 +1183,14 @@ fn save_progress(state: State<Shared>, id: i64, page: i64, page_count: i64) -> C
     let now = scan::now();
     db::set_progress(&conn, id, page, page_count, now).map_err(err)?;
     stats::record(&conn, id, page, page_count, now).map_err(err)
+}
+
+#[tauri::command]
+fn save_guided_spot(state: State<Shared>, id: i64, spot: Option<db::GuidedSpot>) -> CmdResult<()> {
+    if id < 0 {
+        return Ok(());
+    }
+    db::set_guided_spot(&state.conn.lock().unwrap(), id, spot.as_ref()).map_err(err)
 }
 
 /// One book's reading so far, for the end card.
@@ -1515,6 +1527,7 @@ pub fn run() {
             page_panels,
             panels_ahead,
             save_progress,
+            save_guided_spot,
             set_read,
             hide_from_reading,
             unhide_from_reading,

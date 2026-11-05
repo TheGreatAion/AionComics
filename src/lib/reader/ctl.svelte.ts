@@ -2,7 +2,7 @@
 
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { open, save } from "@tauri-apps/plugin-dialog";
-import { COMIC_FILES, api, pageUrl, previewUrl, screenUrl, thumbUrl, type Panel, type ReaderInfo } from "$lib/api";
+import { COMIC_FILES, api, pageUrl, previewUrl, screenUrl, thumbUrl, type GuidedSpot, type Panel, type ReaderInfo } from "$lib/api";
 import { keepView, prefs, viewFor, type Fit, type View } from "./prefs.svelte";
 
 export type Overlay = null | "flow" | "bookmarks" | "shortcuts" | "options" | "extract" | "editor";
@@ -47,7 +47,9 @@ export class Ctl {
   /** A stop too tall to read whole at a good size is read in `parts` (set by Guided View), top to
    *  bottom; this is the one shown. LAST_PART stands for its last, however many there are. */
   part = $state(0);
-  parts = 1;
+  parts = $state(1);
+  /** The panel the book was left on, to go back to once the page's panels have come in. */
+  resume = $state<GuidedSpot | null>(null);
   fullscreen = $state(false);
   landOnLast = false; // stepping back into a page lands on its last panel
   /** A double-clicked point (page, and 0–1 across and down it) to zoom into once its panels load. */
@@ -124,9 +126,34 @@ export class Ctl {
     this.part = 0;
     this.endCard = false;
     this.solo = false;
+    // A book left on a panel opens on that panel, in Guided View, as long as it still opens on that
+    // page (it may since have been finished, or marked unread).
+    const spot = info.guidedSpot;
+    const wasGuided = this.view.guided;
+    if (spot) this.view.guided = true;
     this.page = this.align(info.startPage);
+    this.resume = spot && this.shown.includes(spot.page) ? spot : null;
+    if (!this.resume) this.view.guided = wasGuided;
     this.openedAt = this.page;
     this.seek++;
+  }
+
+  /** The panel Guided View is on, to come back to; null on a whole page or out of Guided View;
+   *  undefined while the page's panels are still coming in, when there's no telling. */
+  get spot(): GuidedSpot | null | undefined {
+    if (this.mode !== "guided") return null;
+    if (!this.steps) return undefined;
+    const s = this.steps[this.step];
+    if (!s) return null;
+    const panel = this.steps.slice(0, this.step).filter((x) => x.page === s.page).length;
+    return { page: s.page, panel, part: this.partShown };
+  }
+
+  /** The stop for a saved spot, among the stops now on screen; -1 if it's no longer there (the page's
+   *  panels may have been edited since). */
+  stopOf(spot: GuidedSpot) {
+    const onPage = (this.steps ?? []).flatMap((s, i) => (s.page === spot.page ? [i] : []));
+    return onPage[spot.panel] ?? -1;
   }
 
   // ---------- pages ----------
@@ -349,6 +376,7 @@ export class Ctl {
     const v = this.view;
     v.scroll = !v.scroll;
     if (v.scroll) v.guided = false;
+    this.resume = null;
     this.solo = false;
     this.rotation = 0;
     this.keep();
@@ -417,6 +445,7 @@ export class Ctl {
     this.guided = !this.guided;
     this.step = -1;
     this.part = 0;
+    this.resume = null;
     if (this.guided) this.magnifier = false;
   }
 
