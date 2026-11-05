@@ -6,7 +6,7 @@ export type Route =
   /** `book`: the book to show first, instead of the one you're on. */
   | { name: "series"; id: number; book?: number }
   /** Everything by a creator, or with a character or team in it. */
-  | { name: "people"; kind: "creator" | "character"; value: string }
+  | { name: "people"; kind: "creator" | "character" | "arc"; value: string }
   /** Books that may be in the library twice. */
   | { name: "duplicates" }
   /** What your reading adds up to. */

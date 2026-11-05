@@ -19,11 +19,48 @@ export interface ComicCard {
   /** On the series page: the book's format, and the issues a collection holds ("#13–18"). */
   edition?: EditionKind;
   collects?: string;
+  /** On the series page: what an annual or special follows in the story ("#12"). */
+  after?: string;
 }
 
 export type EditionKind = "volume" | "issue" | "chapter" | "collection" | "deluxe" | "omnibus" | "annual" | "special";
 
-/** One format of a series ("Volumes", "Issues", "Annuals"…), its books in their subfolders. */
+/** A book that wouldn't open: what's known about it without opening it. */
+export interface BookTrouble {
+  title: string;
+  fileName: string;
+  kind: "drive" | "missing" | "damaged";
+  canShow: boolean;
+  next: ComicCard | null;
+}
+
+/** A name a search found: a creator, a character or team, or a story arc. */
+export interface NameHit {
+  name: string;
+  books: number;
+  coverId: number;
+}
+
+export interface SearchHits {
+  series: SeriesSummary[];
+  books: ComicCard[];
+  creators: NameHit[];
+  characters: NameHit[];
+  arcs: NameHit[];
+}
+
+export type PeopleKind = "creator" | "character" | "arc";
+
+/** A series with books new to the library that you haven't opened yet. */
+export interface Arrival {
+  /** Its first new book. */
+  comic: ComicCard;
+  count: number;
+  addedAt: number;
+}
+
+/** One format of a series ("Volumes", "Issues", "Annuals"…), its books in their subfolders; or, as
+ *  "order", all of them together in the order the story runs. */
 /** A book's reading state before a change, so the change can be undone. */
 /** A book's format as set by hand (null: sorted automatically), for Undo. */
 export interface EditionState {
@@ -40,7 +77,7 @@ export interface ReadState {
 }
 
 export interface Edition {
-  kind: EditionKind;
+  kind: EditionKind | "order";
   name: string;
   sections: { name: string; comics: ComicCard[] }[];
   /** Issue numbers missing from the run, when only a few are. */
@@ -50,6 +87,7 @@ export interface Edition {
 export interface Home {
   continueReading: ComicCard[];
   pickUpAgain: ComicCard[];
+  arrivals: Arrival[];
 }
 
 /** A copy of the library database: reading progress, bookmarks, panel edits and metadata. */
@@ -181,10 +219,10 @@ export function duration(seconds: number): string {
   return m % 60 ? `${h} h ${m % 60} min` : `${h} h`;
 }
 
-/** Everything by one creator, or with one character or team in it, grouped by series. */
+/** Everything by one creator, with one character or team in it, or in one story arc, by series. */
 export interface PeopleView {
   name: string;
-  kind: "creator" | "character";
+  kind: PeopleKind;
   /** What they did and in how many books, most first: ["pencils", 30]. */
   roles: [string, number][];
   books: number;
@@ -378,10 +416,11 @@ export const api = {
   restoreBackup: (name: string) => invoke<void>("restore_backup", { name }),
   home: () => invoke<Home>("home"),
   nav: () => invoke<NavInfo>("nav"),
-  search: (q: string) => invoke<SeriesSummary[]>("search", { q }),
+  search: (q: string) => invoke<SearchHits>("search", { q }),
   collection: (id: number) => invoke<CollectionView>("collection", { id }),
   series: (id: number) => invoke<SeriesView>("series", { id }),
-  people: (kind: "creator" | "character", name: string) => invoke<PeopleView>("people", { kind, name }),
+  people: (kind: PeopleKind, name: string) => invoke<PeopleView>("people", { kind, name }),
+  bookTrouble: (id: number) => invoke<BookTrouble>("book_trouble", { id }),
   bookStats: (id: number) => invoke<BookStats>("book_stats", { id }),
   duplicates: () => invoke<DupGroup[]>("duplicates"),
   ignoreDuplicate: (key: string) => invoke<void>("ignore_duplicate", { key }),

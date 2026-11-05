@@ -1,4 +1,5 @@
 <script lang="ts">
+  import Icon from "$lib/components/Icon.svelte";
   import { FIT_LABEL, type Ctl } from "./ctl.svelte";
   import { prefs, savePrefs, type Prefs } from "./prefs.svelte";
 
@@ -8,10 +9,34 @@
     prefs[k] = v;
     savePrefs();
   }
+  const adjusted = $derived(prefs.brightness !== 100 || prefs.contrast !== 100);
+  function resetPage() {
+    set("brightness", 100);
+    set("contrast", 100);
+  }
 </script>
 
 <aside class="panel">
   <h2>Options</h2>
+
+  <div class="row">
+    <span class="with-reset">
+      Page
+      {#if adjusted}
+        <button class="ico" title="Back to normal" aria-label="Back to normal" onclick={resetPage}><Icon name="undo" size={15} /></button>
+      {/if}
+    </span>
+    <label class="slide">
+      <span>Brightness</span>
+      <input type="range" min="50" max="150" step="5" value={prefs.brightness} oninput={(e) => set("brightness", +e.currentTarget.value)} />
+      <span class="mono">{prefs.brightness}%</span>
+    </label>
+    <label class="slide">
+      <span>Contrast</span>
+      <input type="range" min="50" max="150" step="5" value={prefs.contrast} oninput={(e) => set("contrast", +e.currentTarget.value)} />
+      <span class="mono">{prefs.contrast}%</span>
+    </label>
+  </div>
 
   <div class="row">
     <span>Background</span>
@@ -80,6 +105,8 @@
     right: 20px;
     z-index: 5;
     width: 360px;
+    max-height: calc(100vh - 84px);
+    overflow-y: auto;
     padding: 22px 24px 8px;
     border-radius: 10px;
     background: rgba(20, 20, 20, 0.92);
@@ -110,6 +137,30 @@
     color: var(--text-2);
     font-size: 13px;
     margin-bottom: 10px;
+  }
+  .row > .with-reset {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    min-height: 24px;
+  }
+  .slide {
+    display: grid;
+    grid-template-columns: 76px 1fr 42px;
+    align-items: center;
+    gap: 10px;
+    padding: 4px 0;
+    font-size: 13px;
+    color: var(--text-2);
+  }
+  .slide .mono {
+    text-align: right;
+    font-size: 11px;
+  }
+  .slide input {
+    width: 100%;
+    min-width: 0;
+    accent-color: var(--text);
   }
   .choice {
     display: flex;

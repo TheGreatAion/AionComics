@@ -318,6 +318,10 @@
     width: auto;
     user-select: none;
   }
+  .content img,
+  .lens-turn img {
+    filter: var(--page-filter, none);
+  }
   .content img {
     background-size: 100% 100%;
   }

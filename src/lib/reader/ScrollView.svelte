@@ -116,5 +116,6 @@
     width: 100%;
     height: 100%;
     user-select: none;
+    filter: var(--page-filter, none);
   }
 </style>

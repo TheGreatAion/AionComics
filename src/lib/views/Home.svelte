@@ -75,6 +75,10 @@
     return mins < 60 ? `About ${mins} min left` : `About ${Math.floor(mins / 60)} hr ${mins % 60} min left`;
   });
 
+  const newBooks = $derived(data?.arrivals.reduce((n, a) => n + a.count, 0) ?? 0);
+  let arrivalsEl = $state<HTMLElement>();
+  const seeNew = () => arrivalsEl?.scrollIntoView({ behavior: look.motion === "off" ? "auto" : "smooth", block: "start" });
+
   const pages = new Map<number, HTMLImageElement>();
   const resume = () => hero && openReader(hero.id, pages.get(hero.id) ?? null);
 
@@ -284,6 +288,9 @@
           {/key}
         {/if}
         <div class="caption when">{ago(hero.lastReadAt)}</div>
+        {#if data.arrivals.length}
+          <button class="caption news" title="See what's new" onclick={seeNew}>{newBooks} new</button>
+        {/if}
         {#key hero.id}
           <div class="text" in:fly={{ y: 10, duration: motionMs(200, 420) }}>
             <h1>{hero.seriesName.trim()}</h1>
@@ -402,6 +409,22 @@
     {/if}
   </div>
 
+  {#if data.arrivals.length}
+    <!-- What's come into the library lately and hasn't been opened yet. -->
+    <section class="arrivals" bind:this={arrivalsEl} aria-label="New">
+      <div class="caption">New</div>
+      <div class="grid">
+        {#each data.arrivals as a (a.comic.id)}
+          <button class="arrival" data-nav title={a.comic.seriesName.trim()} onclick={() => nav.go({ name: "series", id: a.comic.seriesId, book: a.comic.id })}>
+            <Cover id={a.comic.id} ratio={a.comic.coverRatio} />
+            <span class="name">{a.comic.seriesName.trim()}</span>
+            <span class="detail">{a.count === 1 ? a.comic.label : `${a.count} new`}</span>
+          </button>
+        {/each}
+      </div>
+    </section>
+  {/if}
+
   {#if empty && noBooks}
     <div class="start">
       <h1>No comics yet</h1>
@@ -460,9 +483,52 @@
     top: -4px;
     z-index: 2;
   }
+  /* What's new, on the panel's other corner: goes down to them. */
+  .hero > .news {
+    position: absolute;
+    right: -4px;
+    bottom: -4px;
+    z-index: 12;
+    cursor: pointer;
+  }
+  .hero > .news:hover {
+    background: #f4efe5;
+  }
   .library {
     flex: none;
     padding: 0 var(--pad) 30px;
+  }
+  .arrivals {
+    position: relative;
+    padding: 34px var(--pad) 90px;
+    scroll-margin-top: 44px;
+  }
+  .arrivals .grid {
+    margin-top: 30px;
+  }
+  .arrival {
+    display: block;
+    min-width: 0;
+    text-align: left;
+  }
+  .arrival .name {
+    display: block;
+    margin-top: 10px;
+    font-size: 13px;
+    line-height: 1.35;
+    color: var(--cap);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .arrival:hover .name {
+    color: var(--text);
+  }
+  .arrival .detail {
+    display: block;
+    margin-top: 3px;
+    font-size: 12px;
+    color: var(--text-3);
   }
   .text {
     position: relative;
@@ -648,9 +714,12 @@
     color: #55504a;
     vertical-align: 3px;
   }
+  /* Covers leaning out stop at the panel's frame, as art does in a comic. Above and below, they've
+     room to rise and lean. */
   .fan {
     position: relative;
     height: 172px;
+    clip-path: inset(-40px 0 -20px 0);
   }
   .fan :global(.cover) {
     position: absolute;

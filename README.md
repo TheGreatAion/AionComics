@@ -68,14 +68,21 @@ If the guess is wrong, *Settings › Library › Folders in your comics folder* 
 
 The art is the interface: monochrome, no accent color. The covers and pages bring all the color. Text is set in Geist; the big titles (series, books, collections) are in Bebas Neue. Both are bundled, so nothing loads from the internet.
 
-- **Home** opens on the page you stopped on, beside the book's title and a Resume button. Below it: *Also reading* (other books opened in the last 30 days), *Next* (the next untouched book in each series you're reading) and the collections as fanned stacks. If nothing was read in the last month, the most recent book you put down takes the top spot.
-- **Collections** are in the top bar. Each is one grid of series covers, filterable and sortable by name, recently read or recently added.
-- **Series pages** are a gallery of every volume or issue as a big cover (finished ones ticked). Click one and its details (story, credits, characters, Read/Resume) open in a panel under its row; click it again or press Esc to close them. Double-click a cover to read it. Ctrl + the mouse wheel makes the covers bigger or smaller. A series split into formats (issues, collections, omnibus…) has a tab for each.
+- **Home** opens on the page you stopped on, beside the book's title and a Resume button. Below it: *Also reading* (other books opened in the last 30 days), *Next* (the next untouched book in each series you're reading) and the collections as fanned stacks. If nothing was read in the last month, the most recent book you put down takes the top spot. *New*, further down (the "16 new" box on the panel's corner goes straight there), is what came into the library in the last 30 days and hasn't been opened yet, a series at a time.
+- **Collections** are in the top bar. Each is one grid of series covers, filterable and sortable by name, recently read or recently added. Two more buttons show only series with books still unread, or only ones you've started and not finished.
+- **Series pages** are a gallery of every volume or issue as a big cover (finished ones ticked). Click one and its details (story, credits, characters, Read/Resume) open in a panel under its row; click it again or press Esc to close them. Double-click a cover to read it. Ctrl + the mouse wheel makes the covers bigger or smaller. A series split into formats (issues, collections, omnibus…) has a tab for each. A round button shows only what's still unread.
 - Opening a book grows its cover (or the page on Home) into the reader. Closing shrinks it back.
-- Ctrl+K searches series and creators. Right-click a book for read/unread, Show in Explorer and its format. On a series page, Ctrl+click or Shift+click picks several books, and right-clicking one of them changes them all (read, unread, format). Marking things read, or taking a book off Continue reading, can be undone for a few seconds (the Undo bar, or Ctrl+Z). Books taken off are listed under Settings › Reading, to put back.
+- The window comes back the size and place you left it, or maximized, unless that screen has gone.
+- Ctrl+K searches series, books (by title or file name), creators, characters and teams, and story arcs. Right-click a book for read/unread, Show in Explorer and its format. On a series page, Ctrl+click or Shift+click picks several books, and right-clicking one of them changes them all (read, unread, format). Marking things read, or taking a book off Continue reading, can be undone for a few seconds (the Undo bar, or Ctrl+Z). Books taken off are listed under Settings › Reading, to put back.
 - The arrow keys move between covers and Enter opens the one picked. On Home, ← and → flip the pile and Enter resumes the top book; on a series page ← → step through its books, ↑ ↓ go a row up or down, and Enter reads the one picked.
 
 Covers keep their real proportions: shapes are read from YACReader's cover cache in a background pass after each scan.
+
+## How formats fit together
+
+Finishing a book, by reading to its last page or marking it read, also marks what it holds: the issues a collection says it collects, the chapters a manga volume lists, a smaller collection inside a bigger one. Finishing everything in a collection marks the collection. It goes by the book's description, and only when that's about this series ("Collects Superman #1-5" in Action Comics counts for nothing), so a book that doesn't say links to nothing. Marking a book unread changes only that book, and Undo takes back everything a mark changed. Books read before this came in stay as they were until one of them is finished again.
+
+When the story runs across formats, a series gets an *In order* tab: its collections and then the issues or chapters that carry on past them, with annuals and specials placed by the date they came out (each is labeled "after #12"). At the end of a book in that order, the next one in it is offered. Annuals with no date stay at the end. A series named as a reading order ("019 Siege - Storming Asgard") is already in order and is left alone.
 
 ## Metadata
 
@@ -111,7 +118,7 @@ Every tool is in the **⋯** menu (or right-click the page), with its shortcut. 
 | V | Guided View (the mouse wheel steps through the panels) |
 | E | Edit the panels on this page |
 | I | Page number and clock |
-| C | Options (background, Guided View speed and dimming) |
+| C | Options (page brightness and contrast, background, Guided View speed and dimming) |
 | O / Ctrl+O | Open a file / a folder of images from anywhere |
 | Ctrl+S / Ctrl+E | Save this page / extract a range of pages (never into the library folder) |
 | Esc | Back to library |
@@ -119,6 +126,8 @@ Every tool is in the **⋯** menu (or right-click the page), with its shortcut. 
 The reader remembers your fit, scrolling and double page: change them in a book and every book opens that way until you change them again (Settings › Reading shows and sets the same choices). Guided View is remembered separately for manga and comics. Webtoons always open scrolling, and scrolling one doesn't set other books scrolling. At the end of a book the next one in the series is offered; at the end of a series, the top book of your Continue reading pile.
 
 Clicking the left or right third of the screen turns pages; clicking the middle shows the controls. Books opened from outside the library keep no progress, bookmarks or panel edits. Alt+← or the mouse back button goes back in the library.
+
+A book that won't open says why in plain words (the drive isn't connected, the file has gone, or it's damaged), and offers the next book, another try, the file in Explorer, or the way back.
 
 ## Guided View
 
@@ -152,6 +161,8 @@ The ignored tests run against a real library. They scan it into a temporary data
 ```
 src-tauri/src/
   lib.rs       commands, aion:// image protocol, app setup
+  window.rs    the window's size and place, for next time
+  editions.rs  a book's format, what it holds, and the story order
   scan.rs      folder walk, YACReader import, issue/volume labels
   yacsync.rs   sending your reading back to YACReader (when turned on)
   archive.rs   CBZ/CBR page access, RAR extraction cache, thumbnails

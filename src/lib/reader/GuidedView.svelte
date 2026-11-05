@@ -387,6 +387,7 @@
     top: 0;
     height: 100%;
     user-select: none;
+    filter: var(--page-filter, none);
   }
   .dim {
     position: absolute;

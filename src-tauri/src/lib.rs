@@ -11,6 +11,7 @@ mod rarindex;
 mod scan;
 mod stats;
 mod warm;
+mod window;
 mod pdf;
 mod removal;
 mod yacsync;
@@ -720,6 +721,7 @@ fn relaunch() -> anyhow::Result<()> {
 struct Home {
     continue_reading: Vec<db::ComicCard>,
     pick_up_again: Vec<db::ComicCard>,
+    arrivals: Vec<db::Arrival>,
 }
 
 #[tauri::command(async)]
@@ -730,6 +732,7 @@ fn home(state: State<Shared>) -> CmdResult<Home> {
         Ok(Home {
             continue_reading: db::continue_reading(&conn, now, 24)?,
             pick_up_again: db::pick_up_again(&conn, now, 24)?,
+            arrivals: db::arrivals(&conn, now, 12)?,
         })
     })()
     .map_err(err)
@@ -754,11 +757,8 @@ fn nav(state: State<Shared>) -> CmdResult<Nav> {
 }
 
 #[tauri::command(async)]
-fn search(state: State<Shared>, q: String) -> CmdResult<Vec<db::SeriesSummary>> {
-    if q.trim().is_empty() {
-        return Ok(vec![]);
-    }
-    db::search(&state.conn.lock().unwrap(), &q).map_err(err)
+fn search(state: State<Shared>, q: String) -> CmdResult<db::SearchHits> {
+    db::search_all(&state.conn.lock().unwrap(), &q).map_err(err)
 }
 
 #[tauri::command]
@@ -1078,6 +1078,7 @@ fn external_card(path: &Path, id: i64, pages: usize) -> db::ComicCard {
         cover_color: None,
         edition: None,
         collects: None,
+        after: None,
     }
 }
 
@@ -1088,6 +1089,7 @@ async fn open_comic(state: State<'_, Shared>, id: i64, screen: Option<u32>) -> C
         let (path, _) = state.comic_path(id)?;
         let listing = state.archives.listing(id, &path)?;
         let n = listing.pages.len();
+        anyhow::ensure!(n > 0, "No pages found in this book");
         if id < 0 {
             let comic = external_card(&path, id, n);
             return Ok(ReaderInfo {
@@ -1132,6 +1134,41 @@ async fn open_comic(state: State<'_, Shared>, id: i64, screen: Option<u32>) -> C
     .await
     .map_err(err)?
     .map_err(err)
+}
+
+/// A book that wouldn't open: what's known about it without opening it.
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct BookTrouble {
+    title: String,
+    file_name: String,
+    /// "drive": the comics folder itself is gone. "missing": the file is. "damaged": it's there, but
+    /// can't be read as a comic.
+    kind: &'static str,
+    /// Whether Explorer has something to show.
+    can_show: bool,
+    next: Option<db::ComicCard>,
+}
+
+#[tauri::command]
+fn book_trouble(state: State<Shared>, id: i64) -> CmdResult<BookTrouble> {
+    let (path, _) = state.comic_path(id).map_err(err)?;
+    let file_name = path.file_name().map(|s| s.to_string_lossy().into_owned()).unwrap_or_default();
+    let there = path.exists();
+    let kind = match (there, id > 0 && state.root().is_none_or(|r| !r.exists())) {
+        (true, _) => "damaged",
+        (false, true) => "drive",
+        (false, false) => "missing",
+    };
+    if id < 0 {
+        return Ok(BookTrouble { title: file_name.clone(), file_name, kind, can_show: there, next: None });
+    }
+    let conn = state.conn.lock().unwrap();
+    let c = db::card_by_id(&conn, id).map_err(err)?;
+    let (_, next) = db::neighbors(&conn, id).map_err(err)?;
+    let next = next.map(|n| db::card_by_id(&conn, n)).transpose().map_err(err)?;
+    let title = [c.series_name.trim(), c.label.as_str()].iter().filter(|s| !s.is_empty()).copied().collect::<Vec<_>>().join(" ");
+    Ok(BookTrouble { title, file_name, kind, can_show: there, next })
 }
 
 /// In Guided View: work out the book's panels in the background, from page `from` on.
@@ -1399,6 +1436,16 @@ pub fn run() {
     }
     builder
         .plugin(tauri_plugin_dialog::init())
+        .on_window_event(|w, event| match event {
+            tauri::WindowEvent::Moved(_) | tauri::WindowEvent::Resized(_) => window::note(w),
+            // Closing, and whenever you leave it, in case the PC goes off with the window still open.
+            tauri::WindowEvent::CloseRequested { .. } | tauri::WindowEvent::Focused(false) => {
+                if let Some(state) = w.try_state::<Shared>() {
+                    window::save(&state.data_dir);
+                }
+            }
+            _ => {}
+        })
         .register_asynchronous_uri_scheme_protocol("aion", |ctx, request, responder| {
             let state = ctx.app_handle().state::<Shared>().inner().clone();
             tauri::async_runtime::spawn_blocking(move || {
@@ -1442,6 +1489,9 @@ pub fn run() {
                 reading: Mutex::new(None),
             });
             app.manage(state.clone());
+            if let Some(w) = app.get_webview_window("main") {
+                window::restore(&w, &data_dir);
+            }
             // Rescan a few seconds after the comics folder stops changing (a copy in progress keeps
             // changing it). Changes during a scan wait for the next one.
             watch_library(&state);
@@ -1524,6 +1574,7 @@ pub fn run() {
             book_stats,
             reading_stats,
             open_comic,
+            book_trouble,
             page_panels,
             panels_ahead,
             save_progress,
@@ -1649,7 +1700,7 @@ mod real_queries {
         let vin: i64 = conn.query_row("SELECT id FROM series WHERE name='Vinland Saga'", [], |r| r.get(0)).unwrap();
         let v = db::series_view(&conn, vin).unwrap();
         println!("vinland backfill: {:?}", v.backfill.map(|b| (b.before_label, b.count)));
-        println!("search yukimura: {:?}", db::search(&conn, "yukimura").unwrap().iter().map(|s| s.name.clone()).collect::<Vec<_>>());
+        println!("search yukimura: {:?}", db::search_all(&conn, "yukimura").unwrap().creators.iter().map(|s| s.name.clone()).collect::<Vec<_>>());
         let t = std::time::Instant::now();
         let n = scan::cover_ratios(&mut conn, Path::new(&std::env::var("AION_TEST_ROOT").unwrap())).unwrap();
         println!("cover ratios: {n} in {:?}", t.elapsed());

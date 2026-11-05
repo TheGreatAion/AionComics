@@ -20,6 +20,9 @@ const DEFAULTS = {
   guidedOverview: true,
   /** A panel much taller than the screen is read in parts, top to bottom, closer up. */
   guidedParts: true,
+  /** Pages drawn lighter or darker, and with more or less contrast, in percent (for old scans). */
+  brightness: 100,
+  contrast: 100,
 };
 
 export type Prefs = typeof DEFAULTS;
@@ -72,7 +75,10 @@ try {
   localStorage.removeItem("aion.series-view");
 } catch {}
 
-export const GUIDED_MS = { slow: 900, normal: 650, fast: 400 } as const;
+/** How pages are drawn: `none` when they're left as they are. */
+export const pageFilter = () => (prefs.brightness === 100 && prefs.contrast === 100 ? "none" : `brightness(${prefs.brightness}%) contrast(${prefs.contrast}%)`);
+
+export const GUIDED_MS ={ slow: 900, normal: 650, fast: 400 } as const;
 export const GUIDED_DIM = { light: 0.75, strong: 0.94, hidden: 1 } as const;
 /** How long a click waits to see whether it's a double-click (zoom into a panel). */
 export const DOUBLE_CLICK_MS = 230;

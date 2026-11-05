@@ -399,6 +399,14 @@
           <section bind:this={sections.reading}>
             <div class="caption">Reading</div>
             <div class="row">
+              <div class="lbl">Page brightness<small>For dim or faded scans · {prefs.brightness}%</small></div>
+              <input class="range" type="range" min="50" max="150" step="5" value={prefs.brightness} aria-label="Page brightness" oninput={(e) => set("brightness", +e.currentTarget.value)} />
+            </div>
+            <div class="row">
+              <div class="lbl">Page contrast<small>For washed-out scans · {prefs.contrast}%</small></div>
+              <input class="range" type="range" min="50" max="150" step="5" value={prefs.contrast} aria-label="Page contrast" oninput={(e) => set("contrast", +e.currentTarget.value)} />
+            </div>
+            <div class="row">
               <div class="lbl">Page fit<small>{FIT_LABEL[prefs.fit]} · changing it in a book changes it here too</small></div>
               <div class="seg" role="radiogroup" aria-label="Page fit">
                 {#each FITS as f (f.key)}
@@ -773,6 +781,11 @@
   }
   section > .caption {
     margin-bottom: 10px;
+  }
+  .range {
+    flex: none;
+    width: 160px;
+    accent-color: var(--text);
   }
 
   .row {

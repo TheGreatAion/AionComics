@@ -1,6 +1,6 @@
 <script lang="ts">
   import { tick } from "svelte";
-  import { api, coverUrl, duration, storyTitle, type BookStats, type ComicCard, type GuidedSpot, type Panel } from "$lib/api";
+  import { api, coverUrl, duration, storyTitle, type BookStats, type BookTrouble, type ComicCard, type GuidedSpot, type Panel } from "$lib/api";
   import Icon, { type IconName } from "$lib/components/Icon.svelte";
   import WindowControls from "$lib/components/WindowControls.svelte";
   import Wash from "$lib/components/Wash.svelte";
@@ -16,7 +16,7 @@
   import Options from "./Options.svelte";
   import PageView from "./PageView.svelte";
   import PanelEditor from "./PanelEditor.svelte";
-  import { prefs } from "./prefs.svelte";
+  import { pageFilter, prefs } from "./prefs.svelte";
   import ScrollView from "./ScrollView.svelte";
   import Hints from "./Hints.svelte";
   import Shortcuts from "./Shortcuts.svelte";
@@ -54,9 +54,20 @@
     return () => clearTimeout(t);
   });
 
+  // A book that won't open: what's wrong with it, in words, and where to go from there.
+  let trouble = $state<BookTrouble | null>(null);
+  let attempt = $state(0);
+  const WRONG = {
+    drive: "The drive or folder your comics are on isn't connected right now.",
+    missing: "The file isn't where it was. It may have been moved or deleted.",
+    damaged: "The file is damaged, or isn't a comic AionComics can read.",
+  };
+
   $effect(() => {
     const book = id;
+    void attempt;
     c.error = null;
+    trouble = null;
     c.steps = null;
     c.overlay = null;
     c.rotation = 0;
@@ -67,7 +78,15 @@
         c.load(r);
         if (c.mode === "scroll") arriving = false;
       })
-      .catch((e) => (c.error = String(e)));
+      .catch((e) => {
+        if (book !== id) return;
+        // The last book's pages are gone: keys mustn't go on turning them out of sight.
+        if (pending) flush();
+        c.info = null;
+        c.error = String(e);
+        arriving = false;
+        api.bookTrouble(book).then((t) => book === id && (trouble = t), () => {});
+      });
   });
 
   // Guided View stops for the page or spread on screen; the pages after it are worked out ahead.
@@ -232,6 +251,13 @@
 
   function onkey(e: KeyboardEvent) {
     if (menu.open || leaving) return;
+    if (c.error) {
+      if (e.key === "Escape") {
+        e.preventDefault();
+        onclose();
+      }
+      return;
+    }
     if (e.key === "Escape" && c.overlay) {
       e.preventDefault();
       c.overlay = null;
@@ -374,15 +400,26 @@
   class:leaving
   style:--fade="{flightMs()}ms"
   style:--reader-bg={readerBg}
+  style:--page-filter={pageFilter()}
   onmousemove={(e) => bars(!!(e.target as Element).closest?.(".toolbar.shown, .bottom.shown"))}
   oncontextmenu={openMenu}
   role="presentation"
 >
   {#if c.error}
-    <div class="center msg">
-      <p>Couldn’t open this book.</p>
-      <p class="sub">{c.error}</p>
-      <button class="btn" onclick={onclose}>Back to library</button>
+    <div class="center msg trouble" role="alert">
+      <h2>Can’t open {trouble?.title || "this book"}</h2>
+      <p>{trouble ? WRONG[trouble.kind] : "Something went wrong opening it."}</p>
+      {#if trouble}<p class="file mono" title={c.error}>{trouble.fileName}</p>{/if}
+      <div class="ways">
+        {#if trouble?.next}
+          <button class="btn icon-btn" onclick={() => onopen(trouble!.next!.id)}><Icon name="play" size={14} />{trouble.next.label}</button>
+        {/if}
+        <button class="ico" title="Try again" aria-label="Try again" onclick={() => attempt++}><Icon name="rescan" size={18} /></button>
+        {#if trouble?.canShow}
+          <button class="ico" title="Show in Explorer" aria-label="Show in Explorer" onclick={() => api.reveal(id)}><Icon name="folder" size={18} /></button>
+        {/if}
+        <button class="ico" title="Back to library (Esc)" aria-label="Back to library" onclick={onclose}><Icon name="back" size={18} /></button>
+      </div>
     </div>
   {:else if c.info}
     {#key c.id}
@@ -586,9 +623,31 @@
   .msg {
     text-align: center;
   }
-  .msg .sub {
-    color: var(--muted);
-    margin: 8px 0 24px;
+  .trouble {
+    width: min(620px, calc(100vw - 64px));
+  }
+  .trouble h2 {
+    font: 400 44px/0.95 var(--display);
+    letter-spacing: 0.01em;
+    overflow-wrap: anywhere;
+  }
+  .trouble p {
+    margin-top: 14px;
+    color: var(--text-2);
+    font-size: 15px;
+  }
+  .trouble .file {
+    margin-top: 8px;
+    color: var(--text-3);
+    font-size: 12px;
+    overflow-wrap: anywhere;
+  }
+  .ways {
+    margin-top: 26px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 12px;
   }
   .spinner {
     width: 22px;

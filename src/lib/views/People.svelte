@@ -1,11 +1,11 @@
 <script lang="ts">
-  import { api, storyTitle, type PeopleView } from "$lib/api";
+  import { api, storyTitle, type PeopleKind, type PeopleView } from "$lib/api";
   import { lib, nav, openReader } from "$lib/state.svelte";
   import Cover from "$lib/components/Cover.svelte";
 
-  // Everything in the library by one creator, or with one character or team in it, one row of
-  // books per series, the series they're most in first.
-  let { kind, value }: { kind: "creator" | "character"; value: string } = $props();
+  // Everything in the library by one creator, with one character or team in it, or in one story arc,
+  // one row of books per series, the series they're most in first.
+  let { kind, value }: { kind: PeopleKind; value: string } = $props();
   let data = $state<PeopleView | null>(null);
 
   $effect(() => {
@@ -31,7 +31,7 @@
 {#if data}
   <div class="page">
     <header>
-      <div class="kind">{kind === "creator" ? "Creator" : "Character"}</div>
+      <div class="kind">{{ creator: "Creator", character: "Character", arc: "Story arc" }[kind]}</div>
       <h1>{data.name}</h1>
       <div class="sum mono">
         {data.books.toLocaleString()} {data.books === 1 ? "book" : "books"} · {seriesCount.toLocaleString()} series{#if roles}&ensp;·&ensp;{roles}{/if}

@@ -255,6 +255,9 @@ pub struct ComicCard {
     /// On the series page: the issues a collection holds, "#13–18", when its description says.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub collects: Option<String>,
+    /// On the series page: what an annual or special follows in the story, "#12".
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub after: Option<String>,
 }
 
 const CARD_COLS: &str = "c.id, c.label, c.title, c.year, s.id, s.name, c.current_page, c.num_pages, c.read,
@@ -278,6 +281,7 @@ fn card(r: &Row) -> rusqlite::Result<ComicCard> {
         cover_color: r.get(12)?,
         edition: None,
         collects: None,
+        after: None,
     })
 }
 
@@ -558,18 +562,6 @@ pub fn collection_view(conn: &Connection, id: i64) -> Result<CollectionView> {
     Ok(CollectionView { id, name, is_manga, series })
 }
 
-/// Series whose name or writer matches.
-pub fn search(conn: &Connection, q: &str) -> Result<Vec<SeriesSummary>> {
-    let like = format!("%{}%", q.trim().replace('%', "\\%").replace('_', "\\_"));
-    let mut st = conn.prepare(&format!(
-        "{SERIES_SELECT} WHERE s.name LIKE ?1 ESCAPE '\\'
-           OR EXISTS (SELECT 1 FROM comics w WHERE w.series_id=s.id AND w.writer LIKE ?1 ESCAPE '\\')
-         GROUP BY s.id ORDER BY (s.name LIKE ?1 ESCAPE '\\') DESC, MAX(c.last_read_at) DESC NULLS LAST, s.name LIMIT 60"
-    ))?;
-    let v = st.query_map([like], series_summary)?.collect::<rusqlite::Result<Vec<_>>>()?;
-    Ok(v)
-}
-
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Section {
@@ -761,7 +753,11 @@ const CHARACTER_FIELDS: [(&str, &str); 2] = [("characters", "character"), ("team
 /// Books by a creator (`kind` "creator") or with a character or team in them (`kind` "character").
 /// Names are whole lines of those fields, so "Stan Lee" doesn't also find "Stan Lees".
 pub fn people_view(conn: &Connection, kind: &str, name: &str) -> Result<PeopleView> {
-    let fields: &[(&str, &str)] = if kind == "character" { &CHARACTER_FIELDS } else { &CREATOR_FIELDS };
+    let fields: &[(&str, &str)] = match kind {
+        "character" => &CHARACTER_FIELDS,
+        "arc" => &[("story_arc", "arc")],
+        _ => &CREATOR_FIELDS,
+    };
     let has = |f: &str| format!("instr(char(10) || COALESCE(c.{f}, '') || char(10), char(10) || ?1 || char(10)) > 0");
     let any = fields.iter().map(|(f, _)| has(f)).collect::<Vec<_>>().join(" OR ");
     let flags = fields.iter().map(|(f, _)| format!("({})", has(f))).collect::<Vec<_>>().join(", ");
@@ -801,7 +797,12 @@ pub fn series_view(conn: &Connection, id: i64) -> Result<SeriesView> {
         |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?, r.get(4)?)),
     )?;
     let editions = editions_of(conn, id, is_manga)?;
-    let sections = editions.iter().flat_map(|e| e.sections.iter()).map(|s| Section { name: s.name.clone(), comics: s.comics.clone() }).collect();
+    let sections = editions
+        .iter()
+        .filter(|e| e.kind != STORY)
+        .flat_map(|e| e.sections.iter())
+        .map(|s| Section { name: s.name.clone(), comics: s.comics.clone() })
+        .collect();
     let meta = |col: &str| -> Result<Option<String>> {
         Ok(conn
             .query_row(
@@ -853,23 +854,40 @@ pub fn series_view(conn: &Connection, id: i64) -> Result<SeriesView> {
     })
 }
 
-/// A series' books sorted into their formats, each labeled and ordered within it.
-fn editions_of(conn: &Connection, id: i64, manga: bool) -> Result<Vec<Edition>> {
+/// The tab on a series page with every format's books in the order the story runs.
+const STORY: &str = "order";
+
+/// One book of a series, as its page lists it.
+struct SeriesBook {
+    kind: &'static str,
+    section: String,
+    number: Option<f64>,
+    /// What part of the story it holds, when that's known for certain.
+    span: Option<editions::Span>,
+    /// When it came out: its date, or just its year.
+    when: Option<String>,
+    /// Its file name starts with a place in a reading order.
+    in_reading_order: bool,
+    card: ComicCard,
+}
+
+/// A series' books, format by format, labeled and in order within each.
+fn series_books(conn: &Connection, id: i64, manga: bool) -> Result<Vec<SeriesBook>> {
     let mut st = conn.prepare(
         "SELECT c.section, c.file_name, COALESCE(c.num_pages, 0), COALESCE(c.synopsis, ''), o.kind, c.number,
            (SELECT json_extract(m.data, '$.number') FROM meta_layer m WHERE m.comic_id=c.id AND m.source='user'),
-           (SELECT json_extract(m.data, '$.number') FROM meta_layer m WHERE m.comic_id=c.id AND m.source='cv')
+           (SELECT json_extract(m.data, '$.number') FROM meta_layer m WHERE m.comic_id=c.id AND m.source='cv'),
+           COALESCE(NULLIF(c.date, ''), NULLIF(c.year, ''))
          FROM comics c LEFT JOIN edition_override o ON o.comic_id=c.id WHERE c.series_id=?1 ORDER BY c.sort_key",
     )?;
-    type Extra = (String, String, i64, String, Option<String>, Option<String>, Option<String>, Option<String>);
+    type Extra = (String, String, i64, String, Option<String>, Option<String>, Option<String>, Option<String>, Option<String>);
     let extra: Vec<Extra> = st
-        .query_map([id], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?, r.get(4)?, r.get(5)?, r.get(6)?, r.get(7)?)))?
+        .query_map([id], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?, r.get(4)?, r.get(5)?, r.get(6)?, r.get(7)?, r.get(8)?)))?
         .collect::<rusqlite::Result<_>>()?;
     let series: String = conn.query_row("SELECT name FROM series WHERE id=?1", [id], |r| r.get(0))?;
     let rows = cards(conn, "WHERE c.series_id=?1 ORDER BY c.sort_key", [id])?;
-    // (format, subfolder, number, place in the old order, book)
-    let mut books: Vec<(&'static str, String, Option<f64>, usize, ComicCard)> = Vec::new();
-    for (i, (mut c, (sec, file, pages, synopsis, own, stored, typed, cv))) in rows.into_iter().zip(extra).enumerate() {
+    let mut books: Vec<SeriesBook> = Vec::new();
+    for (mut c, (sec, file, pages, synopsis, own, stored, typed, cv, when)) in rows.into_iter().zip(extra) {
         let kind = own
             .as_deref()
             .and_then(|k| editions::KINDS.iter().copied().find(|x| *x == k))
@@ -877,42 +895,83 @@ fn editions_of(conn: &Connection, id: i64, manga: bool) -> Result<Vec<Edition>> 
         // A number you typed in wins; then a reading order's place at the front of the file name;
         // then Comic Vine's; then the file name's; then whatever the book's own details say.
         let parse = |v: Option<String>| v.and_then(|s| s.trim().trim_start_matches('#').parse::<f64>().ok());
-        let n = parse(typed)
-            .or_else(|| editions::order_number(&file, &series))
-            .or_else(|| parse(cv))
-            .or_else(|| editions::number(kind, &file, &series))
-            .or_else(|| parse(stored));
+        let place = editions::order_number(&file, &series);
+        let n = parse(typed).or(place).or_else(|| parse(cv)).or_else(|| editions::number(kind, &file, &series)).or_else(|| parse(stored));
         c.label = editions::label(kind, n, &c.label);
         if matches!(kind, "volume" | "collection" | "deluxe" | "omnibus") {
             c.collects = editions::collects(&synopsis).or_else(|| editions::chapters(&synopsis));
         }
         c.edition = Some(kind.to_string());
-        books.push((kind, sec, n, i, c));
+        // A place in a reading order isn't an issue number.
+        let span = if place.is_some() { None } else { editions::span(kind, n, &synopsis, &series) };
+        books.push(SeriesBook { kind, section: sec, number: n, span, when, in_reading_order: place.is_some(), card: c });
+    }
+    // Format by format; subfolders in the order they first come; numbered books in number order.
+    let format_place = |k: &str| editions::KINDS.iter().position(|x| *x == k);
+    let mut folders: Vec<(&str, String)> = Vec::new();
+    for b in &books {
+        if !folders.iter().any(|f| f.0 == b.kind && f.1 == b.section) {
+            folders.push((b.kind, b.section.clone()));
+        }
+    }
+    let folder_place = |b: &SeriesBook| folders.iter().position(|f| f.0 == b.kind && f.1 == b.section);
+    let mut placed: Vec<(usize, SeriesBook)> = books.into_iter().enumerate().collect();
+    placed.sort_by(|(ia, a), (ib, b)| {
+        format_place(a.kind).cmp(&format_place(b.kind)).then(folder_place(a).cmp(&folder_place(b))).then_with(|| match (a.number, b.number) {
+            (Some(x), Some(y)) => x.total_cmp(&y).then(ia.cmp(ib)),
+            (Some(_), None) => std::cmp::Ordering::Less,
+            (None, Some(_)) => std::cmp::Ordering::Greater,
+            (None, None) => ia.cmp(ib),
+        })
+    });
+    let mut books: Vec<SeriesBook> = placed.into_iter().map(|(_, b)| b).collect();
+    // A collection that says it holds earlier issues than the one before it is a mistake in its
+    // description, or numbered some other way ("Season 2, chapters 1-3"): don't go by it.
+    let mut reached: Vec<(&str, f64)> = Vec::new();
+    for b in &mut books {
+        if !matches!(b.kind, "volume" | "collection" | "deluxe" | "omnibus") {
+            continue;
+        }
+        let Some(s) = b.span else { continue };
+        match reached.iter_mut().find(|r| r.0 == b.kind) {
+            Some(r) if s.from < r.1 => b.span = None,
+            Some(r) => r.1 = s.from,
+            None => reached.push((b.kind, s.from)),
+        }
+    }
+    Ok(books)
+}
+
+/// The series' story order, as places in `books`, when there is one to speak of. A series named as a
+/// reading order ("019 Siege - Storming Asgard") is already in the order it should be read.
+fn story_of(books: &[SeriesBook]) -> Option<Vec<editions::Stop>> {
+    if books.iter().any(|b| b.in_reading_order) {
+        return None;
+    }
+    let list: Vec<editions::StoryBook> =
+        books.iter().map(|b| editions::StoryBook { kind: b.kind, span: b.span, when: b.when.clone() }).collect();
+    editions::story_order(&list)
+}
+
+/// A series' books sorted into their formats, then, when the story runs across them, all together
+/// in the order to read them.
+fn editions_of(conn: &Connection, id: i64, manga: bool) -> Result<Vec<Edition>> {
+    let mut books = series_books(conn, id, manga)?;
+    let story = story_of(&books);
+    if let Some(story) = &story {
+        for stop in story {
+            if let Some(a) = stop.after {
+                books[stop.book].card.after = Some(books[a].card.label.clone());
+            }
+        }
     }
     let mut out = Vec::new();
     for kind in editions::KINDS {
-        let mut mine: Vec<_> = books.iter().filter(|b| b.0 == kind).collect();
+        let mine: Vec<&SeriesBook> = books.iter().filter(|b| b.kind == kind).collect();
         if mine.is_empty() {
             continue;
         }
-        let missing = if kind == "issue" { editions::gaps(&mine.iter().filter_map(|b| b.2).collect::<Vec<_>>()) } else { vec![] };
-        // Subfolders in the order they first come; numbered books in number order within each.
-        let mut folders: Vec<&str> = Vec::new();
-        for b in &mine {
-            if !folders.contains(&b.1.as_str()) {
-                folders.push(&b.1);
-            }
-        }
-        mine.sort_by(|a, b| {
-            let fa = folders.iter().position(|f| *f == a.1).unwrap_or(0);
-            let fb = folders.iter().position(|f| *f == b.1).unwrap_or(0);
-            fa.cmp(&fb).then_with(|| match (a.2, b.2) {
-                (Some(x), Some(y)) => x.total_cmp(&y).then(a.3.cmp(&b.3)),
-                (Some(_), None) => std::cmp::Ordering::Less,
-                (None, Some(_)) => std::cmp::Ordering::Greater,
-                (None, None) => a.3.cmp(&b.3),
-            })
-        });
+        let missing = if kind == "issue" { editions::gaps(&mine.iter().filter_map(|b| b.number).collect::<Vec<_>>()) } else { vec![] };
         // A subfolder named for the format itself ("Issues", "TPB") goes without saying.
         let shown = |f: &str| {
             let last = f.rsplit('/').next().unwrap_or("").trim().to_lowercase();
@@ -921,14 +980,176 @@ fn editions_of(conn: &Connection, id: i64, manga: bool) -> Result<Vec<Edition>> 
         };
         let mut sections: Vec<Section> = Vec::new();
         for b in mine {
-            let name = shown(&b.1);
+            let name = shown(&b.section);
             match sections.last_mut() {
-                Some(s) if s.name == name => s.comics.push(b.4.clone()),
-                _ => sections.push(Section { name, comics: vec![b.4.clone()] }),
+                Some(s) if s.name == name => s.comics.push(b.card.clone()),
+                _ => sections.push(Section { name, comics: vec![b.card.clone()] }),
             }
         }
         out.push(Edition { kind: kind.to_string(), name: editions::name(kind).to_string(), sections, missing });
     }
+    if let Some(story) = story {
+        let comics = story.iter().map(|s| books[s.book].card.clone()).collect();
+        out.push(Edition { kind: STORY.to_string(), name: "In order".to_string(), sections: vec![Section { name: String::new(), comics }], missing: vec![] });
+    }
+    Ok(out)
+}
+
+/// Whether a series reads as manga.
+fn series_is_manga(conn: &Connection, id: i64) -> Result<bool> {
+    Ok(conn.query_row(
+        "SELECT COALESCE(COALESCE(s.reading, col.reading)='manga', col.is_manga) FROM series s JOIN collections col ON col.id=s.collection_id WHERE s.id=?1",
+        [id],
+        |r| r.get(0),
+    )?)
+}
+
+/// These books have just been finished. So has anything they hold (the issues in a collection, the
+/// chapters in a volume), and any collection you've now read all of. Only ever from unread to read,
+/// and only where the book says for certain what it holds, in this series. Returns how the books it
+/// changed were, for Undo.
+fn finish_what_they_hold(conn: &Connection, series: i64, finished: &[i64], now: i64) -> Result<Vec<ReadState>> {
+    let books = series_books(conn, series, series_is_manga(conn, series)?)?;
+    let spans: Vec<editions::Span> = books.iter().filter(|b| finished.contains(&b.card.id)).filter_map(|b| b.span).collect();
+    if spans.is_empty() {
+        return Ok(vec![]);
+    }
+    let read_now = |b: &SeriesBook| b.card.read || finished.contains(&b.card.id);
+    let mut more: Vec<i64> = books
+        .iter()
+        .filter(|b| !read_now(b) && b.span.is_some_and(|s| spans.iter().any(|f| f.holds(&s))))
+        .map(|b| b.card.id)
+        .collect();
+    // What's been read of the story, newly marked books included: does it now fill any collection
+    // these books are part of?
+    let covered: Vec<editions::Span> =
+        books.iter().filter(|b| read_now(b) || more.contains(&b.card.id)).filter_map(|b| b.span).collect();
+    for b in &books {
+        let Some(s) = b.span.filter(|s| s.to > s.from) else { continue };
+        if read_now(b) || more.contains(&b.card.id) || !spans.iter().any(|f| f.meets(&s)) {
+            continue;
+        }
+        let whole = |n: f64| editions::Span { unit: s.unit, from: n, to: n };
+        // Far too long to be a real run, and the description's numbers mean something else.
+        let filled = s.to - s.from <= 5000.0
+            && (s.from as i64..=s.to as i64).all(|n| covered.iter().any(|c| c.holds(&whole(n as f64))));
+        if filled {
+            more.push(b.card.id);
+        }
+    }
+    let mut before = Vec::with_capacity(more.len());
+    for id in more {
+        before.extend(read_states(conn, "c.id=?1", [id])?);
+        conn.execute("UPDATE comics SET read=1, current_page=0, last_read_at=COALESCE(last_read_at, ?2) WHERE id=?1", params![id, now])?;
+    }
+    Ok(before)
+}
+
+/// What a search finds that isn't a series or a book: a name, and how many books it's on.
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct NameHit {
+    pub name: String,
+    pub books: i64,
+    /// A book of theirs, for its cover.
+    pub cover_id: i64,
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SearchHits {
+    pub series: Vec<SeriesSummary>,
+    pub books: Vec<ComicCard>,
+    pub creators: Vec<NameHit>,
+    pub characters: Vec<NameHit>,
+    pub arcs: Vec<NameHit>,
+}
+
+/// The names on one-per-line fields that have `q` in them, those starting with it first, then those
+/// on the most books.
+fn names_matching(conn: &Connection, fields: &[&str], like: &str, q: &str, limit: usize) -> Result<Vec<NameHit>> {
+    let any = fields.iter().map(|f| format!("{f} LIKE ?1 ESCAPE '\\'")).collect::<Vec<_>>().join(" OR ");
+    let mut st = conn.prepare(&format!("SELECT id, {} FROM comics WHERE {any}", fields.join(", ")))?;
+    let mut rows = st.query([like])?;
+    let q = q.trim().to_lowercase();
+    let mut found: HashMap<String, (i64, i64)> = HashMap::new();
+    while let Some(r) = rows.next()? {
+        let id: i64 = r.get(0)?;
+        let mut names: Vec<String> = Vec::new();
+        for i in 0..fields.len() {
+            let v: Option<String> = r.get(i + 1)?;
+            names.extend(v.unwrap_or_default().lines().map(|n| n.trim().to_string()).filter(|n| n.to_lowercase().contains(&q)));
+        }
+        names.sort();
+        names.dedup();
+        for n in names {
+            found.entry(n).or_insert((0, id)).0 += 1;
+        }
+    }
+    let mut hits: Vec<NameHit> = found.into_iter().map(|(name, (books, cover_id))| NameHit { name, books, cover_id }).collect();
+    let starts = |h: &NameHit| !h.name.to_lowercase().starts_with(&q);
+    hits.sort_by(|a, b| starts(a).cmp(&starts(b)).then(b.books.cmp(&a.books)).then_with(|| a.name.cmp(&b.name)));
+    hits.truncate(limit);
+    Ok(hits)
+}
+
+/// Everything in the library that matches: series, books by their title or their file's name (where
+/// the series itself didn't match, or it'd be every book in it), creators, characters and teams, and
+/// story arcs.
+pub fn search_all(conn: &Connection, q: &str) -> Result<SearchHits> {
+    let like = format!("%{}%", q.trim().replace('\\', "\\\\").replace('%', "\\%").replace('_', "\\_"));
+    let series = {
+        let mut st = conn.prepare(&format!(
+            "{SERIES_SELECT} WHERE s.name LIKE ?1 ESCAPE '\\'
+             GROUP BY s.id ORDER BY MAX(c.last_read_at) DESC NULLS LAST, s.name COLLATE NOCASE LIMIT 6"
+        ))?;
+        let v = st.query_map([&like], series_summary)?.collect::<rusqlite::Result<Vec<_>>>()?;
+        v
+    };
+    let books = cards(
+        conn,
+        "WHERE (c.title LIKE ?1 ESCAPE '\\' OR c.file_name LIKE ?1 ESCAPE '\\') AND s.name NOT LIKE ?1 ESCAPE '\\'
+         ORDER BY c.title LIKE ?1 ESCAPE '\\' DESC, c.last_read_at DESC NULLS LAST, s.name COLLATE NOCASE, c.sort_key LIMIT 6",
+        [&like],
+    )?;
+    let creators = names_matching(conn, &CREATOR_FIELDS.map(|f| f.0), &like, q, 4)?;
+    let characters = names_matching(conn, &CHARACTER_FIELDS.map(|f| f.0), &like, q, 4)?;
+    let arcs = names_matching(conn, &["story_arc"], &like, q, 3)?;
+    Ok(SearchHits { series, books, creators, characters, arcs })
+}
+
+/// A series with books new to the library that you haven't opened yet.
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Arrival {
+    /// Its first new book.
+    pub comic: ComicCard,
+    /// How many it has.
+    pub count: i64,
+    pub added_at: i64,
+}
+
+/// What's come into the library in the last while and hasn't been opened, a series at a time, the
+/// newest first. `total` of them, of which these are the first `limit` series.
+pub fn arrivals(conn: &Connection, now: i64, limit: usize) -> Result<Vec<Arrival>> {
+    let mut st = conn.prepare(&format!(
+        "SELECT {CARD_COLS}, c.added_at FROM comics c {CARD_JOIN}
+         WHERE c.added_at>=?1 AND c.read=0 AND c.current_page=0 ORDER BY c.series_id, c.sort_key"
+    ))?;
+    let mut rows = st.query([now - RECENT_SECS])?;
+    let mut out: Vec<Arrival> = Vec::new();
+    while let Some(r) = rows.next()? {
+        let (comic, at): (ComicCard, i64) = (card(r)?, r.get(13)?);
+        match out.last_mut() {
+            Some(a) if a.comic.series_id == comic.series_id => {
+                a.count += 1;
+                a.added_at = a.added_at.max(at);
+            }
+            _ => out.push(Arrival { comic, count: 1, added_at: at }),
+        }
+    }
+    out.sort_by(|a, b| b.added_at.cmp(&a.added_at).then(a.comic.series_name.cmp(&b.comic.series_name)));
+    out.truncate(limit);
     Ok(out)
 }
 
@@ -1008,6 +1229,10 @@ pub fn mark_read_before(conn: &Connection, id: i64, now: i64) -> Result<Vec<Read
            AND sort_key<(SELECT sort_key FROM comics WHERE id=?1) AND read=0",
         params![id, now],
     )?;
+    let series: i64 = conn.query_row("SELECT series_id FROM comics WHERE id=?1", [id], |r| r.get(0))?;
+    let marked: Vec<i64> = before.iter().map(|s| s.id).collect();
+    let mut before = before;
+    before.extend(finish_what_they_hold(conn, series, &marked, now)?);
     Ok(before)
 }
 
@@ -1043,12 +1268,20 @@ pub fn comic_id_by_path(conn: &Connection, rel_path: &str) -> Result<Option<i64>
         .optional()?)
 }
 
-/// Neighboring comics in the same series, for "next issue" in the reader.
+/// The books before and after this one, for "next issue" in the reader: in the story's order, where
+/// the story runs across formats and this book is part of it; otherwise the next in the series.
 pub fn neighbors(conn: &Connection, id: i64) -> Result<(Option<i64>, Option<i64>)> {
     let (series, key): (i64, i64) =
         conn.query_row("SELECT series_id, sort_key FROM comics WHERE id=?1", [id], |r| {
             Ok((r.get(0)?, r.get(1)?))
         })?;
+    let books = series_books(conn, series, series_is_manga(conn, series)?)?;
+    if let Some(story) = story_of(&books) {
+        if let Some(at) = story.iter().position(|s| books[s.book].card.id == id) {
+            let near = |k: Option<usize>| k.and_then(|k| story.get(k)).map(|s| books[s.book].card.id);
+            return Ok((near(at.checked_sub(1)), near(Some(at + 1))));
+        }
+    }
     let prev = conn
         .query_row(
             "SELECT id FROM comics WHERE series_id=?1 AND sort_key<?2 ORDER BY sort_key DESC LIMIT 1",
@@ -1074,18 +1307,28 @@ pub fn card_by_id(conn: &Connection, id: i64) -> Result<ComicCard> {
 /// re-read, so it shows as in progress again; only opening it to look leaves it finished.
 pub fn set_progress(conn: &Connection, id: i64, page: i64, pages: i64, now: i64) -> Result<()> {
     let read = pages > 0 && page >= pages - 1;
+    let (series, was_read): (i64, bool) = conn.query_row("SELECT series_id, read FROM comics WHERE id=?1", [id], |r| Ok((r.get(0)?, r.get(1)?)))?;
     conn.execute(
         "UPDATE comics SET current_page=?2, num_pages=?3, last_read_at=?4,
            read=CASE WHEN ?5 THEN 1 WHEN ?2>0 THEN 0 ELSE read END WHERE id=?1",
         params![id, page, pages, now, read],
     )?;
+    if read && !was_read {
+        finish_what_they_hold(conn, series, &[id], now)?;
+    }
     Ok(())
 }
 
+/// Marking a book read also marks what it holds (see `finish_what_they_hold`). Marking one unread
+/// leaves the others as they are: you may well have read those on their own.
 pub fn set_read(conn: &Connection, id: i64, read: bool, now: i64) -> Result<Vec<ReadState>> {
-    let before = read_states(conn, "c.id=?1", [id])?;
+    let mut before = read_states(conn, "c.id=?1", [id])?;
     if read {
+        let (series, was_read): (i64, bool) = conn.query_row("SELECT series_id, read FROM comics WHERE id=?1", [id], |r| Ok((r.get(0)?, r.get(1)?)))?;
         conn.execute("UPDATE comics SET read=1, last_read_at=?2 WHERE id=?1", params![id, now])?;
+        if !was_read {
+            before.extend(finish_what_they_hold(conn, series, &[id], now)?);
+        }
     } else {
         conn.execute("UPDATE comics SET read=0, current_page=0, last_read_at=NULL WHERE id=?1", params![id])?;
     }
@@ -1682,5 +1925,200 @@ mod print_tests {
         )
         .unwrap();
         assert_eq!(prints_wanted(&conn).unwrap(), [31, 10, 21, 30], "being read first, then each series' pick");
+    }
+}
+
+#[cfg(test)]
+mod story_tests {
+    use super::*;
+
+    /// Saga: issues #13–19, Vol. 3 (which collects #13–18), and an annual from after #14.
+    fn saga(name: &str, collects: &str) -> Connection {
+        let path = std::env::temp_dir().join(format!("aion-story-test-{name}-{}.db", std::process::id()));
+        let _ = std::fs::remove_file(&path);
+        let conn = open(&path).unwrap();
+        conn.execute("INSERT INTO collections(id, name, is_manga) VALUES(1, 'Image', 0)", []).unwrap();
+        conn.execute("INSERT INTO series(id, collection_id, name, rel_path) VALUES(1, 1, 'Saga', 'Image/Saga')", []).unwrap();
+        for n in 13..=19 {
+            conn.execute(
+                "INSERT INTO comics(id, series_id, rel_path, file_name, label, sort_key, num_pages, date, added_at)
+                 VALUES(?1, 1, ?2, ?3, ?4, ?1, 24, ?5, 100)",
+                params![n, format!("Image/Saga/{n}.cbz"), format!("Saga 0{n}.cbz"), format!("#{n}"), format!("2014-{:02}-01", n - 12)],
+            )
+            .unwrap();
+        }
+        conn.execute(
+            "INSERT INTO comics(id, series_id, rel_path, file_name, label, sort_key, num_pages, synopsis, added_at)
+             VALUES(103, 1, 'Image/Saga/v3.cbz', 'Saga Vol. 03.cbz', 'Vol. 3', 103, 150, ?1, 100)",
+            [collects],
+        )
+        .unwrap();
+        conn.execute(
+            "INSERT INTO comics(id, series_id, rel_path, file_name, label, sort_key, num_pages, date, added_at)
+             VALUES(201, 1, 'Image/Saga/a1.cbz', 'Saga Annual 001.cbz', 'Annual', 201, 40, '2014-02-15', 100)",
+            [],
+        )
+        .unwrap();
+        conn
+    }
+
+    fn read(conn: &Connection, ids: &[i64]) -> Vec<bool> {
+        ids.iter().map(|id| conn.query_row("SELECT read FROM comics WHERE id=?1", [id], |r| r.get(0)).unwrap()).collect()
+    }
+
+    const RUN: [i64; 6] = [13, 14, 15, 16, 17, 18];
+
+    #[test]
+    fn finishing_a_collection_finishes_its_issues() {
+        let conn = saga("down", "Collects SAGA #13-18.");
+        let before = set_read(&conn, 103, true, 500).unwrap();
+        assert_eq!(read(&conn, &RUN), [true; 6]);
+        assert_eq!(read(&conn, &[19, 201]), [false, false], "nothing outside it");
+        // Undo puts back every book it changed.
+        assert_eq!(before.len(), 7);
+        restore_reading(&conn, &before).unwrap();
+        assert_eq!(read(&conn, &RUN), [false; 6]);
+        assert_eq!(read(&conn, &[103]), [false]);
+    }
+
+    #[test]
+    fn reaching_the_last_page_counts_too() {
+        let conn = saga("page", "Collects SAGA #13-18.");
+        set_progress(&conn, 103, 149, 150, 500).unwrap();
+        assert_eq!(read(&conn, &RUN), [true; 6]);
+        // Your own reading stats and page in an issue aren't invented.
+        let at: i64 = conn.query_row("SELECT current_page FROM comics WHERE id=13", [], |r| r.get(0)).unwrap();
+        assert_eq!(at, 0);
+    }
+
+    #[test]
+    fn finishing_every_issue_finishes_the_collection() {
+        let conn = saga("up", "Collects SAGA #13-18.");
+        for id in &RUN[..5] {
+            set_progress(&conn, *id, 23, 24, 500).unwrap();
+            assert_eq!(read(&conn, &[103]), [false], "not until the last");
+        }
+        set_progress(&conn, 18, 23, 24, 500).unwrap();
+        assert_eq!(read(&conn, &[103]), [true]);
+    }
+
+    #[test]
+    fn unread_stays_with_the_one_book() {
+        let conn = saga("unread", "Collects SAGA #13-18.");
+        set_read(&conn, 103, true, 500).unwrap();
+        set_read(&conn, 103, false, 600).unwrap();
+        assert_eq!(read(&conn, &RUN), [true; 6]);
+        assert_eq!(read(&conn, &[103]), [false]);
+        // An issue you've put back unread isn't marked again by finishing a different one.
+        set_read(&conn, 14, false, 700).unwrap();
+        set_progress(&conn, 15, 23, 24, 800).unwrap();
+        assert_eq!(read(&conn, &[14, 103]), [false, false]);
+    }
+
+    #[test]
+    fn another_series_numbers_mean_nothing_here() {
+        let conn = saga("other", "Collects Superman #13-18.");
+        set_read(&conn, 103, true, 500).unwrap();
+        assert_eq!(read(&conn, &RUN), [false; 6]);
+    }
+
+    #[test]
+    fn annuals_are_read_where_they_came_out() {
+        let conn = saga("order", "Collects SAGA #13-18.");
+        let v = series_view(&conn, 1).unwrap();
+        let story = v.editions.iter().find(|e| e.kind == STORY).expect("an in-order tab");
+        let labels: Vec<&str> = story.sections[0].comics.iter().map(|c| c.label.as_str()).collect();
+        assert_eq!(labels, ["#13", "#14", "Annual #1", "#15", "#16", "#17", "#18", "#19"]);
+        // It's a view of the books, not more books.
+        assert_eq!(v.sections.iter().map(|s| s.comics.len()).sum::<usize>(), 9);
+        let annuals = v.editions.iter().find(|e| e.kind == "annual").unwrap();
+        assert_eq!(annuals.sections[0].comics[0].after.as_deref(), Some("#14"));
+        // And the reader offers them in that order.
+        assert_eq!(neighbors(&conn, 14).unwrap(), (Some(13), Some(201)));
+        assert_eq!(neighbors(&conn, 201).unwrap(), (Some(14), Some(15)));
+        assert_eq!(neighbors(&conn, 19).unwrap(), (Some(18), None));
+    }
+
+    #[test]
+    fn search_finds_more_than_series() {
+        let conn = saga("search", "");
+        conn.execute("UPDATE comics SET title='The Will', penciller='Fiona Staples', characters='Marko\nAlana', story_arc='Chapter Three' WHERE id=15", []).unwrap();
+        conn.execute("UPDATE comics SET writer='Brian K. Vaughan\nFiona Staples' WHERE id=16", []).unwrap();
+        let names = |v: &[NameHit]| v.iter().map(|h| (h.name.clone(), h.books)).collect::<Vec<_>>();
+        assert_eq!(search_all(&conn, "saga").unwrap().series.len(), 1);
+        // Every book's file has "Saga" in it, and so does the series: those aren't book hits.
+        assert!(search_all(&conn, "saga").unwrap().books.is_empty());
+        assert_eq!(search_all(&conn, "the will").unwrap().books[0].id, 15);
+        assert_eq!(names(&search_all(&conn, "staples").unwrap().creators), [("Fiona Staples".to_string(), 2)]);
+        assert_eq!(names(&search_all(&conn, "alana").unwrap().characters), [("Alana".to_string(), 1)]);
+        assert_eq!(names(&search_all(&conn, "chapter").unwrap().arcs), [("Chapter Three".to_string(), 1)]);
+        assert_eq!(people_view(&conn, "arc", "Chapter Three").unwrap().books, 1);
+        assert!(search_all(&conn, "100%").unwrap().series.is_empty());
+    }
+
+    #[test]
+    fn arrivals_are_new_and_unopened_by_series() {
+        let conn = saga("new", "");
+        let now = 100 + RECENT_SECS - 10;
+        let got = arrivals(&conn, now, 12).unwrap();
+        assert_eq!((got.len(), got[0].count), (1, 9));
+        assert_eq!(got[0].comic.id, 13, "its first new book");
+        set_progress(&conn, 13, 5, 24, now).unwrap();
+        set_read(&conn, 14, true, now).unwrap();
+        assert_eq!(arrivals(&conn, now, 12).unwrap()[0].count, 7, "not once opened");
+        assert!(arrivals(&conn, now + 100, 12).unwrap().is_empty(), "not after a while");
+    }
+}
+
+#[cfg(test)]
+mod real_stories {
+    //! `AION_TEST_DB=<copy of library.db> cargo test --lib real_stories -- --ignored --nocapture`
+    use super::*;
+
+    #[test]
+    #[ignore]
+    fn what_the_real_library_would_do() {
+        let conn = open(Path::new(&std::env::var("AION_TEST_DB").unwrap())).unwrap();
+        let ids: Vec<i64> = conn.prepare("SELECT id FROM series").unwrap().query_map([], |r| r.get(0)).unwrap().map(|x| x.unwrap()).collect();
+        let t = std::time::Instant::now();
+        let (mut stories, mut linked) = (0, 0);
+        for id in ids {
+            let books = series_books(&conn, id, series_is_manga(&conn, id).unwrap()).unwrap();
+            let name = conn.query_row("SELECT name FROM series WHERE id=?1", [id], |r| r.get::<_, String>(0)).unwrap();
+            let held: Vec<String> = books
+                .iter()
+                .filter(|b| matches!(b.kind, "volume" | "collection" | "deluxe" | "omnibus"))
+                .filter_map(|b| b.span.map(|s| format!("{} {:?} {}-{}", b.card.label, s.unit, s.from, s.to)))
+                .collect();
+            let singles = books.iter().filter(|b| matches!(b.kind, "issue" | "chapter") && b.span.is_some()).count();
+            if !held.is_empty() && singles > 0 {
+                linked += 1;
+                println!("LINKS {name}: {singles} singles; {}", held.join(", "));
+            }
+            if let Some(story) = story_of(&books) {
+                stories += 1;
+                let line: Vec<String> = story
+                    .iter()
+                    .map(|s| {
+                        let b = &books[s.book];
+                        if matches!(b.kind, "annual" | "special") { format!("[{}]", b.card.label) } else { b.card.label.clone() }
+                    })
+                    .collect();
+                let shown = if line.len() > 24 { format!("{} … {}", line[..14].join(" "), line[line.len() - 8..].join(" ")) } else { line.join(" ") };
+                println!("STORY {name} ({}): {shown}", books.len());
+            }
+        }
+        println!("{stories} stories, {linked} series with links, in {:?}", t.elapsed());
+        println!("arrivals: {:?}", arrivals(&conn, crate::scan::now(), 12).unwrap().iter().map(|a| format!("{} x{}", a.comic.series_name, a.count)).collect::<Vec<_>>());
+        for q in ["batman", "bendis", "thorfinn", "year one"] {
+            let t = std::time::Instant::now();
+            let h = search_all(&conn, q).unwrap();
+            println!("search {q:?} in {:?}: series {:?} books {:?} creators {:?} characters {:?} arcs {:?}", t.elapsed(),
+                h.series.iter().map(|s| &s.name).collect::<Vec<_>>(),
+                h.books.iter().map(|b| format!("{} {}", b.series_name, b.label)).collect::<Vec<_>>(),
+                h.creators.iter().map(|n| (&n.name, n.books)).collect::<Vec<_>>(),
+                h.characters.iter().map(|n| (&n.name, n.books)).collect::<Vec<_>>(),
+                h.arcs.iter().map(|n| (&n.name, n.books)).collect::<Vec<_>>());
+        }
     }
 }

@@ -4,7 +4,7 @@
   import { addMenu } from "$lib/add.svelte";
   import CvNudge from "$lib/components/CvNudge.svelte";
   import { readAsItems, removing } from "$lib/manage.svelte";
-  import { api, chapterList, listText, plainText, storyTitle, unitWord, type ComicCard, type ComicMeta, type EditionKind, type MetaField, type SeriesView } from "$lib/api";
+  import { api, chapterList, listText, plainText, storyTitle, unitWord, type ComicCard, type ComicMeta, type Edition, type EditionKind, type MetaField, type SeriesView } from "$lib/api";
   import { lib, nav, openReader, reader, search, sheets, showMenu, undoable, undoableWith, type MenuItem } from "$lib/state.svelte";
   import { bareEnter, nearest } from "$lib/keynav";
   import { motionMs } from "$lib/look.svelte";
@@ -43,7 +43,7 @@
   const target = $derived.by(() => {
     const going = startOf(all);
     if (going && going.currentPage > 0 && !going.read) return going;
-    const biggest = [...(data?.editions ?? [])].sort((a, b) => count(b) - count(a))[0];
+    const biggest = (data?.editions ?? []).filter((e) => e.kind !== "order").sort((a, b) => count(b) - count(a))[0];
     return biggest ? startOf(biggest.sections.flatMap((s) => s.comics)) : going;
   });
   // "Makoto Yukimura · Kodansha Comics USA · 2013–2026", with the artist when it isn't the writer.
@@ -118,7 +118,7 @@
   const book = $derived<ComicCard | undefined>(all.find((c) => c.id === picked) ?? target);
 
   /* ---- Formats (issues, volumes, omnibus, annuals…), one at a time in the strip. */
-  let chosen = $state<EditionKind | null>(null);
+  let chosen = $state<Edition["kind"] | null>(null);
   $effect(() => {
     void id;
     chosen = null;
@@ -126,7 +126,22 @@
   // Until a format is picked, the strip shows the one the chosen book is in.
   const edition = $derived(data?.editions.find((e) => e.kind === (chosen ?? book?.edition)) ?? data?.editions[0]);
   const inView = $derived(edition?.sections.flatMap((s) => s.comics) ?? all);
-  function choose(kind: EditionKind) {
+  // Only what's still unread, when asked; remembered from one series to the next.
+  let unreadOnly = $state((() => { try { return localStorage.getItem("aion.unreadOnly") === "1"; } catch { return false; } })());
+  function toggleUnread() {
+    unreadOnly = !unreadOnly;
+    many = [];
+    try {
+      localStorage.setItem("aion.unreadOnly", unreadOnly ? "1" : "0");
+    } catch {}
+  }
+  const showing = $derived(
+    (edition?.sections ?? data?.sections ?? [])
+      .map((s) => (unreadOnly ? { name: s.name, comics: s.comics.filter((c) => !c.read) } : s))
+      .filter((s) => s.comics.length),
+  );
+  const onShow = $derived(showing.flatMap((s) => s.comics));
+  function choose(kind: Edition["kind"]) {
     const e = data?.editions.find((x) => x.kind === kind);
     if (!e) return;
     chosen = kind;
@@ -358,7 +373,7 @@
       many = base.includes(c.id) ? base.filter((x) => x !== c.id) : [...base, c.id];
       anchor = c.id;
     } else if (e.shiftKey) {
-      const ids = inView.map((x) => x.id);
+      const ids = onShow.map((x) => x.id);
       const from = ids.indexOf(anchor ?? book?.id ?? c.id);
       const to = ids.indexOf(c.id);
       many = from < 0 ? [c.id] : ids.slice(Math.min(from, to), Math.max(from, to) + 1);
@@ -373,7 +388,8 @@
     }
   }
   const KINDS: EditionKind[] = ["volume", "issue", "chapter", "collection", "deluxe", "omnibus", "annual", "special"];
-  const KIND_NAME: Record<EditionKind, string> = {
+  const KIND_NAME: Record<Edition["kind"], string> = {
+    order: "In order",
     volume: "Volume",
     issue: "Issue",
     chapter: "Chapter",
@@ -459,7 +475,7 @@
     }
     if (!book) return;
     let to: ComicCard | undefined;
-    if (e.key === "ArrowLeft" || e.key === "ArrowRight") to = inView[at(inView, book) + (e.key === "ArrowRight" ? 1 : -1)];
+    if (e.key === "ArrowLeft" || e.key === "ArrowRight") to = onShow[at(onShow, book) + (e.key === "ArrowRight" ? 1 : -1)];
     else if (e.key === "ArrowUp" || e.key === "ArrowDown") {
       const cards = [...(gallery?.querySelectorAll<HTMLElement>("[data-book]") ?? [])];
       const from = cards.find((el) => el.dataset.book === String(book!.id));
@@ -494,6 +510,9 @@
         {#if by}<span class="by">· {by}</span>{/if}
       </div>
       <div class="tools">
+        <button class="ico" class:on={unreadOnly} title="Only what's still unread" aria-label="Only what's still unread" aria-pressed={unreadOnly} onclick={toggleUnread}>
+          <Icon name="unread" size={18} />
+        </button>
         <button
           class="ico"
           title="Add {unitWord(data.isManga, 2)}"
@@ -551,7 +570,13 @@
     <!-- Every book as a cover. Click one for its details under its row (again to close them),
          double-click to read; Ctrl and Shift pick several. -->
     <nav class="gallery" class:multi={many.length > 0} bind:this={gallery} bind:clientWidth={galleryW} aria-label="Books in this series">
-      {#each edition?.sections ?? data.sections as s, si (si)}
+      {#if !showing.length && unreadOnly && all.length}
+        <p class="all-read">
+          You've read all of these.
+          <button class="link" onclick={toggleUnread}>Show them</button>
+        </p>
+      {/if}
+      {#each showing as s, si (si)}
         {@const end = drawer ? rowEnd(s.comics) : -1}
         {@const titled = s.comics.some((c) => storyTitle(c))}
         {#if s.name}<div class="gname">{s.name}</div>{/if}
@@ -579,7 +604,7 @@
                   <span class="line"><i style:width="{((c.currentPage + 1) / c.numPages) * 100}%"></i></span>
                 {/if}
               </span>
-              <span class="cap mono">{c.label}{#if c.collects}<span class="holds">{c.collects}</span>{/if}</span>
+              <span class="cap mono">{c.label}{#if c.collects}<span class="holds">{c.collects}</span>{:else if c.after}<span class="holds" title="Comes after {c.after} in the story">after {c.after}</span>{/if}</span>
               <!-- Where any book in a section has a title, each keeps two lines for one, so covers stay in line. -->
               {#if titled}<span class="name">{storyTitle(c) ?? ""}</span>{/if}
             </button>
@@ -717,6 +742,14 @@
     display: flex;
     align-items: center;
     gap: 6px;
+  }
+  .tools .ico.on {
+    background: rgb(var(--fg) / 0.09);
+    color: var(--text);
+  }
+  .all-read {
+    color: var(--text-2);
+    padding: 40px 0;
   }
   .backfill {
     margin: 16px var(--pad) 0;

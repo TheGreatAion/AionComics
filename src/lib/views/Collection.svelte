@@ -19,10 +19,25 @@
     { key: "added", title: "Recently added", icon: "arrived" },
   ];
 
+  // Which series to show, besides all of them. Pressing the one that's on goes back to all.
+  type Show = "unread" | "reading";
+  const SHOWS: { key: Show; title: string; icon: IconName }[] = [
+    { key: "unread", title: "Only ones with books still unread", icon: "unread" },
+    { key: "reading", title: "Only ones you've started and not finished", icon: "reading" },
+  ];
+  const stored = (() => {
+    try {
+      return localStorage.getItem("aion.collectionShow");
+    } catch {
+      return null;
+    }
+  })();
+
   let { id }: { id: number } = $props();
   let data = $state<CollectionView | null>(null);
   let filter = $state("");
   let sort = $state<Sort>((localStorage.getItem("aion.collectionSort") as Sort | null) ?? "name");
+  let showing = $state<Show | null>(stored === "unread" || stored === "reading" ? stored : null);
 
   $effect(() => {
     void lib.version;
@@ -36,12 +51,18 @@
   $effect(() => {
     try {
       localStorage.setItem("aion.collectionSort", sort);
+      if (showing) localStorage.setItem("aion.collectionShow", showing);
+      else localStorage.removeItem("aion.collectionShow");
     } catch {}
   });
 
+  const unfinished = (s: SeriesSummary) => s.readCount < s.count;
+  const started = (s: SeriesSummary) => unfinished(s) && (s.inProgress || s.readCount > 0);
   const shown = $derived.by(() => {
     const q = filter.trim().toLowerCase();
-    const list = (data?.series ?? []).filter((s) => s.name.toLowerCase().includes(q));
+    const list = (data?.series ?? [])
+      .filter((s) => s.name.toLowerCase().includes(q))
+      .filter((s) => (showing === "unread" ? unfinished(s) : showing === "reading" ? started(s) : true));
     if (sort === "read") return [...list].sort((a, b) => (b.lastReadAt ?? 0) - (a.lastReadAt ?? 0));
     if (sort === "added") return [...list].sort((a, b) => (b.lastAddedAt ?? 0) - (a.lastAddedAt ?? 0));
     return list;
@@ -100,14 +121,15 @@
     if (any && !kept) backdrop = { id: any.coverId!, hue: null, at: 20 + (shuffled(any.id) % 61) };
   });
   // The grid's caption box: what's shown, in what order.
-  const section = $derived(
-    filter.trim()
-      ? `Matching “${filter.trim()}”`
-      : { name: "Every series, A to Z", read: "Recently read", added: "Recently added" }[sort],
-  );
+  const section = $derived.by(() => {
+    if (filter.trim()) return `Matching “${filter.trim()}”`;
+    const order = { name: "A to Z", read: "recently read", added: "recently added" }[sort];
+    if (showing) return `${showing === "unread" ? "Still unread" : "Started"}, ${order}`;
+    return { name: "Every series, A to Z", read: "Recently read", added: "Recently added" }[sort];
+  });
 
   // With only one or two series there's room to tell each one properly instead of a grid.
-  const few = $derived(!!data && data.series.length > 0 && data.series.length <= 2 && !filter.trim());
+  const few = $derived(!!data && data.series.length > 0 && data.series.length <= 2 && !filter.trim() && !showing);
   let features = $state<SeriesView[]>([]);
   $effect(() => {
     const ss = few ? (data?.series ?? []) : [];
@@ -183,6 +205,13 @@
         <input placeholder="" bind:value={filter} spellcheck="false" aria-label="Filter" />
       </label>
       <div class="sorts">
+        {#each SHOWS as s (s.key)}
+          <button class="ico" class:on={showing === s.key} title={s.title} aria-label={s.title} aria-pressed={showing === s.key} onclick={() => (showing = showing === s.key ? null : s.key)}>
+            <Icon name={s.icon} size={16} />
+          </button>
+        {/each}
+      </div>
+      <div class="sorts">
         {#each SORTS as s (s.key)}
           <button class="ico" class:on={sort === s.key} title={s.title} aria-label={s.title} onclick={() => (sort = s.key)}>
             {#if s.icon}<Icon name={s.icon} size={16} />{:else}<span class="az mono">A–Z</span>{/if}
@@ -233,8 +262,13 @@
         </button>
       {/each}
     </div>
-  {:else}
+  {:else if filter.trim()}
     <p class="empty">Nothing matches “{filter}”.</p>
+  {:else}
+    <p class="empty">
+      {showing === "unread" ? "You've finished everything here." : "Nothing here is started and unfinished."}
+      <button class="link" onclick={() => (showing = null)}>Show all</button>
+    </p>
   {/if}
   <div class="foot"></div>
   </div>
