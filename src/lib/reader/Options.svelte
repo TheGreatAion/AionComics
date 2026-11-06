@@ -29,12 +29,12 @@
     <label class="slide">
       <span>Brightness</span>
       <input type="range" min="50" max="150" step="5" value={prefs.brightness} oninput={(e) => set("brightness", +e.currentTarget.value)} />
-      <span class="mono">{prefs.brightness}%</span>
+      <span class="fine">{prefs.brightness}%</span>
     </label>
     <label class="slide">
       <span>Contrast</span>
       <input type="range" min="50" max="150" step="5" value={prefs.contrast} oninput={(e) => set("contrast", +e.currentTarget.value)} />
-      <span class="mono">{prefs.contrast}%</span>
+      <span class="fine">{prefs.contrast}%</span>
     </label>
   </div>
 
@@ -121,7 +121,7 @@
     }
   }
   h2 {
-    font-weight: 400;
+    font-weight: 600;
     font-size: 15px;
     margin-bottom: 8px;
   }
@@ -153,9 +153,9 @@
     font-size: 13px;
     color: var(--text-2);
   }
-  .slide .mono {
+  .slide .fine {
     text-align: right;
-    font-size: 11px;
+    font-size: 12px;
   }
   .slide input {
     width: 100%;

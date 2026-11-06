@@ -17,7 +17,7 @@
   {#each pages as i (i)}
     <button class:on={c.shown.includes(i)} onclick={() => c.goTo(i)} title="Page {i + 1}">
       <img src={thumbUrl(c.id, i)} alt="" loading="lazy" draggable="false" />
-      <span class="mono">{i + 1}{#if c.bookmarks.includes(i)}&ensp;●{/if}</span>
+      <span class="fine">{i + 1}{#if c.bookmarks.includes(i)}&ensp;●{/if}</span>
     </button>
   {/each}
 </div>
@@ -76,8 +76,8 @@
   button.on img {
     outline-color: var(--text);
   }
-  .mono {
+  .fine {
     color: var(--text-2);
-    font-size: 11px;
+    font-size: 12px;
   }
 </style>

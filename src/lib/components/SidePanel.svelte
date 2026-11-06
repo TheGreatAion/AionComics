@@ -273,7 +273,7 @@
     padding: 0 18px;
   }
   .mark {
-    font-weight: 500;
+    font-weight: 600;
     font-size: 15px;
     letter-spacing: -0.01em;
   }
@@ -365,8 +365,7 @@
   .sub,
   .count {
     flex: none;
-    font-family: var(--mono);
-    font-size: 11px;
+    font-size: 12px;
     color: var(--text-3);
   }
   /* Section titles as the rest of the app writes them ("Library", "Today"): plain, a size up. */
@@ -377,7 +376,8 @@
     width: 100%;
     margin: 26px 0 8px;
     padding: 0 10px;
-    font-size: 15px;
+    font-size: 14px;
+    font-weight: 600;
     color: var(--text);
   }
   .head .chev {

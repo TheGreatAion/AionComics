@@ -721,7 +721,6 @@ fn relaunch() -> anyhow::Result<()> {
 struct Home {
     continue_reading: Vec<db::ComicCard>,
     pick_up_again: Vec<db::ComicCard>,
-    arrivals: Vec<db::Arrival>,
 }
 
 #[tauri::command(async)]
@@ -732,7 +731,6 @@ fn home(state: State<Shared>) -> CmdResult<Home> {
         Ok(Home {
             continue_reading: db::continue_reading(&conn, now, 24)?,
             pick_up_again: db::pick_up_again(&conn, now, 24)?,
-            arrivals: db::arrivals(&conn, now, 12)?,
         })
     })()
     .map_err(err)

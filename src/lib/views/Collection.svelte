@@ -214,7 +214,7 @@
       <div class="sorts">
         {#each SORTS as s (s.key)}
           <button class="ico" class:on={sort === s.key} title={s.title} aria-label={s.title} onclick={() => (sort = s.key)}>
-            {#if s.icon}<Icon name={s.icon} size={16} />{:else}<span class="az mono">A–Z</span>{/if}
+            {#if s.icon}<Icon name={s.icon} size={16} />{:else}<span class="az fine">A–Z</span>{/if}
           </button>
         {/each}
       </div>
@@ -341,7 +341,7 @@
   .fsyn {
     margin: 14px 0 0;
     color: var(--text-2);
-    font-size: 13.5px;
+    font-size: 13px;
     line-height: 1.6;
   }
   .feature .play {
@@ -377,7 +377,7 @@
     background: rgb(var(--fg) / 0.08);
   }
   .az {
-    font-size: 11px;
+    font-size: 12px;
   }
   .filter {
     display: flex;

@@ -113,7 +113,7 @@
         <div class="who">
           <span class="series">{meta.seriesName}</span>
           <h2>{meta.label}</h2>
-          <span class="file mono">{meta.fileName}</span>
+          <span class="file code">{meta.fileName}</span>
         </div>
       </header>
 
@@ -205,7 +205,7 @@
   }
   h2 {
     margin-top: 4px;
-    font-weight: 300;
+    font-weight: 400;
     font-size: 30px;
     letter-spacing: -0.03em;
   }
@@ -213,7 +213,7 @@
     display: block;
     margin-top: 6px;
     color: var(--text-3);
-    font-size: 11px;
+    font-size: 12px;
     overflow-wrap: anywhere;
   }
   .grid {

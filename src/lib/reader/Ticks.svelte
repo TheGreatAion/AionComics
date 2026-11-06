@@ -85,7 +85,7 @@
       <div class="pages" class:flipped={c.flipped}>
         {#each spread as p (p)}<img src={thumbUrl(c.id, p)} alt="" draggable="false" />{/each}
       </div>
-      <span class="mono">{spread.map((p) => p + 1).join("–")}</span>
+      <span class="fine">{spread.map((p) => p + 1).join("–")}</span>
     </div>
   {/if}
 </div>
@@ -163,8 +163,8 @@
     border-radius: 2px;
     background: #222;
   }
-  .preview .mono {
+  .preview .fine {
     color: #d0d0d0;
-    font-size: 11px;
+    font-size: 12px;
   }
 </style>

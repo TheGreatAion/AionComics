@@ -551,18 +551,18 @@
           <div class="tabs" role="tablist" aria-label="Formats">
             {#each data.editions as e (e.kind)}
               <button class="tab" class:on={e.kind === edition?.kind} role="tab" aria-selected={e.kind === edition?.kind} onclick={() => choose(e.kind)}>
-                {e.name}<span class="n mono">{count(e)}</span>
+                {e.name}<span class="n fine">{count(e)}</span>
               </button>
             {/each}
           </div>
         {/if}
         {#if many.length}
-          <span class="picked mono" role="status">
+          <span class="picked fine" role="status">
             {many.length} picked · right-click to change them
             <button class="ico" title="Clear (Esc)" aria-label="Clear the picks" onclick={() => (many = [])}><Icon name="close" size={13} /></button>
           </span>
         {:else if edition?.missing.length}
-          <span class="missing mono" title="Not in your library">{edition.missing.map((n) => `#${n}`).join(", ")} missing</span>
+          <span class="missing fine" title="Not in your library">{edition.missing.map((n) => `#${n}`).join(", ")} missing</span>
         {/if}
       </div>
     {/if}
@@ -604,7 +604,7 @@
                   <span class="line"><i style:width="{((c.currentPage + 1) / c.numPages) * 100}%"></i></span>
                 {/if}
               </span>
-              <span class="cap mono">{c.label}{#if c.collects}<span class="holds">{c.collects}</span>{:else if c.after}<span class="holds" title="Comes after {c.after} in the story">after {c.after}</span>{/if}</span>
+              <span class="cap fine">{c.label}{#if c.collects}<span class="holds">{c.collects}</span>{:else if c.after}<span class="holds" title="Comes after {c.after} in the story">after {c.after}</span>{/if}</span>
               <!-- Where any book in a section has a title, each keeps two lines for one, so covers stay in line. -->
               {#if titled}<span class="name">{storyTitle(c) ?? ""}</span>{/if}
             </button>
@@ -619,7 +619,7 @@
                   {:else}
                     <h2 class="label">{book.label}</h2>
                   {/if}
-                  <div class="facts mono">
+                  <div class="facts fine">
                     {facts}{#if arc}<span class="arc">{arc}</span>{/if}
                   </div>
                   {#if synopsis}
@@ -631,7 +631,7 @@
                   {#if chapters.length}
                     <ol class="chapters">
                       {#each allChapters || chapters.length <= CHAPTERS + 2 ? chapters : chapters.slice(0, CHAPTERS) as ch, k (k)}
-                        <li>{#if numbered}<span class="n mono">{ch.n ?? ""}</span>{/if}<span class="t">{ch.title}</span></li>
+                        <li>{#if numbered}<span class="n fine">{ch.n ?? ""}</span>{/if}<span class="t">{ch.title}</span></li>
                       {/each}
                     </ol>
                     {#if chapters.length > CHAPTERS + 2 && !allChapters}
@@ -663,12 +663,12 @@
                   <div class="actions">
                     <button class="btn play" onclick={open}><Icon name="play" size={14} />{action}</button>
                     {#if reading && book.numPages}
-                      <span class="where mono">
+                      <span class="where fine">
                         <span class="prog"><i style:width="{((book.currentPage + 1) / book.numPages) * 100}%"></i></span>
                         {book.currentPage + 1} / {book.numPages}
                       </span>
                     {:else if book.read}
-                      <span class="where mono"><Icon name="check" size={13} />Read</span>
+                      <span class="where fine"><Icon name="check" size={13} />Read</span>
                     {/if}
                     <button class="ico" title="More" aria-label="More for this book" onclick={(e) => bookMenu(e, book!)}><Icon name="more" size={18} /></button>
                   </div>
@@ -780,7 +780,7 @@
     padding: 6px 14px;
     border-radius: 4px;
     color: var(--text-2);
-    font-size: 13.5px;
+    font-size: 13px;
     transition:
       background 0.15s,
       color 0.15s;
@@ -793,7 +793,7 @@
     color: var(--text);
   }
   .tab .n {
-    font-size: 11px;
+    font-size: 12px;
     color: var(--text-3);
   }
   .tab.on .n {
@@ -802,7 +802,7 @@
   .missing,
   .picked {
     margin-left: auto;
-    font-size: 11px;
+    font-size: 12px;
     color: var(--text-2);
   }
   .picked {
@@ -936,7 +936,7 @@
   }
   /* What a collection holds: "#13–18". */
   .holds {
-    font-size: 11px;
+    font-size: 12px;
     color: var(--text-3);
   }
 
@@ -989,10 +989,10 @@
   /* Over a title, the number is a quiet line in the text face. */
   .label.small {
     font-family: var(--font);
-    font-weight: 300;
+    font-weight: 400;
     font-size: 20px;
     line-height: 1;
-    letter-spacing: -0.02em;
+    letter-spacing: -0.01em;
     color: var(--text-2);
   }
   .title {

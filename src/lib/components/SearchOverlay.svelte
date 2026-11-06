@@ -203,7 +203,7 @@
     <Cover id={h.cover} ratio={h.ratio} />
     <span class="words" class:two={h.detail}>
       <span class="name">{h.name}</span>
-      {#if h.detail}<span class="sub mono">{h.detail}</span>{/if}
+      {#if h.detail}<span class="sub fine">{h.detail}</span>{/if}
     </span>
   </button>
 {/snippet}
@@ -215,7 +215,7 @@
     {:else}
       <Cover id={h.cover} width={26} />
       <span class="row-name">{h.name}</span>
-      <span class="mono">{h.detail}</span>
+      <span class="fine">{h.detail}</span>
     {/if}
   </button>
 {/snippet}
@@ -225,7 +225,7 @@
   <div class="search-page" onmousedown={keepTyping}>
     <header>
       <input bind:this={input} bind:value={q} onkeydown={onkey} aria-label="Search" placeholder="Series, book, creator, character, arc" spellcheck="false" />
-      <span class="mono hint">
+      <span class="fine hint">
         {#if found}{total.toLocaleString()} found ·{/if}
         ↑↓ ↵ esc
       </span>
@@ -373,8 +373,8 @@
   h2 {
     margin: 0 0 10px;
     color: var(--text-2);
-    font: 400 13px/1 var(--display);
-    letter-spacing: 0.08em;
+    font: 400 17px/1 var(--display);
+    letter-spacing: 0.05em;
     text-transform: uppercase;
   }
 
@@ -469,7 +469,7 @@
     display: block;
     overflow: hidden;
     color: var(--text-2);
-    font-size: 11px;
+    font-size: 12px;
     white-space: nowrap;
     text-overflow: ellipsis;
   }
@@ -494,7 +494,7 @@
     white-space: nowrap;
     text-overflow: ellipsis;
   }
-  .row .mono {
+  .row .fine {
     flex: none;
     color: var(--text-2);
   }

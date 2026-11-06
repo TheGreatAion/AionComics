@@ -9,8 +9,8 @@
   --raised: #282623;
   --menu: #2d2b28;
   --text: #ececec;
-  --text-2: #94908a;
-  --text-3: #66625c;
+  --text-2: #a8a39b;
+  --text-3: #8a857d;
   --cap: #cfcfcf;
   --line: #34312d;
   --track: #3a3733;
@@ -30,8 +30,11 @@
   --ink: #0d0c0b;
   color-scheme: dark;
 }
-/* Text in an inked panel takes the panel's light colors, not the page's. */
+/* Text in an inked panel takes the panel's light colors, not the page's. Its grays are see-through
+   white, so they stay readable on whatever shade the cover printed. */
 .inked {
+  --text-2: rgb(255 255 255 / 0.84);
+  --text-3: rgb(255 255 255 / 0.68);
   color: var(--text);
 }
 /* How long a new screen takes to fade in, as chosen under Settings › Look › Animations. */
@@ -53,8 +56,8 @@
   --raised: #e0d9cb;
   --menu: #f4f0e8;
   --text: #1a1815;
-  --text-2: #6b655b;
-  --text-3: #9a9387;
+  --text-2: #57524a;
+  --text-3: #6e675b;
   --cap: #2a2622;
   --line: #d3cab9;
   --track: #cdc4b3;
@@ -68,6 +71,7 @@
 }
 :root {
   --font: "Geist Variable", system-ui, sans-serif;
+  /* Only for what's really a code: keyboard keys, file and folder paths, web addresses, API keys. */
   --mono: "Geist Mono", ui-monospace, monospace;
   /* Big titles only: series, books, collections. Tall capitals with a comic-logo heritage. */
   --display: "Bebas Neue", "Geist Variable", system-ui, sans-serif;
@@ -88,6 +92,8 @@ html {
   background: var(--bg);
   color: var(--text);
   font: 400 14px/1.45 var(--font);
+  /* Every digit the same width, so numbers line up in columns. */
+  font-variant-numeric: tabular-nums;
   -webkit-font-smoothing: antialiased;
 }
 
@@ -152,7 +158,12 @@ img {
   background: rgb(var(--fg) / 0.2);
 }
 
-.mono {
+/* Small print: counts, dates, page numbers. 12px is the smallest text in the app. */
+.fine {
+  font-family: var(--font);
+  font-size: 12px;
+}
+.code {
   font-family: var(--mono);
   font-size: 12px;
 }

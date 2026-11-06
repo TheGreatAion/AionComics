@@ -86,20 +86,20 @@
     <p>Found {many(libraries.length, "library", "libraries")}, {many(series, "series", "series")} and {many(books, "book", "books")}.</p>
     <ul>
       {#each libraries.slice(0, SHOWN) as c (c.id)}
-        <li><span>{c.name}</span><span class="mono">{many(c.seriesCount, "series", "series")} · {c.comicCount.toLocaleString()}</span></li>
+        <li><span>{c.name}</span><span class="fine">{many(c.seriesCount, "series", "series")} · {c.comicCount.toLocaleString()}</span></li>
       {/each}
       {#if libraries.length > SHOWN}<li class="rest">and {libraries.length - SHOWN} more</li>{/if}
     </ul>
     {#if correcting}
       <div class="ways">
         {#if layout !== "libraries"}
-          <button onclick={() => read("libraries")}>Each folder is a library<small class="mono">Marvel / Saga / Saga 001.cbz</small></button>
+          <button onclick={() => read("libraries")}>Each folder is a library<small class="code">Marvel / Saga / Saga 001.cbz</small></button>
         {/if}
         {#if layout !== "series"}
-          <button onclick={() => read("series")}>Each folder is a series<small class="mono">Saga / Saga 001.cbz</small></button>
+          <button onclick={() => read("series")}>Each folder is a series<small class="code">Saga / Saga 001.cbz</small></button>
         {/if}
         {#if layout !== "auto"}
-          <button onclick={() => read("auto")}>Work it out for me<small class="mono">Folder by folder</small></button>
+          <button onclick={() => read("auto")}>Work it out for me<small class="fine">Folder by folder</small></button>
         {/if}
       </div>
     {/if}
@@ -170,7 +170,7 @@
     padding: 9px 0;
     border-bottom: 1px solid var(--line);
   }
-  li .mono {
+  li .fine {
     color: var(--text-3);
     font-size: 12px;
     white-space: nowrap;

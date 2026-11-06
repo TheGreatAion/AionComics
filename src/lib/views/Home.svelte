@@ -75,9 +75,15 @@
     return mins < 60 ? `About ${mins} min left` : `About ${Math.floor(mins / 60)} hr ${mins % 60} min left`;
   });
 
-  const newBooks = $derived(data?.arrivals.reduce((n, a) => n + a.count, 0) ?? 0);
-  let arrivalsEl = $state<HTMLElement>();
-  const seeNew = () => arrivalsEl?.scrollIntoView({ behavior: look.motion === "off" ? "auto" : "smooth", block: "start" });
+  /* ---- The hero and one row of libraries fit the window exactly, the row taking up to a third of
+     its height. More libraries than one row holds carry on below, and only then does the page scroll. */
+  const FAN_MAX = 172;
+  const PANEL_FRAME = 80; // a panel's caption, frame and margins around its covers
+  const LIBRARY_PAD = 30; // under the last row
+  const HERO_MARGINS = 96; // above the hero (the top bar's room) and below it
+  let winH = $state(0);
+  const fanH = $derived(Math.floor(Math.min(FAN_MAX, winH * 0.32 - LIBRARY_PAD - PANEL_FRAME)));
+  const heroH = $derived(winH - HERO_MARGINS - (lib.collections.length ? fanH + PANEL_FRAME + LIBRARY_PAD : 0));
 
   const pages = new Map<number, HTMLImageElement>();
   const resume = () => hero && openReader(hero.id, pages.get(hero.id) ?? null);
@@ -271,7 +277,7 @@
   });
 </script>
 
-<svelte:window onkeydown={onkey} />
+<svelte:window onkeydown={onkey} bind:innerHeight={winH} />
 
 {#if data}
   <!-- The first screen: the book you're in, with your library along the bottom. -->
@@ -279,7 +285,7 @@
     <!-- The book you're in tints the top of Home in its cover's color. -->
     {#if hero}
       <!-- A splash panel: the book you're in, over its cover printed in one ink. -->
-      <section class="hero" class:inked={look.backdrop}>
+      <section class="hero" class:inked={look.backdrop} style:height="{heroH}px">
         {#if look.backdrop}
           {#key hero.id}
             <div class="print" transition:fade={{ duration: motionMs(300, 600) }}>
@@ -288,18 +294,15 @@
           {/key}
         {/if}
         <div class="caption when">{ago(hero.lastReadAt)}</div>
-        {#if data.arrivals.length}
-          <button class="caption news" title="See what's new" onclick={seeNew}>{newBooks} new</button>
-        {/if}
         {#key hero.id}
           <div class="text" in:fly={{ y: 10, duration: motionMs(200, 420) }}>
-            <h1>{hero.seriesName.trim()}</h1>
-            <div class="vol">{hero.label}{#if sub}&ensp;&mdash;&ensp;{sub}{/if}</div>
+            <h1 title={hero.seriesName.trim()}>{hero.seriesName.trim()}</h1>
+            <div class="vol" title={sub ? `${hero.label} — ${sub}` : hero.label}>{hero.label}{#if sub}&ensp;&mdash;&ensp;{sub}{/if}</div>
             <div class="by">{shown?.by ?? ""}</div>
             <div class="where">
               <div class="prog"><i style:width="{progressOf(hero) * 100}%"></i></div>
               {#if hero.numPages}
-                <div class="nums mono">
+                <div class="nums fine">
                   <span>Page {hero.currentPage + 1} of {hero.numPages}</span><span>{Math.round(progressOf(hero) * 100)}%</span>
                 </div>
               {/if}
@@ -376,7 +379,7 @@
               <!-- Under the book: arrows to turn to the next, and where you are in the pile. -->
               <div class="turns" style:left="{fit.left + fit.w / 2}px" style:top="{fit.top + fit.h + 14}px">
                 <button class="ico" title="Previous book" aria-label="Previous book" onclick={() => flip(-1)}><Icon name="arrowLeft" size={22} /></button>
-                <span class="count mono">{at + 1} of {pile.length}</span>
+                <span class="count fine">{at + 1} of {pile.length}</span>
                 <button class="ico" title="Next book" aria-label="Next book" onclick={() => flip(1)}><Icon name="arrowRight" size={22} /></button>
               </div>
             {/if}
@@ -391,12 +394,12 @@
         <div class="cols">
           {#each lib.collections as c (c.id)}
             <div class="slot" role="group" oncontextmenu={(e) => libraryMenu(e, c, false)}>
-              <button class="col" data-nav onclick={() => nav.root({ name: "collection", id: c.id })}>
+              <button class="col" data-nav title={c.name} onclick={() => nav.root({ name: "collection", id: c.id })}>
                 <div class="caption">
-                  <span class="named">{c.name}</span><span class="mono">{c.seriesCount.toLocaleString()} series · {c.comicCount.toLocaleString()}</span>
+                  <span class="named">{c.name}</span><span class="fine">{c.seriesCount.toLocaleString()} series · {c.comicCount.toLocaleString()}</span>
                 </div>
-                <div class="fan">
-                  {#each c.covers as id (id)}<Cover {id} width={112} pages={null} />{/each}
+                <div class="fan" style:height="{fanH}px">
+                  {#each c.covers as id (id)}<Cover {id} width={Math.round(fanH * 0.65)} pages={null} />{/each}
                 </div>
               </button>
               <button class="ico add" title="Add a series to {c.name}" aria-label="Add a series to {c.name}" onclick={(e) => addMenu(e, { collection: c.id, title: c.name })}>
@@ -408,22 +411,6 @@
       </section>
     {/if}
   </div>
-
-  {#if data.arrivals.length}
-    <!-- What's come into the library lately and hasn't been opened yet. -->
-    <section class="arrivals" bind:this={arrivalsEl} aria-label="New">
-      <div class="caption">New</div>
-      <div class="grid">
-        {#each data.arrivals as a (a.comic.id)}
-          <button class="arrival" data-nav title={a.comic.seriesName.trim()} onclick={() => nav.go({ name: "series", id: a.comic.seriesId, book: a.comic.id })}>
-            <Cover id={a.comic.id} ratio={a.comic.coverRatio} />
-            <span class="name">{a.comic.seriesName.trim()}</span>
-            <span class="detail">{a.count === 1 ? a.comic.label : `${a.count} new`}</span>
-          </button>
-        {/each}
-      </div>
-    </section>
-  {/if}
 
   {#if empty && noBooks}
     <div class="start">
@@ -444,30 +431,28 @@
 {/if}
 
 <style>
-  /* The hero takes what the library along the bottom leaves of the window. When that isn't enough
-     for it (a short window, or libraries wrapped onto a second row), the page runs past the bottom
-     rather than crowd. */
+  /* The hero takes what one row of libraries leaves of the window (its height is worked out above),
+     and what's in it gives way as that gets short (see below). */
   .screen {
     position: relative;
     isolation: isolate;
     container-type: inline-size;
-    min-height: max(100vh, 690px);
     display: flex;
     flex-direction: column;
   }
   .screen.solo {
-    min-height: 0;
-    padding-top: 140px;
+    padding-top: max(76px, 14vh);
   }
   /* The splash panel: inked frame, the cover printed behind, when you last read in a caption box
      on its corner. */
   .hero {
-    /* Never shorter than what's in it, however little the window leaves. */
-    flex: 1 0 auto;
-    min-height: 400px;
+    flex: none;
+    /* What's inside sizes itself to this panel's height. */
+    container-type: size;
     position: relative;
     display: grid;
     grid-template-columns: minmax(380px, 5fr) 7fr;
+    grid-template-rows: minmax(0, 1fr);
     gap: 48px;
     margin: 76px var(--pad) 20px;
     padding: 40px 48px 16px;
@@ -493,52 +478,9 @@
     top: -4px;
     z-index: 2;
   }
-  /* What's new, on the panel's other corner: goes down to them. */
-  .hero > .news {
-    position: absolute;
-    right: -4px;
-    bottom: -4px;
-    z-index: 12;
-    cursor: pointer;
-  }
-  .hero > .news:hover {
-    background: #f4efe5;
-  }
   .library {
     flex: none;
     padding: 0 var(--pad) 30px;
-  }
-  .arrivals {
-    position: relative;
-    padding: 34px var(--pad) 90px;
-    scroll-margin-top: 44px;
-  }
-  .arrivals .grid {
-    margin-top: 30px;
-  }
-  .arrival {
-    display: block;
-    min-width: 0;
-    text-align: left;
-  }
-  .arrival .name {
-    display: block;
-    margin-top: 10px;
-    font-size: 13px;
-    line-height: 1.35;
-    color: var(--cap);
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-  }
-  .arrival:hover .name {
-    color: var(--text);
-  }
-  .arrival .detail {
-    display: block;
-    margin-top: 3px;
-    font-size: 12px;
-    color: var(--text-3);
   }
   .text {
     position: relative;
@@ -551,17 +493,29 @@
     margin-top: 18px;
     font-family: var(--display);
     font-weight: 400;
-    font-size: clamp(48px, min(6.8vw, 10.5vh), 108px);
+    font-size: clamp(40px, min(6.8vw, 10.5vh, 21cqh), 108px);
     line-height: 0.9;
     letter-spacing: 0.005em;
     overflow-wrap: anywhere;
+    /* Two lines at most, so the panel always has room for the rest. */
+    display: -webkit-box;
+    -webkit-box-orient: vertical;
+    -webkit-line-clamp: 2;
+    line-clamp: 2;
+    overflow: hidden;
+  }
+  .vol,
+  .by {
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
   }
   .vol {
     margin-top: 10px;
-    font-weight: 300;
+    font-weight: 400;
     font-size: 24px;
     color: var(--text-2);
-    letter-spacing: -0.02em;
+    letter-spacing: -0.01em;
   }
   .by {
     margin-top: 8px;
@@ -599,6 +553,27 @@
     display: inline-flex;
     align-items: center;
     gap: 9px;
+  }
+  /* A short panel lets the extras go, the least needed first. */
+  @container (max-height: 430px) {
+    h1 {
+      margin-top: 0;
+    }
+    .left {
+      display: none;
+    }
+  }
+  @container (max-height: 340px) {
+    .text {
+      padding-bottom: 0;
+    }
+    .by {
+      display: none;
+    }
+    .vol {
+      margin-top: 6px;
+      font-size: 18px;
+    }
   }
 
   .stage {
@@ -674,13 +649,20 @@
   /* Every panel the same width, on every row. */
   .cols {
     display: grid;
-    grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+    grid-template-columns: repeat(auto-fit, minmax(130px, 1fr));
     gap: 20px;
   }
   .slot {
+    container-type: inline-size;
     position: relative;
     display: flex;
     min-width: 0;
+  }
+  /* A narrow panel has room for its name but not its counts. */
+  @container (max-width: 235px) {
+    .caption .fine {
+      display: none;
+    }
   }
   /* In the panel's corner, under its caption box. */
   .slot > .add {
@@ -716,7 +698,7 @@
     overflow: hidden;
     text-overflow: ellipsis;
   }
-  .caption .mono {
+  .caption .fine {
     flex: none;
     font-size: 12px;
     letter-spacing: 0;
@@ -728,13 +710,14 @@
      room to rise and lean. */
   .fan {
     position: relative;
-    height: 172px;
     clip-path: inset(-40px 0 -20px 0);
   }
   .fan :global(.cover) {
     position: absolute;
     bottom: 0;
     left: 50%;
+    /* In a narrow panel, room left for the two leaning out from behind. */
+    max-width: 58cqw;
     box-shadow: 0 20px 50px -16px rgba(0, 0, 0, 0.95);
     transform-origin: bottom center;
     transition:
@@ -769,7 +752,7 @@
     padding: 160px var(--pad) 0;
   }
   .start {
-    padding: 20vh var(--pad) 0;
+    padding: 14vh var(--pad) 0;
     max-width: 640px;
   }
   .start h1 {

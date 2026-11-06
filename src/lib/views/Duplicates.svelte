@@ -28,7 +28,7 @@
 <div class="page">
   <h1>Duplicates</h1>
   {#if groups}
-    <p class="sum mono">
+    <p class="sum fine">
       {groups.length ? `${groups.length.toLocaleString()} groups · ${books.toLocaleString()} books` : "None found"}&ensp;·&ensp;nothing here is ever deleted for you
     </p>
     {#each groups as g (g.key)}
@@ -44,10 +44,10 @@
             </button>
             <div class="what">
               <div>{b.comic.seriesName.trim()} <span class="dim">{b.comic.label}</span></div>
-              <div class="path mono" title={b.relPath}>{b.relPath}</div>
+              <div class="path code" title={b.relPath}>{b.relPath}</div>
             </div>
-            <span class="mono dim">{b.comic.numPages ? `${b.comic.numPages} pp` : ""}</span>
-            <span class="mono dim size">{size(b.size)}</span>
+            <span class="fine dim">{b.comic.numPages ? `${b.comic.numPages} pp` : ""}</span>
+            <span class="fine dim size">{size(b.size)}</span>
             <button class="ico" title="Show in Explorer" aria-label="Show in Explorer" onclick={() => api.reveal(b.comic.id)}>
               <Icon name="folder" size={16} />
             </button>
@@ -110,7 +110,7 @@
   }
   .path {
     margin-top: 3px;
-    font-size: 11px;
+    font-size: 12px;
     color: var(--text-3);
     overflow: hidden;
     text-overflow: ellipsis;

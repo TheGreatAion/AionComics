@@ -161,7 +161,7 @@
   .hint {
     margin-left: 24px;
     font-family: var(--mono);
-    font-size: 11px;
+    font-size: 12px;
     color: var(--text-3);
     white-space: nowrap;
   }

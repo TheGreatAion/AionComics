@@ -409,7 +409,7 @@
     <div class="center msg trouble" role="alert">
       <h2>Can’t open {trouble?.title || "this book"}</h2>
       <p>{trouble ? WRONG[trouble.kind] : "Something went wrong opening it."}</p>
-      {#if trouble}<p class="file mono" title={c.error}>{trouble.fileName}</p>{/if}
+      {#if trouble}<p class="file code" title={c.error}>{trouble.fileName}</p>{/if}
       <div class="ways">
         {#if trouble?.next}
           <button class="btn icon-btn" onclick={() => onopen(trouble!.next!.id)}><Icon name="play" size={14} />{trouble.next.label}</button>
@@ -440,7 +440,7 @@
         <div class="end-card">
           <p class="done">You finished {[c.info.comic.seriesName.trim(), c.info.comic.label].filter(Boolean).join(" ")}.</p>
           {#if readLine.length}
-            <p class="read mono">{#each readLine as part, i}{#if i}<span class="dot">·</span>{/if}<span>{part}</span>{/each}</p>
+            <p class="read fine">{#each readLine as part, i}{#if i}<span class="dot">·</span>{/if}<span>{part}</span>{/each}</p>
           {/if}
           {#if c.info.next}
             <button class="next" onclick={() => onopen(c.info!.next!.id)}>
@@ -477,7 +477,7 @@
     <!-- The page number stays on screen after everything else has faded: always in full screen,
          and otherwise when asked for (I, or Options). -->
     {#if (prefs.info || c.fullscreen) && !showChrome}
-      <div class="pin mono">{#if panel}{panel}&ensp;·&ensp;{/if}{count}&ensp;·&ensp;{time}</div>
+      <div class="pin fine">{#if panel}{panel}&ensp;·&ensp;{/if}{count}&ensp;·&ensp;{time}</div>
     {/if}
 
     {#snippet tool(id: string, icon: IconName | null, text = "")}
@@ -490,7 +490,7 @@
         aria-label={a.label}
         onclick={() => (a.run(c), wake())}
       >
-        {#if icon}<Icon name={icon} />{:else}<span class="txt mono">{text}</span>{/if}
+        {#if icon}<Icon name={icon} />{:else}<span class="txt fine">{text}</span>{/if}
       </button>
     {/snippet}
 
@@ -523,7 +523,7 @@
             aria-label="Fit: {FIT_LABEL[c.view.fit]}"
             onclick={() => (c.cycleFit(), wake())}
           >
-            {#if c.view.fit === "full"}<span class="txt mono">1:1</span>{:else}<Icon name={FIT_ICON[c.view.fit]} />{/if}
+            {#if c.view.fit === "full"}<span class="txt fine">1:1</span>{:else}<Icon name={FIT_ICON[c.view.fit]} />{/if}
           </button>
           {@render tool("double", "double")}
           {@render tool("guided", "guided")}
@@ -535,7 +535,7 @@
         </div>
         <i class="sep"></i>
         <!-- Type a page number and press Enter to go there. -->
-        <label class="status mono" title="Type a page and press Enter">
+        <label class="status fine" title="Type a page and press Enter">
           <input
             class="pageno"
             bind:this={pageBox}
@@ -571,7 +571,7 @@
 
     <div class="bottom" class:shown={showChrome} onpointerenter={() => bars(true)} onpointerleave={() => bars(false)} role="presentation">
       <Ticks {c} />
-      {#if panel}<span class="panel mono">{panel}</span>{/if}
+      {#if panel}<span class="panel fine">{panel}</span>{/if}
     </div>
 
     {#if c.overlay === "flow"}<Flow {c} />{/if}
@@ -802,7 +802,7 @@
     color: #cfcfcf;
   }
   .txt {
-    font-size: 11px;
+    font-size: 12px;
     letter-spacing: -0.02em;
   }
   .status {

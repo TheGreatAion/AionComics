@@ -1157,41 +1157,6 @@ pub fn search_all(conn: &Connection, q: &str) -> Result<SearchHits> {
     Ok(SearchHits { series, books, creators, characters, arcs, top_reading })
 }
 
-/// A series with books new to the library that you haven't opened yet.
-#[derive(Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct Arrival {
-    /// Its first new book.
-    pub comic: ComicCard,
-    /// How many it has.
-    pub count: i64,
-    pub added_at: i64,
-}
-
-/// What's come into the library in the last while and hasn't been opened, a series at a time, the
-/// newest first. `total` of them, of which these are the first `limit` series.
-pub fn arrivals(conn: &Connection, now: i64, limit: usize) -> Result<Vec<Arrival>> {
-    let mut st = conn.prepare(&format!(
-        "SELECT {CARD_COLS}, c.added_at FROM comics c {CARD_JOIN}
-         WHERE c.added_at>=?1 AND c.read=0 AND c.current_page=0 ORDER BY c.series_id, c.sort_key"
-    ))?;
-    let mut rows = st.query([now - RECENT_SECS])?;
-    let mut out: Vec<Arrival> = Vec::new();
-    while let Some(r) = rows.next()? {
-        let (comic, at): (ComicCard, i64) = (card(r)?, r.get(13)?);
-        match out.last_mut() {
-            Some(a) if a.comic.series_id == comic.series_id => {
-                a.count += 1;
-                a.added_at = a.added_at.max(at);
-            }
-            _ => out.push(Arrival { comic, count: 1, added_at: at }),
-        }
-    }
-    out.sort_by(|a, b| b.added_at.cmp(&a.added_at).then(a.comic.series_name.cmp(&b.comic.series_name)));
-    out.truncate(limit);
-    Ok(out)
-}
-
 /// Give a book a format by hand (None: back to the one worked out from its name).
 pub fn set_edition(conn: &Connection, comic: i64, kind: Option<&str>) -> Result<()> {
     match kind {
@@ -2117,19 +2082,6 @@ mod story_tests {
         conn.execute("UPDATE comics SET current_page=5, last_read_at=20 WHERE id=15", []).unwrap();
         assert_eq!(search_all(&conn, "saga").unwrap().top_reading.unwrap().id, 15);
     }
-
-    #[test]
-    fn arrivals_are_new_and_unopened_by_series() {
-        let conn = saga("new", "");
-        let now = 100 + RECENT_SECS - 10;
-        let got = arrivals(&conn, now, 12).unwrap();
-        assert_eq!((got.len(), got[0].count), (1, 9));
-        assert_eq!(got[0].comic.id, 13, "its first new book");
-        set_progress(&conn, 13, 5, 24, now).unwrap();
-        set_read(&conn, 14, true, now).unwrap();
-        assert_eq!(arrivals(&conn, now, 12).unwrap()[0].count, 7, "not once opened");
-        assert!(arrivals(&conn, now + 100, 12).unwrap().is_empty(), "not after a while");
-    }
 }
 
 #[cfg(test)]
@@ -2171,7 +2123,6 @@ mod real_stories {
             }
         }
         println!("{stories} stories, {linked} series with links, in {:?}", t.elapsed());
-        println!("arrivals: {:?}", arrivals(&conn, crate::scan::now(), 12).unwrap().iter().map(|a| format!("{} x{}", a.comic.series_name, a.count)).collect::<Vec<_>>());
         for q in ["batman", "bendis", "thorfinn", "year one"] {
             let t = std::time::Instant::now();
             let h = search_all(&conn, q).unwrap();

@@ -35,28 +35,30 @@
   <div class="page">
     <header>
       <h1>Your reading</h1>
-      <div class="since mono">{since ? `Recorded since ${since}` : "Nothing recorded yet"}</div>
+      <div class="since fine">{since ? `Recorded since ${since}` : "Nothing recorded yet"}</div>
     </header>
 
     {#if !data.since}
       <p class="none">Read something and it shows up here: pages, time, streaks, and who you read most.</p>
     {:else}
       <!-- Pages read, and the time and finished books behind them. -->
-      <section class="tiles">
-        {#each PERIODS as [key, label] (key)}
-          {@const p = data[key]}
+      <section class="tilebox">
+        <div class="tiles">
+          {#each PERIODS as [key, label] (key)}
+            {@const p = data[key]}
+            <div class="tile">
+              <div class="label">{label}</div>
+              <div class="big">{p.pages.toLocaleString()}</div>
+              <div class="unit">pages</div>
+              <div class="fine dim">{duration(p.seconds)}{#if finishedLine(p)}&ensp;·&ensp;{finishedLine(p)}{/if}</div>
+            </div>
+          {/each}
           <div class="tile">
-            <div class="label">{label}</div>
-            <div class="big">{p.pages.toLocaleString()}</div>
-            <div class="unit">pages</div>
-            <div class="mono dim">{duration(p.seconds)}{#if finishedLine(p)}&ensp;·&ensp;{finishedLine(p)}{/if}</div>
+            <div class="label">Streak</div>
+            <div class="big">{data.streak}</div>
+            <div class="unit">{data.streak === 1 ? "day" : "days"} in a row</div>
+            <div class="fine dim">best {data.bestStreak}</div>
           </div>
-        {/each}
-        <div class="tile">
-          <div class="label">Streak</div>
-          <div class="big">{data.streak}</div>
-          <div class="unit">{data.streak === 1 ? "day" : "days"} in a row</div>
-          <div class="mono dim">best {data.bestStreak}</div>
         </div>
       </section>
 
@@ -65,9 +67,9 @@
         <div class="weeks">
           {#each data.weeks as [day, pages], i (day)}
             <div class="week" title="Week of {monday(day)}: {pages.toLocaleString()} pages">
-              <span class="n mono">{pages ? pages.toLocaleString() : ""}</span>
+              <span class="n fine">{pages ? pages.toLocaleString() : ""}</span>
               <i style:height="{(pages / peak) * 100}%" class:now={i === data.weeks.length - 1}></i>
-              <span class="d mono">{i % 3 === 0 || i === data.weeks.length - 1 ? monday(day) : ""}</span>
+              <span class="d fine">{i % 3 === 0 || i === data.weeks.length - 1 ? monday(day) : ""}</span>
             </div>
           {/each}
         </div>
@@ -81,7 +83,7 @@
               <button class="pick" onclick={() => s.seriesId && nav.go({ name: "series", id: s.seriesId })}>
                 <Cover id={s.coverId} width={104} pages={null} />
                 <span class="cap">{s.name}</span>
-                <span class="mono dim">{s.pages.toLocaleString()} pages</span>
+                <span class="fine dim">{s.pages.toLocaleString()} pages</span>
               </button>
             {/each}
           </div>
@@ -99,7 +101,7 @@
                     <button onclick={() => nav.go({ name: "people", kind, value: p.name })}>
                       <span class="who">{p.name}</span>
                       <span class="bar"><i style:width="{(p.pages / top(list)) * 100}%"></i></span>
-                      <span class="mono dim">{p.pages.toLocaleString()}</span>
+                      <span class="fine dim">{p.pages.toLocaleString()}</span>
                     </button>
                   </li>
                 {/each}
@@ -117,7 +119,7 @@
               <button class="pick" title="{c.seriesName.trim()} {c.label}" onclick={() => nav.go({ name: "series", id: c.seriesId, book: c.id })} ondblclick={() => openReader(c.id)}>
                 <Cover id={c.id} ratio={c.coverRatio} width={84} pages={c.numPages} />
                 <span class="cap">{c.seriesName.trim()}</span>
-                <span class="mono dim">{c.label}</span>
+                <span class="fine dim">{c.label}</span>
               </button>
             {/each}
           </div>
@@ -153,19 +155,29 @@
     margin-top: 56px;
   }
   h2 {
-    font-weight: 400;
+    font-weight: 600;
     font-size: 15px;
     margin-bottom: 18px;
   }
   .dim {
     color: var(--text-3);
   }
+  .tilebox {
+    container-type: inline-size;
+  }
   .tiles {
     display: grid;
     grid-template-columns: repeat(5, minmax(0, 1fr));
     gap: 14px;
   }
+  /* Too narrow for five across: three and two, so the words and numbers keep their one line. */
+  @container (max-width: 760px) {
+    .tiles {
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+    }
+  }
   .tile {
+    container-type: inline-size;
     padding: 18px 20px;
     border-radius: 10px;
     background: rgb(var(--fg) / 0.035);
@@ -178,7 +190,8 @@
   .big {
     margin-top: 10px;
     font-family: var(--display);
-    font-size: 56px;
+    /* Shrinks with its card, so a long number never spills out. */
+    font-size: min(56px, 45cqi);
     line-height: 0.9;
   }
   .unit {
@@ -212,7 +225,7 @@
   }
   .week .n,
   .week .d {
-    font-size: 11px;
+    font-size: 12px;
     color: var(--text-3);
     height: 14px;
   }
@@ -248,8 +261,8 @@
     white-space: nowrap;
     max-width: 100%;
   }
-  .pick .mono {
-    font-size: 11px;
+  .pick .fine {
+    font-size: 12px;
   }
   .lists {
     display: grid;
@@ -288,7 +301,7 @@
     inset: 0 auto 0 0;
     background: rgb(var(--fg) / 0.6);
   }
-  li .mono {
+  li .fine {
     text-align: right;
     font-size: 12px;
   }

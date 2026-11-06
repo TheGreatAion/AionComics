@@ -25,7 +25,7 @@
     <input type="number" min="1" max={c.count} bind:value={from} aria-label="From" onkeydown={(e) => { e.stopPropagation(); if (e.key === "Escape") c.overlay = null; }} />
     <span>–</span>
     <input type="number" min="1" max={c.count} bind:value={to} aria-label="To" onkeydown={(e) => { e.stopPropagation(); if (e.key === "Escape") c.overlay = null; }} />
-    <span class="mono">/ {c.count}</span>
+    <span class="fine">/ {c.count}</span>
   </div>
   <div class="quick">
     <button type="button" class="link" onclick={() => ((from = c.page + 1), (to = c.furthest + 1))}>This page</button>
@@ -57,7 +57,7 @@
     margin: -8px -12px 0 0;
   }
   h2 {
-    font-weight: 400;
+    font-weight: 600;
     font-size: 15px;
   }
   .btn {
@@ -86,7 +86,7 @@
   input::-webkit-inner-spin-button {
     appearance: none;
   }
-  .mono {
+  .fine {
     color: var(--text-3);
   }
   .quick {

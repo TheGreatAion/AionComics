@@ -24,7 +24,7 @@
       {#each c.bookmarks as p (p)}
         <button class:on={c.shown.includes(p)} onclick={() => c.goTo(p)}>
           <img src={thumbUrl(c.id, p)} alt="" loading="lazy" draggable="false" />
-          <span class="mono">{p + 1}</span>
+          <span class="fine">{p + 1}</span>
         </button>
       {/each}
     </div>
@@ -63,7 +63,7 @@
     margin: -6px -8px 14px 0;
   }
   h2 {
-    font-weight: 400;
+    font-weight: 600;
     font-size: 15px;
   }
   .list {
@@ -91,7 +91,7 @@
     background: #141414;
   }
   span {
-    font-size: 11px;
+    font-size: 12px;
     color: var(--text-2);
   }
   .empty {

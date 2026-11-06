@@ -55,14 +55,6 @@ export interface SearchHits {
 
 export type PeopleKind = "creator" | "character" | "arc";
 
-/** A series with books new to the library that you haven't opened yet. */
-export interface Arrival {
-  /** Its first new book. */
-  comic: ComicCard;
-  count: number;
-  addedAt: number;
-}
-
 /** One format of a series ("Volumes", "Issues", "Annuals"…), its books in their subfolders; or, as
  *  "order", all of them together in the order the story runs. */
 /** A book's reading state before a change, so the change can be undone. */
@@ -91,7 +83,6 @@ export interface Edition {
 export interface Home {
   continueReading: ComicCard[];
   pickUpAgain: ComicCard[];
-  arrivals: Arrival[];
 }
 
 /** A copy of the library database: reading progress, bookmarks, panel edits and metadata. */

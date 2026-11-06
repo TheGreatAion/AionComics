@@ -124,7 +124,7 @@
     <header>
       <h2>{step === "review" && chosen ? chosen.name : single ? `Find ${label ?? "this book"} on Comic Vine` : "Find on Comic Vine"}</h2>
       {#if step === "review" && !single}
-        <span class="sub mono">
+        <span class="sub fine">
           <span title="Matched"><Icon name="check" size={13} />{matched} / {rows.length}</span>
           {#if unsure}<span title="Worth a check"><Icon name="alert" size={13} />{unsure}</span>{/if}
         </span>
@@ -143,7 +143,7 @@
             {#if v.image}<img src={v.image} alt="" loading="lazy" />{:else}<span class="noimg"></span>{/if}
             <span class="info">
               <span class="vname">{v.name}</span>
-              <span class="meta mono">
+              <span class="meta fine">
                 {[v.startYear, v.publisher, v.count ? `${v.count} ${unit(v.count)}` : null].filter(Boolean).join(" · ")}
               </span>
               {#if v.deck}<span class="deck">{v.deck}</span>{/if}
@@ -314,7 +314,7 @@
     gap: 16px;
   }
   h2 {
-    font-weight: 300;
+    font-weight: 400;
     font-size: 26px;
     letter-spacing: -0.03em;
     overflow: hidden;
@@ -354,7 +354,7 @@
     background: none;
     border: 0;
     border-bottom: 1px solid #333;
-    font-weight: 300;
+    font-weight: 400;
     font-size: 20px;
     padding: 6px 0;
     outline: none;
@@ -403,7 +403,7 @@
   }
   .meta {
     color: var(--text-2);
-    font-size: 11px;
+    font-size: 12px;
   }
   .deck {
     color: var(--text-3);
@@ -429,7 +429,7 @@
   }
   .section {
     color: var(--text-3);
-    font-size: 11px;
+    font-size: 12px;
   }
   .arrow {
     color: var(--text-3);

@@ -53,7 +53,7 @@
     <div class="card" role="dialog" aria-modal="true" aria-label="Remove {t.title}">
       {#if !confirming}
         <h2>Remove {t.title}</h2>
-        <p class="detail mono">{t.detail}</p>
+        <p class="detail fine">{t.detail}</p>
         <button class="way" disabled={busy} use:focus onclick={() => act(false)}>
           <Icon name="close" size={16} />
           <span>Hide it<small>Its files stay where they are. Put it back any time in Settings.</small></span>
@@ -64,7 +64,7 @@
         </button>
       {:else}
         <h2>Delete {t.title}?</h2>
-        <p class="detail mono">{t.detail}</p>
+        <p class="detail fine">{t.detail}</p>
         <p class="sure">
           This moves {t.what} to the Recycle Bin and forgets its details, bookmarks and where you'd read to. On a drive
           with no Recycle Bin, Windows may delete {t.what} for good.

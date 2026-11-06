@@ -124,7 +124,7 @@
     gap: 28px;
   }
   h2 {
-    font-weight: 300;
+    font-weight: 400;
     font-size: 40px;
     letter-spacing: -0.04em;
     margin-right: 12px;
@@ -146,9 +146,9 @@
     margin-bottom: 36px;
   }
   h3 {
-    font-weight: 400;
+    font-weight: 600;
     font-size: 13px;
-    color: var(--text-3);
+    color: var(--text-2);
     margin-bottom: 10px;
   }
   .row {

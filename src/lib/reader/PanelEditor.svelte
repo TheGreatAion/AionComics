@@ -210,7 +210,7 @@
           oncontextmenu={(e) => (e.preventDefault(), e.stopPropagation(), remove(i))}
           role="presentation"
         >
-          <span class="num mono">{label(i)}</span>
+          <span class="num fine">{label(i)}</span>
           {#if sel === i && !ordering}
             {#each HANDLES as h (h)}
               <span class="handle {h}" onpointerdown={(e) => start(e, h, i)} role="presentation"></span>
@@ -222,12 +222,12 @@
   </div>
 
   <div class="bar">
-    <span class="title">Panels <span class="mono">p. {page + 1}</span></span>
+    <span class="title">Panels <span class="fine">p. {page + 1}</span></span>
     <span
       class="hint"
       title={ordering ? "" : "Drag on the art to add a panel, drag a panel to move it, its edges to resize. Delete or right-click removes."}
     >
-      {#if loading}…{:else if ordering}Click in reading order&ensp;<span class="mono">{ordering.length} / {panels.length}</span>{:else}Drag to draw · Del removes{/if}
+      {#if loading}…{:else if ordering}Click in reading order&ensp;<span class="fine">{ordering.length} / {panels.length}</span>{:else}Drag to draw · Del removes{/if}
     </span>
     <div class="actions">
       <button
@@ -358,8 +358,8 @@
     font-size: 13px;
     min-width: 0;
   }
-  .title .mono,
-  .hint .mono {
+  .title .fine,
+  .hint .fine {
     color: var(--text-3);
     margin-left: 4px;
   }

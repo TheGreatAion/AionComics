@@ -450,7 +450,7 @@
                 <span class="thumb"><Cover id={c.id} ratio={c.coverRatio} width={30} /></span>
                 <div class="lbl">
                   {c.seriesName.trim()} {c.label}
-                  {#if c.numPages}<small class="mono">{c.currentPage + 1} / {c.numPages}</small>{/if}
+                  {#if c.numPages}<small class="fine">{c.currentPage + 1} / {c.numPages}</small>{/if}
                 </div>
                 <button class="ico" title="Put back on Continue reading" aria-label="Put back on Continue reading" onclick={() => putBack(c)}>
                   <Icon name="undo" size={17} />
@@ -464,12 +464,12 @@
             <div class="row">
               <div class="lbl">
                 <span
-                  class="mono path"
+                  class="code path"
                   title={s.options.yacreaderSync && s.yacreader
                     ? "Only read, except to add comics and libraries you ask for and to send your reading to YACReader. Nothing there is moved or deleted unless you ask."
                     : "Only read, except to add comics and libraries you ask for. Nothing there is moved, changed or deleted unless you ask."}>{s.libraryRoot ?? "Not set"}</span>
                 {#if s.lastScan}
-                  <small class="mono">{s.lastScan.comics.toLocaleString()} books · {s.lastScan.series.toLocaleString()} series · scanned {when(s.lastScan.finishedAt)}</small>
+                  <small class="fine">{s.lastScan.comics.toLocaleString()} books · {s.lastScan.series.toLocaleString()} series · scanned {when(s.lastScan.finishedAt)}</small>
                 {/if}
               </div>
               <div class="ctl">
@@ -500,7 +500,7 @@
               </div>
               {#each hiddenItems as h (`${h.label}-${h.at}`)}
                 <div class="row book">
-                  <div class="lbl">{h.label}<small class="mono">hidden {when(h.at)}</small></div>
+                  <div class="lbl">{h.label}<small class="fine">hidden {when(h.at)}</small></div>
                   <button class="ico" title="Put back" aria-label="Put {h.label} back" onclick={() => unhide(h)}><Icon name="undo" size={17} /></button>
                 </div>
               {/each}
@@ -564,13 +564,13 @@
             <form class="row" onsubmit={(e) => (e.preventDefault(), cvKey.trim() && saveKey(cvKey))}>
               <div class="lbl">
                 Comic Vine
-                <small class="mono">free key at <button type="button" class="url" title="Open in your browser" onclick={() => api.cvOpenSite()}>comicvine.gamespot.com/api</button></small>
+                <small class="fine">free key at <button type="button" class="url" title="Open in your browser" onclick={() => api.cvOpenSite()}>comicvine.gamespot.com/api</button></small>
               </div>
               <div class="ctl">
                 <span class="keyfield" class:on={cv?.hasKey}>
                   <Icon name="key" size={16} />
                   <input
-                    class="mono"
+                    class="code"
                     type="password"
                     bind:value={cvKey}
                     placeholder={cv?.hasKey ? "••••••••  saved" : "API key"}
@@ -593,10 +593,10 @@
             {#if cv?.books}
               <div class="meter">
                 <div class="bar"><i style:width="{(cv.matched / cv.books) * 100}%"></i></div>
-                <span class="mono">
+                <span class="fine">
                   {cv.matched.toLocaleString()} of {cv.books.toLocaleString()} books matched{#if cv.queued} · <span class="spin inline"><Icon name="rescan" size={11} /></span> {cv.queued.toLocaleString()} on the way{/if}
                 </span>
-                {#if cv.lastError}<span class="mono" title="Last problem"><Icon name="alert" size={11} /> {cv.lastError}</span>{/if}
+                {#if cv.lastError}<span class="fine" title="Last problem"><Icon name="alert" size={11} /> {cv.lastError}</span>{/if}
               </div>
             {/if}
             <div class="row">
@@ -611,7 +611,7 @@
             <div class="row">
               <div class="lbl">
                 Last backup
-                <small class="mono">{backups.length ? `${when(backups[0].madeAt)} · one a day` : "None yet"}</small>
+                <small class="fine">{backups.length ? `${when(backups[0].madeAt)} · one a day` : "None yet"}</small>
               </div>
               <button class="ico" title="Back up now" aria-label="Back up now" disabled={backupBusy} onclick={backupNow}>
                 <span class:spin={backupBusy && !confirming}><Icon name={backupBusy && !confirming ? "rescan" : "plus"} size={17} /></span>
@@ -622,8 +622,8 @@
               <ul class="backups">
                 {#each showAll ? backups : backups.slice(0, 3) as b (b.name)}
                   <li>
-                    <span class="mono">{when(b.madeAt)}</span>
-                    <span class="mono dim">{bytes(b.size)}</span>
+                    <span class="fine">{when(b.madeAt)}</span>
+                    <span class="fine dim">{bytes(b.size)}</span>
                     {#if confirming === b.name}
                       <span class="ask">Restart with this backup?</span>
                       <button class="ico" title="Restore and restart" aria-label="Restore and restart" disabled={backupBusy} onclick={() => restore(b.name)}>
@@ -662,14 +662,14 @@
             <div class="meter big">
               <div class="used">
                 <b>{storage ? bytes(used) : "…"}</b>
-                <span class="mono">kept so books open instantly</span>
+                <span class="fine">kept so books open instantly</span>
               </div>
               <div class="bar stack">
                 {#each PARTS as p (p.label)}
                   {#if p.bytes}<i style:flex-grow={p.bytes} style:opacity={p.shade}></i>{/if}
                 {/each}
               </div>
-              <div class="legend mono">
+              <div class="legend fine">
                 {#each PARTS as p (p.label)}
                   <span><b style:opacity={p.shade}></b>{p.label} {bytes(p.bytes)}</span>
                 {/each}
@@ -701,7 +701,7 @@
         </div>
       </div>
 
-      <div class="about mono">
+      <div class="about fine">
         AionComics {version} · Your data is kept in {s.dataDir}
         <button class="ico" title="Open this folder" aria-label="Open this folder" onclick={() => api.openDataFolder()}><Icon name="folder" size={14} /></button>
       </div>
@@ -711,9 +711,6 @@
 <style>
   .page {
     padding: 0 0 120px;
-  }
-  .mono {
-    font-family: var(--mono);
   }
 
   /* The heading in a frame, like a collection's name, with a jump to each section. */
@@ -736,6 +733,7 @@
     top: -4px;
   }
   h1 {
+    margin-top: 26px;
     font: 400 112px/0.82 var(--display);
     letter-spacing: 0.01em;
   }
@@ -751,7 +749,7 @@
     width: 74px;
     padding: 10px 0 8px;
     color: var(--text-2);
-    font-size: 11px;
+    font-size: 12px;
     border-radius: 4px;
     transition:
       color 0.15s,
@@ -830,8 +828,8 @@
     font-size: 12px;
     color: var(--text-3);
   }
-  .lbl small.mono {
-    font-size: 11px;
+  .lbl small.fine {
+    font-size: 12px;
   }
   .path {
     font-size: 14px;
@@ -1086,7 +1084,7 @@
     min-width: 26px;
     height: 24px;
     padding: 0 7px;
-    font: 500 11px var(--mono);
+    font: 400 12px var(--mono);
     color: var(--text);
     background: rgb(var(--fg) / 0.07);
     border: 1px solid var(--line);
@@ -1100,7 +1098,7 @@
   .plus {
     margin: 0 4px;
     color: var(--text-3);
-    font-size: 11px;
+    font-size: 12px;
   }
   .none {
     font-size: 12px;
@@ -1119,7 +1117,7 @@
     border-bottom: 1px solid var(--line);
   }
   .meter > span {
-    font-size: 11px;
+    font-size: 12px;
     color: var(--text-3);
     display: flex;
     align-items: center;
@@ -1162,14 +1160,14 @@
     letter-spacing: 0.02em;
   }
   .used span {
-    font-size: 11px;
+    font-size: 12px;
     color: var(--text-3);
   }
   .legend {
     display: flex;
     flex-wrap: wrap;
     gap: 8px 22px;
-    font-size: 11px;
+    font-size: 12px;
     color: var(--text-2);
   }
   .legend span {
@@ -1235,6 +1233,7 @@
   .url {
     color: var(--text-2);
     font: inherit;
+    font-family: var(--mono);
     text-decoration: underline;
     text-decoration-color: var(--line);
     text-underline-offset: 3px;
@@ -1274,7 +1273,7 @@
     display: flex;
     align-items: center;
     gap: 6px;
-    font-size: 11px;
+    font-size: 12px;
     color: var(--text-3);
     user-select: text;
   }

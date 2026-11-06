@@ -256,7 +256,7 @@
   {#each groups as g (g.folder)}
     <p class="dest">
       {pretty(g.folder)}
-      <span class="mono">{#if g.isNew}new · {/if}{g.n}</span>
+      <span class="fine">{#if g.isNew}new · {/if}{g.n}</span>
     </p>
   {/each}
   {#if count("exists")}<p class="aside">{count("exists")} already there</p>{/if}
@@ -265,7 +265,7 @@
   {#if count("not-comic")}<p class="aside">{count("not-comic")} not a comic, a folder or a .zip of comics</p>{/if}
   {#if made("unpack")}<p class="aside">{made("unpack")} unpacked from a .zip or .rar</p>{/if}
   {#if made("pack")}<p class="aside">{made("pack")} made from {made("pack") === 1 ? "a folder" : "folders"} of pages</p>{/if}
-  {#if groups.length}<p class="hint mono">copied in, your originals stay where they are</p>{/if}
+  {#if groups.length}<p class="hint fine">copied in, your originals stay where they are</p>{/if}
 {/snippet}
 
 {#if plan}
@@ -310,7 +310,7 @@
         <input bind:value={libraryName} oninput={() => (libraryError = "")} use:pickAll spellcheck="false" />
       </label>
       {#if libraryError}<p class="aside">{libraryError}</p>{/if}
-      <p class="hint mono">a new folder in your comics folder</p>
+      <p class="hint fine">a new folder in your comics folder</p>
       <div class="choices">
         <button class="link" onclick={closeLibrary}>Cancel</button>
         <button class="btn" disabled={!libraryName.trim()} onclick={makeLibrary}>Create</button>
@@ -420,10 +420,10 @@
   }
   .dest {
     font-size: 17px;
-    font-weight: 300;
+    font-weight: 400;
     letter-spacing: -0.01em;
   }
-  .dest .mono {
+  .dest .fine {
     margin-left: 10px;
     color: var(--text-3);
   }
@@ -434,7 +434,7 @@
   .hint {
     margin-top: 10px;
     color: var(--text-3);
-    font-size: 11px;
+    font-size: 12px;
   }
   .note {
     position: fixed;

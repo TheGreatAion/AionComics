@@ -33,7 +33,7 @@
     <header>
       <div class="kind">{{ creator: "Creator", character: "Character", arc: "Story arc" }[kind]}</div>
       <h1>{data.name}</h1>
-      <div class="sum mono">
+      <div class="sum fine">
         {data.books.toLocaleString()} {data.books === 1 ? "book" : "books"} · {seriesCount.toLocaleString()} series{#if roles}&ensp;·&ensp;{roles}{/if}
       </div>
     </header>
@@ -46,7 +46,7 @@
       <section>
         <div class="head">
           <button class="name" onclick={() => nav.go({ name: "series", id: s.id })}>{s.name}</button>
-          <span class="mono dim">{s.collectionName} · {s.comics.length}</span>
+          <span class="fine dim">{s.collectionName} · {s.comics.length}</span>
         </div>
         <div class="row">
           {#each s.comics as c (c.id)}
@@ -60,7 +60,7 @@
               ondblclick={() => openReader(c.id)}
             >
               <Cover id={c.id} ratio={c.coverRatio} width={92} pages={c.numPages} />
-              <span class="cap mono">{c.label}</span>
+              <span class="cap fine">{c.label}</span>
             </button>
           {/each}
         </div>
@@ -151,7 +151,7 @@
   }
   .cap {
     margin-top: 8px;
-    font-size: 11px;
+    font-size: 12px;
     color: var(--text-3);
   }
 </style>
