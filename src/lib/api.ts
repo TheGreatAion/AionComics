@@ -39,6 +39,8 @@ export interface NameHit {
   name: string;
   books: number;
   coverId: number;
+  /** How closely it matches, the closest lowest. */
+  close: number;
 }
 
 export interface SearchHits {
@@ -47,6 +49,8 @@ export interface SearchHits {
   creators: NameHit[];
   characters: NameHit[];
   arcs: NameHit[];
+  /** The book you're partway through in the first series, if you are. */
+  topReading: ComicCard | null;
 }
 
 export type PeopleKind = "creator" | "character" | "arc";

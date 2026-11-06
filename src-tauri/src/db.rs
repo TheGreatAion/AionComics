@@ -1053,6 +1053,8 @@ pub struct NameHit {
     pub books: i64,
     /// A book of theirs, for its cover.
     pub cover_id: i64,
+    /// How closely it matches (see `closeness`), to sort different kinds of name together.
+    pub close: u8,
 }
 
 #[derive(Serialize)]
@@ -1063,11 +1065,31 @@ pub struct SearchHits {
     pub creators: Vec<NameHit>,
     pub characters: Vec<NameHit>,
     pub arcs: Vec<NameHit>,
+    /// The book you're partway through in the first series, if you are.
+    pub top_reading: Option<ComicCard>,
 }
 
-/// The names on one-per-line fields that have `q` in them, those starting with it first, then those
-/// on the most books.
-fn names_matching(conn: &Connection, fields: &[&str], like: &str, q: &str, limit: usize) -> Result<Vec<NameHit>> {
+/// How closely a name matches `q` (in lower case), the closest lowest: all of it, its start, the
+/// start of a word in it ("Tom King"), or only inside a word ("Walking").
+fn closeness(name: &str, q: &str) -> u8 {
+    let name = name.trim().to_lowercase();
+    if name == q {
+        return 0;
+    }
+    if name.starts_with(q) {
+        return 1;
+    }
+    let at_word = name.match_indices(q).any(|(i, _)| !name[..i].chars().next_back().is_some_and(char::is_alphanumeric));
+    if at_word {
+        2
+    } else {
+        3
+    }
+}
+
+/// The names on one-per-line fields that have `q` in them, the closest matches first, then those on
+/// the most books.
+fn names_matching(conn: &Connection, fields: &[&str], like: &str, q: &str) -> Result<Vec<NameHit>> {
     let any = fields.iter().map(|f| format!("{f} LIKE ?1 ESCAPE '\\'")).collect::<Vec<_>>().join(" OR ");
     let mut st = conn.prepare(&format!("SELECT id, {} FROM comics WHERE {any}", fields.join(", ")))?;
     let mut rows = st.query([like])?;
@@ -1086,36 +1108,53 @@ fn names_matching(conn: &Connection, fields: &[&str], like: &str, q: &str, limit
             found.entry(n).or_insert((0, id)).0 += 1;
         }
     }
-    let mut hits: Vec<NameHit> = found.into_iter().map(|(name, (books, cover_id))| NameHit { name, books, cover_id }).collect();
-    let starts = |h: &NameHit| !h.name.to_lowercase().starts_with(&q);
-    hits.sort_by(|a, b| starts(a).cmp(&starts(b)).then(b.books.cmp(&a.books)).then_with(|| a.name.cmp(&b.name)));
-    hits.truncate(limit);
+    let mut hits: Vec<NameHit> = found
+        .into_iter()
+        .map(|(name, (books, cover_id))| NameHit { close: closeness(&name, &q), name, books, cover_id })
+        .collect();
+    hits.sort_by(|a, b| a.close.cmp(&b.close).then(b.books.cmp(&a.books)).then_with(|| a.name.cmp(&b.name)));
     Ok(hits)
 }
 
 /// Everything in the library that matches: series, books by their title or their file's name (where
 /// the series itself didn't match, or it'd be every book in it), creators, characters and teams, and
-/// story arcs.
+/// story arcs. The closest matches come first, and among those whatever you read last.
 pub fn search_all(conn: &Connection, q: &str) -> Result<SearchHits> {
     let like = format!("%{}%", q.trim().replace('\\', "\\\\").replace('%', "\\%").replace('_', "\\_"));
-    let series = {
+    let lower = q.trim().to_lowercase();
+    let mut series = {
         let mut st = conn.prepare(&format!(
             "{SERIES_SELECT} WHERE s.name LIKE ?1 ESCAPE '\\'
-             GROUP BY s.id ORDER BY MAX(c.last_read_at) DESC NULLS LAST, s.name COLLATE NOCASE LIMIT 6"
+             GROUP BY s.id ORDER BY MAX(c.last_read_at) DESC NULLS LAST, s.name COLLATE NOCASE"
         ))?;
         let v = st.query_map([&like], series_summary)?.collect::<rusqlite::Result<Vec<_>>>()?;
         v
     };
-    let books = cards(
+    series.sort_by_key(|s| closeness(&s.name, &lower));
+    let mut books = cards(
         conn,
         "WHERE (c.title LIKE ?1 ESCAPE '\\' OR c.file_name LIKE ?1 ESCAPE '\\') AND s.name NOT LIKE ?1 ESCAPE '\\'
-         ORDER BY c.title LIKE ?1 ESCAPE '\\' DESC, c.last_read_at DESC NULLS LAST, s.name COLLATE NOCASE, c.sort_key LIMIT 6",
+         ORDER BY c.title LIKE ?1 ESCAPE '\\' DESC, c.last_read_at DESC NULLS LAST, s.name COLLATE NOCASE, c.sort_key",
         [&like],
     )?;
-    let creators = names_matching(conn, &CREATOR_FIELDS.map(|f| f.0), &like, q, 4)?;
-    let characters = names_matching(conn, &CHARACTER_FIELDS.map(|f| f.0), &like, q, 4)?;
-    let arcs = names_matching(conn, &["story_arc"], &like, q, 3)?;
-    Ok(SearchHits { series, books, creators, characters, arcs })
+    // A match only in the file's name comes after any in a title.
+    books.sort_by_key(|b| match b.title.as_deref() {
+        Some(t) if t.to_lowercase().contains(&lower) => closeness(t, &lower),
+        _ => 4,
+    });
+    let creators = names_matching(conn, &CREATOR_FIELDS.map(|f| f.0), &like, q)?;
+    let characters = names_matching(conn, &CHARACTER_FIELDS.map(|f| f.0), &like, q)?;
+    let arcs = names_matching(conn, &["story_arc"], &like, q)?;
+    let top_reading = match series.first() {
+        Some(s) => cards(
+            conn,
+            "WHERE c.series_id=?1 AND c.read=0 AND c.current_page>0 ORDER BY c.last_read_at DESC LIMIT 1",
+            [s.id],
+        )?
+        .pop(),
+        None => None,
+    };
+    Ok(SearchHits { series, books, creators, characters, arcs, top_reading })
 }
 
 /// A series with books new to the library that you haven't opened yet.
@@ -2054,6 +2093,29 @@ mod story_tests {
         assert_eq!(names(&search_all(&conn, "chapter").unwrap().arcs), [("Chapter Three".to_string(), 1)]);
         assert_eq!(people_view(&conn, "arc", "Chapter Three").unwrap().books, 1);
         assert!(search_all(&conn, "100%").unwrap().series.is_empty());
+    }
+
+    #[test]
+    fn search_puts_the_closest_matches_first() {
+        assert_eq!(closeness("King", "king"), 0);
+        assert_eq!(closeness("Kingdom", "king"), 1);
+        assert_eq!(closeness("Tom King", "king"), 2);
+        assert_eq!(closeness("Batman – Kings of Fear", "king"), 2);
+        assert_eq!(closeness("The Walking Dead", "king"), 3);
+
+        let conn = saga("closest", "");
+        let col: i64 = conn.query_row("SELECT collection_id FROM series LIMIT 1", [], |r| r.get(0)).unwrap();
+        for (id, name) in [(50, "The Walking Sagas"), (51, "Sagan"), (52, "Space Saga")] {
+            conn.execute("INSERT INTO series (id, collection_id, name, rel_path) VALUES (?1, ?2, ?3, ?3)", rusqlite::params![id, col, name]).unwrap();
+        }
+        conn.execute("UPDATE comics SET last_read_at=9 WHERE series_id=(SELECT id FROM series WHERE name='Saga')", []).unwrap();
+        let found = search_all(&conn, "saga").unwrap();
+        let names: Vec<&str> = found.series.iter().map(|s| s.name.as_str()).collect();
+        assert_eq!(names, ["Saga", "Sagan", "Space Saga", "The Walking Sagas"]);
+        // Not partway through anything yet, then partway through one book.
+        assert!(found.top_reading.is_none());
+        conn.execute("UPDATE comics SET current_page=5, last_read_at=20 WHERE id=15", []).unwrap();
+        assert_eq!(search_all(&conn, "saga").unwrap().top_reading.unwrap().id, 15);
     }
 
     #[test]

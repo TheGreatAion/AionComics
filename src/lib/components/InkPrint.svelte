@@ -14,14 +14,14 @@
   let { id, hue, at = 50 }: { id: number; hue: number | null; at?: number } = $props();
 
   const filterId = `ink-${++count}`;
-  let sharp = $state(false);
-  // Once the sharp print has faded in, the soft one under it is only more to paint.
-  let settled = $state(false);
-  $effect(() => {
-    void id;
-    sharp = false;
-    settled = false;
-  });
+  // Which cover's sharp print has loaded, and which has finished fading in, after which the soft one
+  // under it is only more to paint. Kept by cover rather than reset when it changes: the page handing
+  // over fresh details of the same book (as it does after a scan) doesn't load the picture again, so
+  // a reset would never be undone and the print would stay hidden.
+  let sharpId = $state<number | null>(null);
+  let settledId = $state<number | null>(null);
+  const sharp = $derived(sharpId === id);
+  const settled = $derived(settledId === id);
 
   const near = (hex: string) => [1, 3, 5].map((i) => parseInt(hex.slice(i, i + 2), 16) / 255);
   const ink = $derived.by(() => {
@@ -52,8 +52,8 @@
       alt=""
       style:object-position="50% {at}%"
       style:filter="url(#{filterId})"
-      onload={() => (sharp = true)}
-      ontransitionend={() => (settled = true)}
+      onload={() => (sharpId = id)}
+      ontransitionend={() => (settledId = id)}
     />
   {/key}
 </div>

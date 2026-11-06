@@ -444,25 +444,27 @@
 {/if}
 
 <style>
-  /* The hero takes what the library along the bottom leaves of the window. */
-  /* On a very short window the first screen runs a little past the bottom rather than crowd. */
+  /* The hero takes what the library along the bottom leaves of the window. When that isn't enough
+     for it (a short window, or libraries wrapped onto a second row), the page runs past the bottom
+     rather than crowd. */
   .screen {
     position: relative;
     isolation: isolate;
-    height: max(100vh, 690px);
+    container-type: inline-size;
+    min-height: max(100vh, 690px);
     display: flex;
     flex-direction: column;
   }
   .screen.solo {
-    height: auto;
     min-height: 0;
     padding-top: 140px;
   }
   /* The splash panel: inked frame, the cover printed behind, when you last read in a caption box
      on its corner. */
   .hero {
-    flex: 1;
-    min-height: 0;
+    /* Never shorter than what's in it, however little the window leaves. */
+    flex: 1 0 auto;
+    min-height: 400px;
     position: relative;
     display: grid;
     grid-template-columns: minmax(380px, 5fr) 7fr;
@@ -472,6 +474,14 @@
     border: 4px solid var(--ink);
     background: var(--raised);
     align-items: center;
+  }
+  /* With little width (a small window, or the side panel taking some), the book gets an even share. */
+  @container (max-width: 900px) {
+    .hero {
+      grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+      gap: 24px;
+      padding: 40px 28px 16px;
+    }
   }
   .print {
     position: absolute;
