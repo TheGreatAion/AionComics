@@ -85,6 +85,11 @@ const MARGIN_FLAT: i16 = 14; // bleed layouts: how much a page margin's level ma
 const BLEED_END_RUN: f32 = 0.12; // bleed layouts: most of a cut's length that may be art at one end
 const BLEED_ROW_FIRST: f32 = 0.8; // bleed layouts: a cut across wins unless one down scores this much better
 const MAX_SHARED: f32 = 0.5; // a box half inside a bigger one is a fragment of it (neighbors share slivers)
+const JOIN_GAP: f32 = 0.015; // rejoining pieces of a panel: most room between them (page fraction)
+const JOIN_OVERLAP: f32 = 0.08; // rejoining pieces of a panel: most their boxes may overlap
+const JOIN_ALIGN: f32 = 0.03; // rejoining pieces of a panel: how far their ends may be off line
+const SLIVER: f32 = 0.07; // a stop thinner than this (page fraction) is folded into a panel it lies against
+const EVEN_GAP: i32 = 6; // rejoining pieces of a panel: how much (work pixels) a gutter's width may vary
 const BLEED_CUT_PAPER: f32 = 0.6; // bleed layouts: share of a cut over paper
 const BLEED_CLEAN_FLANK: f32 = 0.25; // bleed layouts: flanking needed by a cut that's ≥95% paper
 const BLEED_LIGHT_LINE: u8 = 235; // bleed layouts: a light cut's median at least this
@@ -207,6 +212,8 @@ struct Piece {
     ruled_sides: usize,
     /// Sides not on the page edge.
     inner_sides: usize,
+    /// Its pixels, for rejoining pieces of one panel (see `Splitter::mend`).
+    pixels: Vec<u32>,
 }
 
 impl Piece {
@@ -462,7 +469,99 @@ impl Splitter {
                 }
             }
         }
-        out.push(self.shape(&pixels, r));
+        let mut piece = self.shape(&pixels, r);
+        piece.pixels = pixels;
+        out.push(piece);
+    }
+
+    /// Rejoin pieces of one panel. Where the gutters are black, black hair or armor touching one lets
+    /// the flood run through the panel, which falls apart into pieces with ragged sides where it was
+    /// cut. Two pieces side by side in one row (or one above the other in one column), both with a
+    /// ragged side, are one panel when no gutter runs between them, not even a steep one, and
+    /// together they're no more ragged than either alone (sides along the page edge don't count).
+    fn mend(&mut self, mut pieces: Vec<Piece>, log: &mut dyn FnMut(String)) -> Vec<Piece> {
+        loop {
+            let found = (0..pieces.len())
+                .flat_map(|i| (i + 1..pieces.len()).map(move |j| (i, j)))
+                .find_map(|(i, j)| self.join(&pieces, i, j).map(|p| (i, j, p)));
+            let Some((i, j, joined)) = found else { return pieces };
+            let p = &joined.panel;
+            log(format!("mended {:.2}x{:.2}@{:.2},{:.2} r{}/{}", p.w, p.h, p.x, p.y, joined.ruled_sides, joined.inner_sides));
+            pieces.swap_remove(j);
+            pieces.swap_remove(i);
+            pieces.push(joined);
+        }
+    }
+
+    /// Pieces `i` and `j` as one panel, when they are one (see `mend`).
+    fn join(&mut self, pieces: &[Piece], i: usize, j: usize) -> Option<Piece> {
+        let (a, b) = (&pieces[i], &pieces[j]);
+        let (pa, pb) = (&a.panel, &b.panel);
+        let ragged = |p: &Piece| p.inner_sides - p.ruled_sides;
+        if !pa.big_enough() || !pb.big_enough() || ragged(a) == 0 || ragged(b) == 0 {
+            return None;
+        }
+        // Next to each other (a little room between, or a little overlap: the cut wanders), and
+        // lined up at both ends the other way, between the same gutters.
+        let next = |a0: f32, a1: f32, b0: f32, b1: f32| (-JOIN_OVERLAP..=JOIN_GAP).contains(&(b0 - a1).max(a0 - b1));
+        let lined = |a0: f32, a1: f32, b0: f32, b1: f32| (a0 - b0).abs() <= JOIN_ALIGN && (a1 - b1).abs() <= JOIN_ALIGN;
+        let (ax, bx) = ((pa.x, pa.x + pa.w), (pb.x, pb.x + pb.w));
+        let (ay, by) = ((pa.y, pa.y + pa.h), (pb.y, pb.y + pb.h));
+        let beside = next(ax.0, ax.1, bx.0, bx.1) && lined(ay.0, ay.1, by.0, by.1);
+        let stacked = next(ay.0, ay.1, by.0, by.1) && lined(ax.0, ax.1, bx.0, bx.1);
+        if beside == stacked {
+            return None;
+        }
+        let pixels = [a.pixels.as_slice(), b.pixels.as_slice()].concat();
+        let r = self.tight(&pixels)?;
+        let union = self.panel(r);
+        // Not across a third panel.
+        if pieces.iter().enumerate().any(|(k, o)| k != i && k != j && o.panel.big_enough() && union.overlap(&o.panel) > 0.3 * o.panel.area()) {
+            return None;
+        }
+        self.stamp += 1;
+        for &p in &pixels {
+            self.mark[p as usize] = self.stamp;
+        }
+        // Side by side, a gutter between them runs down; one above the other, across. One steeper
+        // than a cut may lean still leaves the same room between them all along.
+        if self.best_cut(r, beside).is_some() || self.even_gap(&a.pixels, &b.pixels, beside) {
+            return None;
+        }
+        let mut joined = self.shape(&pixels, r);
+        if ragged(&joined) > ragged(a).min(ragged(b)) {
+            return None;
+        }
+        joined.pixels = pixels;
+        Some(joined)
+    }
+
+    /// Whether a gutter of even width, at any slant, runs between two pieces side by side (or one
+    /// above the other): along the rows (columns) they share, the room between them stays about
+    /// the same. Where art cut a panel apart, it wanders, or the pieces interlock.
+    fn even_gap(&self, a: &[u32], b: &[u32], beside: bool) -> bool {
+        let w = self.w;
+        // (line, position along it) of a pixel: rows side by side, columns one above the other.
+        let at: fn(usize, usize) -> (usize, usize) = if beside { |i, w| (i / w, i % w) } else { |i, w| (i % w, i / w) };
+        let lines = if beside { self.h } else { self.w };
+        let mean = |p: &[u32]| p.iter().map(|&i| at(i as usize, w).1 as f64).sum::<f64>() / p.len().max(1) as f64;
+        let (first, second) = if mean(a) <= mean(b) { (a, b) } else { (b, a) };
+        let (mut end, mut start) = (vec![-1i32; lines], vec![i32::MAX; lines]);
+        for &i in first {
+            let (l, p) = at(i as usize, w);
+            end[l] = end[l].max(p as i32);
+        }
+        for &i in second {
+            let (l, p) = at(i as usize, w);
+            start[l] = start[l].min(p as i32);
+        }
+        let mut gaps: Vec<i32> = (0..lines).filter(|&l| end[l] >= 0 && start[l] < i32::MAX).map(|l| start[l] - end[l]).collect();
+        if gaps.len() < 8 {
+            return false;
+        }
+        gaps.sort_unstable();
+        let q = |f: f32| gaps[((gaps.len() - 1) as f32 * f) as usize];
+        q(0.1) >= 2 && q(0.9) - q(0.1) <= EVEN_GAP
     }
 
     /// Fit the piece's outline: a robust straight line along each side,
@@ -524,7 +623,7 @@ impl Splitter {
                 panel.poly = Some(poly.iter().map(|&(x, y)| [(x + r.x0 as f32) / w, (y + r.y0 as f32) / h]).collect());
             }
         }
-        Piece { panel, ruled_sides, inner_sides }
+        Piece { panel, ruled_sides, inner_sides, pixels: Vec::new() }
     }
 
     /// Drop small fragments a straight cut sheared off a neighboring panel
@@ -926,8 +1025,10 @@ fn detect_in(small: GrayImage, fine: &dyn Fn() -> Option<GrayImage>, rtl: bool, 
     for blob in found {
         splitter.split(blob, 0, &mut pieces);
     }
+    // AION_NOMEND=1 (tests): leave rejoining out, to compare.
+    let pieces = if cfg!(test) && std::env::var("AION_NOMEND").is_ok() { pieces } else { splitter.mend(pieces, log) };
     if let Ok((kept, _)) = judge(pieces, false, log) {
-        return Ok(ordered(kept, rtl));
+        return Ok(ordered(kept.into_iter().map(|p| p.panel).collect(), rtl, log));
     }
     #[cfg(test)]
     if std::env::var("AION_PANELS_NOBLEED").is_ok() {
@@ -942,16 +1043,14 @@ fn detect_in(small: GrayImage, fine: &dyn Fn() -> Option<GrayImage>, rtl: bool, 
     splitter.split((0..small.width() * small.height()).collect(), 0, &mut pieces);
     log("bleed:".into());
     if let Ok((kept, _)) = judge(pieces, true, log) {
-        return Ok(ordered(kept, rtl));
+        return Ok(ordered(kept.into_iter().map(|p| p.panel).collect(), rtl, log));
     }
 
     // No gutter runs between panels that overlap, or between framed panels laid over art that
     // fills the page; but each of them has a border drawn round what shows of it.
     // AION_NOFRAMES=1 (tests): leave this pass out, to compare.
     let framed = if cfg!(test) && std::env::var("AION_NOFRAMES").is_ok() { Vec::new() } else { crate::frames::find(&small, fine, log) };
-    let mut out = Vec::new();
-    order(framed, rtl, true, 0, &mut out);
-    Ok(out)
+    Ok(ordered(framed, rtl, log))
 }
 
 /// Keep the pieces that make a paneled page, with their ruled share of the page; Err when the page
@@ -994,10 +1093,41 @@ fn judge(mut pieces: Vec<Piece>, bleed: bool, log: &mut dyn FnMut(String)) -> Re
     Ok((kept, ruled))
 }
 
-fn ordered(kept: Vec<Piece>, rtl: bool) -> Vec<Panel> {
+/// The panels in reading order, slivers folded into their neighbors (see `fold_slivers`).
+fn ordered(panels: Vec<Panel>, rtl: bool, log: &mut dyn FnMut(String)) -> Vec<Panel> {
     let mut out = Vec::new();
-    order(kept.into_iter().map(|p| p.panel).collect(), rtl, true, 0, &mut out);
+    order(fold_slivers(panels, log), rtl, true, 0, &mut out);
     out
+}
+
+/// A strip too thin to read as a step of its own, lying against a panel it lines up with end to
+/// end, is part of that panel cut off along a line of art: put it back. (A thin panel of its own,
+/// a caption strip, has a gutter round it; one that isn't against a panel lined up with it stays.)
+fn fold_slivers(mut panels: Vec<Panel>, log: &mut dyn FnMut(String)) -> Vec<Panel> {
+    loop {
+        let thin = |p: &Panel| p.w.min(p.h) < SLIVER;
+        // The neighbor a sliver lies against: touching (or overlapping a little) along its thin
+        // side, both ends of its long side lined up.
+        let against = |s: &Panel, n: &Panel| {
+            let lined = |a0: f32, a1: f32, b0: f32, b1: f32| (a0 - b0).abs() <= JOIN_ALIGN && (a1 - b1).abs() <= JOIN_ALIGN;
+            let touching = |a0: f32, a1: f32, b0: f32, b1: f32| (-SLIVER..=JOIN_GAP).contains(&(b0 - a1).max(a0 - b1));
+            if s.h <= s.w {
+                lined(s.x, s.x + s.w, n.x, n.x + n.w) && touching(s.y, s.y + s.h, n.y, n.y + n.h)
+            } else {
+                lined(s.y, s.y + s.h, n.y, n.y + n.h) && touching(s.x, s.x + s.w, n.x, n.x + n.w)
+            }
+        };
+        let found = (0..panels.len())
+            .filter(|&i| thin(&panels[i]))
+            .find_map(|i| (0..panels.len()).find(|&j| j != i && !thin(&panels[j]) && against(&panels[i], &panels[j])).map(|j| (i, j)));
+        let Some((i, j)) = found else { return panels };
+        let (s, n) = (&panels[i], &panels[j]);
+        let (x0, y0) = (s.x.min(n.x), s.y.min(n.y));
+        let (x1, y1) = ((s.x + s.w).max(n.x + n.w), (s.y + s.h).max(n.y + n.h));
+        log(format!("sliver {:.2}x{:.2}@{:.2},{:.2} folded into {:.2}x{:.2}@{:.2},{:.2}", s.w, s.h, s.x, s.y, n.w, n.h, n.x, n.y));
+        panels[j] = Panel { x: x0, y: y0, w: x1 - x0, h: y1 - y0, poly: None };
+        panels.swap_remove(i);
+    }
 }
 
 #[cfg(test)]
@@ -1170,6 +1300,52 @@ mod tests {
         assert_eq!(found.len(), 2, "{found:?}");
         assert!(found[0].y < 0.05 && found[0].h < 0.5, "{found:?}");
         assert!(found[1].y > 0.48 && found[1].h > 0.4, "{found:?}");
+    }
+
+    /// Black gutters, and black hair running down through the top panel from the page's top edge
+    /// to the gutter below: the flood cuts the panel in two, and the halves are put back together.
+    #[test]
+    fn dark_art_across_a_panel() {
+        let img = GrayImage::from_fn(600, 900, |x, y| {
+            let (xf, yf) = (x as f32, y as f32);
+            let panel = x >= 40 && ((0..400).contains(&y) || (440..860).contains(&y));
+            // A strand of hair that wanders and thickens on its way down.
+            let middle = 300.0 + 12.0 * (yf / 25.0).sin();
+            let half = 4.0 + 11.0 * (yf / 40.0).sin().abs();
+            let hair = y < 400 && (xf - middle).abs() <= half;
+            Luma([if panel && !hair { 200 } else { 0 }])
+        });
+        let found = detect(&png(img), false).unwrap();
+        assert_eq!(found.len(), 2, "{found:?}");
+        assert!(found[0].y < 0.02 && found[0].w > 0.8, "{found:?}");
+        assert!(found[1].y > 0.45 && found[1].w > 0.8, "{found:?}");
+    }
+
+    /// A strip cut off the top of a panel goes back into it; a thin panel with a gutter round it,
+    /// and a strip that doesn't line up with the panel beside it, stay steps of their own.
+    #[test]
+    fn slivers_fold_into_their_panel() {
+        let p = |x: f32, y: f32, w: f32, h: f32| Panel { x, y, w, h, poly: None };
+        let folded = fold_slivers(vec![p(0.70, 0.36, 0.30, 0.05), p(0.70, 0.42, 0.30, 0.12), p(0.0, 0.32, 0.69, 0.22)], &mut |_| {});
+        assert_eq!(folded.len(), 2, "{folded:?}");
+        assert!(folded.iter().any(|q| (q.y - 0.36).abs() < 1e-4 && (q.h - 0.18).abs() < 1e-4), "{folded:?}");
+        // A caption strip under a gutter, and a short strip at one side of a wide panel.
+        let kept = fold_slivers(vec![p(0.09, 0.30, 0.87, 0.30), p(0.09, 0.70, 0.87, 0.06), p(0.05, 0.05, 0.2, 0.04), p(0.05, 0.10, 0.9, 0.15)], &mut |_| {});
+        assert_eq!(kept.len(), 4, "{kept:?}");
+    }
+
+    /// Two panels side by side under one gutter of even width that slants more than a cut may:
+    /// they stay apart.
+    #[test]
+    fn steep_gutter_stays() {
+        let img = GrayImage::from_fn(600, 900, |x, y| {
+            let (xf, yf) = (x as f32, y as f32);
+            let panel = x >= 40 && ((0..400).contains(&y) || (440..860).contains(&y));
+            let gutter = y < 400 && (xf - (220.0 + yf * 0.4)).abs() <= 8.0;
+            Luma([if panel && !gutter { 200 } else { 0 }])
+        });
+        let found = detect(&png(img), false).unwrap();
+        assert_eq!(found.len(), 3, "{found:?}");
     }
 }
 
