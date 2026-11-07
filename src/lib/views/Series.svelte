@@ -39,17 +39,10 @@
     books.find((c) => !c.read) ??
     books[0];
   const count = (e: { sections: { comics: ComicCard[] }[] }) => e.sections.reduce((n, s) => n + s.comics.length, 0);
-  // The format you've dragged to the front, if you have: what this series opens on.
-  const front = $derived(data?.formatOrder?.length ? data.editions[0] : null);
-  // The book shown first: where to start that format; else the one you're reading, else where to start
-  // the biggest format.
-  const target = $derived.by(() => {
-    if (front) return startOf(front.sections.flatMap((s) => s.comics));
-    const going = startOf(all);
-    if (going && going.currentPage > 0 && !going.read) return going;
-    const biggest = (data?.editions ?? []).filter((e) => e.kind !== "order").sort((a, b) => count(b) - count(a))[0];
-    return biggest ? startOf(biggest.sections.flatMap((s) => s.comics)) : going;
-  });
+  // The first tab, which you can change by dragging: what this series opens on.
+  const front = $derived(data?.editions[0]);
+  // The book shown first: where to start that format.
+  const target = $derived(startOf(front?.sections.flatMap((s) => s.comics) ?? all));
   // "Makoto Yukimura · Kodansha Comics USA · 2013–2026", with the artist when it isn't the writer.
   // A long run names a dozen artists: the first few, then how many more.
   const few = (v: string | null | undefined, n: number) => {
@@ -127,8 +120,8 @@
     void id;
     chosen = null;
   });
-  // Until a format is picked, the strip shows the one in front; or, when that's not been set or you've
-  // come here for a particular book, the one the chosen book is in.
+  // Until a format is picked, the strip shows the first tab; or, when you've come here for a particular
+  // book, the one that book is in.
   const edition = $derived(data?.editions.find((e) => e.kind === (chosen ?? (startBook == null ? front?.kind : null) ?? book?.edition)) ?? data?.editions[0]);
   const inView = $derived(edition?.sections.flatMap((s) => s.comics) ?? all);
   // Only what's still unread, when asked; remembered from one series to the next.
