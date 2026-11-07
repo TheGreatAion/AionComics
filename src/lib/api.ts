@@ -153,6 +153,8 @@ export interface SeriesView {
   synopsis: string | null;
   sections: { name: string; comics: ComicCard[] }[];
   editions: Edition[];
+  /** The order you've put its formats in, if you have. The first one is what the series opens on. */
+  formatOrder: string[] | null;
   backfill: { beforeId: number; beforeLabel: string; count: number } | null;
   /** The Comic Vine series this one is matched to. */
   cvVolumeId: string | null;
@@ -397,6 +399,8 @@ export const api = {
   startFresh: () => invoke<string>("start_fresh"),
   setLayout: (layout: string) => invoke<void>("set_layout", { layout }),
   setSeriesReading: (id: number, reading: string | null) => invoke<void>("set_series_reading", { id, reading }),
+  /** Returns how they were, for Undo. */
+  setFormatOrder: (id: number, order: string[] | null) => invoke<string[] | null>("set_format_order", { id, order }),
   setLibraryReading: (id: number, reading: string | null) => invoke<void>("set_library_reading", { id, reading }),
   /** Hide books, a series or a library; with `del`, move their files to the Recycle Bin. */
   removeBooks: (t: { books?: number[]; series?: number; library?: number; title: string }, del: boolean) =>

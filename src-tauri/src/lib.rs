@@ -525,6 +525,12 @@ fn set_series_reading(app: AppHandle, state: State<Shared>, id: i64, reading: Op
     Ok(())
 }
 
+/// Put a series' formats in this order, the first being what it opens on. Returns how they were, for Undo.
+#[tauri::command]
+fn set_format_order(state: State<Shared>, id: i64, order: Option<Vec<String>>) -> CmdResult<Option<Vec<String>>> {
+    db::set_format_order(&state.conn.lock().unwrap(), id, order.as_deref()).map_err(err)
+}
+
 /// Say how a library's series read, those it has and those added later.
 #[tauri::command]
 fn set_library_reading(app: AppHandle, state: State<Shared>, id: i64, reading: Option<String>) -> CmdResult<()> {
@@ -1608,6 +1614,7 @@ pub fn run() {
             add_comics,
             start_fresh,
             set_series_reading,
+            set_format_order,
             set_library_reading,
             remove_books,
             hidden_list,

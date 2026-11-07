@@ -39,8 +39,12 @@
     books.find((c) => !c.read) ??
     books[0];
   const count = (e: { sections: { comics: ComicCard[] }[] }) => e.sections.reduce((n, s) => n + s.comics.length, 0);
-  // The book shown first: the one you're reading, else where to start the biggest format.
+  // The format you've dragged to the front, if you have: what this series opens on.
+  const front = $derived(data?.formatOrder?.length ? data.editions[0] : null);
+  // The book shown first: where to start that format; else the one you're reading, else where to start
+  // the biggest format.
   const target = $derived.by(() => {
+    if (front) return startOf(front.sections.flatMap((s) => s.comics));
     const going = startOf(all);
     if (going && going.currentPage > 0 && !going.read) return going;
     const biggest = (data?.editions ?? []).filter((e) => e.kind !== "order").sort((a, b) => count(b) - count(a))[0];
@@ -123,8 +127,9 @@
     void id;
     chosen = null;
   });
-  // Until a format is picked, the strip shows the one the chosen book is in.
-  const edition = $derived(data?.editions.find((e) => e.kind === (chosen ?? book?.edition)) ?? data?.editions[0]);
+  // Until a format is picked, the strip shows the one in front; or, when that's not been set or you've
+  // come here for a particular book, the one the chosen book is in.
+  const edition = $derived(data?.editions.find((e) => e.kind === (chosen ?? (startBook == null ? front?.kind : null) ?? book?.edition)) ?? data?.editions[0]);
   const inView = $derived(edition?.sections.flatMap((s) => s.comics) ?? all);
   // Only what's still unread, when asked; remembered from one series to the next.
   let unreadOnly = $state((() => { try { return localStorage.getItem("aion.unreadOnly") === "1"; } catch { return false; } })());
@@ -148,6 +153,99 @@
     many = [];
     const start = startOf(e.sections.flatMap((s) => s.comics));
     if (start) pick(start);
+  }
+  /* ---- Dragging a format along the tabs. They stay where they are in the page while they slide over
+     with transforms, and take their new places only on the drop, so nothing is laid out again midway. */
+  const DRAG_START = 5;
+  let drag = $state<{ kind: string; at: Record<string, number>; landing: boolean } | null>(null);
+  let tabsEl = $state<HTMLElement>();
+  let justDragged = false;
+  function grab(e: PointerEvent, kind: string) {
+    if (e.button !== 0 || !tabsEl || !data || drag) return;
+    const tab = e.currentTarget as HTMLElement;
+    const kinds = data.editions.map((x) => x.kind as string);
+    const box = Object.fromEntries(kinds.map((k, i) => [k, tabsEl!.children[i].getBoundingClientRect()]));
+    const gap = box[kinds[1]].left - box[kinds[0]].right;
+    const base = box[kinds[0]].left;
+    const far = box[kinds[kinds.length - 1]].right - box[kind].width;
+    // Where each tab sits with the tabs in this order.
+    const lefts = (order: string[]) => {
+      const out: Record<string, number> = {};
+      let x = base;
+      for (const k of order) {
+        out[k] = x;
+        x += box[k].width + gap;
+      }
+      return out;
+    };
+    const offsets = (left: Record<string, number>) => Object.fromEntries(kinds.map((k) => [k, left[k] - box[k].left]));
+    const startX = e.clientX;
+    let started = false;
+    let order = kinds;
+    const move = (ev: PointerEvent) => {
+      const dx = ev.clientX - startX;
+      if (!started) {
+        if (Math.abs(dx) < DRAG_START) return;
+        started = true;
+        tab.setPointerCapture(ev.pointerId);
+      }
+      const wanted = Math.max(base, Math.min(far, box[kind].left + dx));
+      // The order that puts this tab's slot closest to where it's being held.
+      const others = kinds.filter((k) => k !== kind);
+      let best = Infinity;
+      for (let i = 0; i <= others.length; i++) {
+        const trial = [...others.slice(0, i), kind, ...others.slice(i)];
+        const d = Math.abs(lefts(trial)[kind] - wanted);
+        if (d < best) [best, order] = [d, trial];
+      }
+      drag = { kind, at: offsets({ ...lefts(order), [kind]: wanted }), landing: false };
+    };
+    const finish = (drop: boolean) => {
+      window.removeEventListener("pointermove", move);
+      window.removeEventListener("pointerup", up);
+      window.removeEventListener("pointercancel", cancel);
+      window.removeEventListener("keydown", esc, true);
+      if (!started) return;
+      // The click that ends a drag isn't a click on the tab.
+      justDragged = true;
+      setTimeout(() => (justDragged = false));
+      const final = drop ? order : kinds;
+      drag = { kind, at: offsets(lefts(final)), landing: true };
+      setTimeout(() => {
+        drag = null;
+        if (final.join() !== kinds.join()) reorder(final);
+      }, motionMs(130, 200));
+    };
+    const up = () => finish(true);
+    const cancel = () => finish(false);
+    const esc = (ev: KeyboardEvent) => {
+      if (ev.key !== "Escape") return;
+      ev.preventDefault();
+      ev.stopPropagation();
+      finish(false);
+    };
+    window.addEventListener("pointermove", move);
+    window.addEventListener("pointerup", up);
+    window.addEventListener("pointercancel", cancel);
+    window.addEventListener("keydown", esc, true);
+  }
+  function reorder(order: string[]) {
+    if (!data) return;
+    const sid = data.id;
+    const moved = order[0] !== data.editions[0].kind;
+    const editions = order.map((k) => data!.editions.find((x) => x.kind === k)!);
+    data.editions = editions;
+    data.formatOrder = order;
+    undoableWith(
+      moved ? `${data.name.trim()} now opens on ${editions[0].name}` : "Formats reordered",
+      () => api.setFormatOrder(sid, order),
+      async (before) => void (await api.setFormatOrder(sid, before)),
+      () => {
+        chosen = null;
+        picked = null;
+      },
+    );
+    if (moved) choose(editions[0].kind);
   }
   // The count by the series name is the format in view.
   const mainRead = $derived(inView.filter((c) => c.read).length);
@@ -548,9 +646,19 @@
     {#if data.editions.length > 1 || many.length || edition?.missing.length}
       <div class="bar">
         {#if data.editions.length > 1}
-          <div class="tabs" role="tablist" aria-label="Formats">
+          <div class="tabs" class:dragging={drag && !drag.landing} class:landing={drag?.landing} role="tablist" aria-label="Formats" bind:this={tabsEl}>
             {#each data.editions as e (e.kind)}
-              <button class="tab" class:on={e.kind === edition?.kind} role="tab" aria-selected={e.kind === edition?.kind} onclick={() => choose(e.kind)}>
+              <button
+                class="tab"
+                class:on={e.kind === edition?.kind}
+                class:held={drag?.kind === e.kind}
+                role="tab"
+                aria-selected={e.kind === edition?.kind}
+                title="Drag to reorder. This series opens on the first one."
+                style:transform={drag ? `translateX(${drag.at[e.kind]}px)` : undefined}
+                onpointerdown={(ev) => grab(ev, e.kind)}
+                onclick={() => !justDragged && choose(e.kind)}
+              >
                 {e.name}<span class="n fine">{count(e)}</span>
               </button>
             {/each}
@@ -786,6 +894,24 @@
       color 0.15s;
   }
   .tab:hover {
+    color: var(--text);
+  }
+  /* While one's being dragged, the others slide aside for it, and it settles into its slot when let go. */
+  .tabs.dragging,
+  .tabs.dragging .tab {
+    cursor: grabbing;
+  }
+  .tabs.dragging .tab:not(.held),
+  .tabs.landing .tab {
+    transition:
+      transform 0.13s var(--ease),
+      background 0.15s,
+      color 0.15s;
+  }
+  .tab.held {
+    position: relative;
+    z-index: 1;
+    background: rgb(var(--fg) / 0.14);
     color: var(--text);
   }
   .tab.on {

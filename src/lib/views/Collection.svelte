@@ -142,9 +142,10 @@
     const who = people.length > 2 ? `${people[0]} and ${people.length - 1} others` : people.join(" and ");
     return [who, v.years].filter(Boolean).join(" · ");
   }
-  // The book to open from a feature: the one being read, else the first not yet read.
+  // The book to open from a feature: the one being read, else the first not yet read. In the format
+  // you've put first, if you have.
   function nextBook(v: SeriesView) {
-    const books = v.sections.flatMap((x) => x.comics);
+    const books = (v.formatOrder?.length ? v.editions[0].sections : v.sections).flatMap((x) => x.comics);
     const going = books.filter((b) => b.currentPage > 0 && !b.read).sort((a, b) => (b.lastReadAt ?? 0) - (a.lastReadAt ?? 0))[0];
     return { book: going ?? books.find((b) => !b.read) ?? books[0], going: !!going };
   }

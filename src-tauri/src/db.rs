@@ -75,6 +75,10 @@ fn migrate(conn: &Connection) -> Result<()> {
     if !conn.prepare("SELECT 1 FROM pragma_table_info('series') WHERE name='reading'")?.exists([])? {
         conn.execute("ALTER TABLE series ADD COLUMN reading TEXT", [])?;
     }
+    // The order you've dragged a series' formats into, comma-separated. The first is what it opens on.
+    if !conn.prepare("SELECT 1 FROM pragma_table_info('series') WHERE name='formats'")?.exists([])? {
+        conn.execute("ALTER TABLE series ADD COLUMN formats TEXT", [])?;
+    }
     // How a library's series read when you've said, those it has and those added later.
     if !conn.prepare("SELECT 1 FROM pragma_table_info('collections') WHERE name='reading'")?.exists([])? {
         conn.execute("ALTER TABLE collections ADD COLUMN reading TEXT", [])?;
@@ -608,6 +612,8 @@ pub struct SeriesView {
     /// Every book, format by format (see `editions`), in the order the page lists them.
     pub sections: Vec<Section>,
     pub editions: Vec<Edition>,
+    /// The order you've put its formats in, if you have. The first one is what the series opens on.
+    pub format_order: Option<Vec<String>>,
     pub backfill: Option<Backfill>,
     /// Its books whose cover is already printed (see `print` in lib.rs), filled in there.
     pub printed: Vec<i64>,
@@ -791,12 +797,17 @@ pub fn people_view(conn: &Connection, kind: &str, name: &str) -> Result<PeopleVi
 }
 
 pub fn series_view(conn: &Connection, id: i64) -> Result<SeriesView> {
-    let (name, collection_id, collection_name, is_manga, reading): (String, i64, String, bool, Option<String>) = conn.query_row(
-        "SELECT s.name, col.id, col.name, COALESCE(COALESCE(s.reading, col.reading)='manga', col.is_manga), s.reading FROM series s JOIN collections col ON col.id=s.collection_id WHERE s.id=?1",
+    let (name, collection_id, collection_name, is_manga, reading, formats): (String, i64, String, bool, Option<String>, Option<String>) = conn.query_row(
+        "SELECT s.name, col.id, col.name, COALESCE(COALESCE(s.reading, col.reading)='manga', col.is_manga), s.reading, s.formats FROM series s JOIN collections col ON col.id=s.collection_id WHERE s.id=?1",
         [id],
-        |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?, r.get(4)?)),
+        |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?, r.get(4)?, r.get(5)?)),
     )?;
-    let editions = editions_of(conn, id, is_manga)?;
+    let format_order = formats.map(|f| split_formats(&f));
+    let mut editions = editions_of(conn, id, is_manga)?;
+    if let Some(order) = &format_order {
+        // A format you haven't placed (it may have turned up since) keeps its usual place, after those you have.
+        editions.sort_by_key(|e| order.iter().position(|k| *k == e.kind).unwrap_or(usize::MAX));
+    }
     let sections = editions
         .iter()
         .filter(|e| e.kind != STORY)
@@ -848,6 +859,7 @@ pub fn series_view(conn: &Connection, id: i64) -> Result<SeriesView> {
         },
         sections,
         editions,
+        format_order,
         backfill: backfill(conn, id)?,
         printed: Vec::new(),
         cv_volume_id: cv.map(|(v, _)| v),
@@ -856,6 +868,19 @@ pub fn series_view(conn: &Connection, id: i64) -> Result<SeriesView> {
 
 /// The tab on a series page with every format's books in the order the story runs.
 const STORY: &str = "order";
+
+fn split_formats(stored: &str) -> Vec<String> {
+    stored.split(',').map(str::to_string).collect()
+}
+
+/// Put a series' formats in this order, or None to go back to the usual one. Returns how they were, for Undo.
+pub fn set_format_order(conn: &Connection, id: i64, order: Option<&[String]>) -> Result<Option<Vec<String>>> {
+    let was: Option<String> = conn.query_row("SELECT formats FROM series WHERE id=?1", [id], |r| r.get(0))?;
+    let known = |k: &&String| k.as_str() == STORY || editions::KINDS.contains(&k.as_str());
+    let now = order.map(|o| o.iter().filter(known).cloned().collect::<Vec<_>>().join(",")).filter(|s| !s.is_empty());
+    conn.execute("UPDATE series SET formats=?2 WHERE id=?1", params![id, now])?;
+    Ok(was.map(|f| split_formats(&f)))
+}
 
 /// One book of a series, as its page lists it.
 struct SeriesBook {
@@ -2041,6 +2066,39 @@ mod story_tests {
         assert_eq!(neighbors(&conn, 14).unwrap(), (Some(13), Some(201)));
         assert_eq!(neighbors(&conn, 201).unwrap(), (Some(14), Some(15)));
         assert_eq!(neighbors(&conn, 19).unwrap(), (Some(18), None));
+    }
+
+    #[test]
+    fn a_series_keeps_the_format_order_you_gave_it() {
+        let conn = saga("formats", "Collects SAGA #13-18.");
+        let kinds = |c: &Connection| series_view(c, 1).unwrap().editions.into_iter().map(|e| e.kind).collect::<Vec<_>>();
+        let usual = kinds(&conn);
+        assert!(usual.len() >= 3, "{usual:?}");
+        assert_eq!(series_view(&conn, 1).unwrap().format_order, None);
+
+        let mut order = usual.clone();
+        order.reverse();
+        assert_eq!(set_format_order(&conn, 1, Some(&order)).unwrap(), None);
+        assert_eq!(kinds(&conn), order);
+        let v = series_view(&conn, 1).unwrap();
+        assert_eq!(v.format_order.as_deref(), Some(&order[..]));
+        // The whole-series list follows, and still holds each book once.
+        assert_eq!(v.sections.iter().map(|s| s.comics.len()).sum::<usize>(), 9);
+
+        // A format that isn't in the order, or no longer in the series, doesn't get in the way.
+        let last = usual.last().unwrap().clone();
+        let part = ["omnibus".to_string(), last.clone(), "nonsense".to_string()];
+        let before = set_format_order(&conn, 1, Some(&part)).unwrap();
+        assert_eq!(before.as_deref(), Some(&order[..]));
+        let now = kinds(&conn);
+        assert_eq!(now[0], last);
+        assert_eq!(now.len(), usual.len());
+        assert_eq!(series_view(&conn, 1).unwrap().format_order.unwrap(), ["omnibus".to_string(), last]);
+
+        // Undo puts it back, all the way to never having been set.
+        set_format_order(&conn, 1, None).unwrap();
+        assert_eq!(kinds(&conn), usual);
+        assert_eq!(series_view(&conn, 1).unwrap().format_order, None);
     }
 
     #[test]
