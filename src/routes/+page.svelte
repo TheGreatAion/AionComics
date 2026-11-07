@@ -182,7 +182,6 @@
     onclose={() => {
       reader.id = null;
       reader.from = null;
-      lib.version++;
     }}
   />
 {/if}

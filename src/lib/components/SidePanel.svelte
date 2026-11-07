@@ -62,31 +62,38 @@
   const here = (r: { name: string; id?: number }) =>
     route.name === r.name && (r.id === undefined || ("id" in route && route.id === r.id));
 
-  // Fresh data whenever the library changes.
+  // Fresh data whenever the library changes. The lists on screen stay until their fresh ones arrive,
+  // so nothing collapses and jumps back.
   $effect(() => {
     void lib.version;
-    series = {};
     api.home().then((h) => (reading = h.continueReading.slice(0, READING)));
   });
 
   // Series lists load when needed: a collection opened, or everything for "Recently added" and
   // the filter.
   const loading = new Set<number>();
+  const loadedAt = new Map<number, number>();
   function need(id: number) {
-    if (series[id] || loading.has(id)) return;
+    const version = lib.version;
+    if (loadedAt.get(id) === version || loading.has(id)) return;
     loading.add(id);
+    loadedAt.set(id, version);
     api
       .collection(id)
       .then((v) => (series[id] = [...v.series].sort((a, b) => a.name.localeCompare(b.name, undefined, { numeric: true }))))
-      .finally(() => loading.delete(id));
+      .finally(() => {
+        loading.delete(id);
+        // The library changed again while this was on its way.
+        if (lib.version !== version) need(id);
+      });
   }
   $effect(() => {
     for (const c of lib.collections) if (opened[`c${c.id}`] || opened.added || filter) need(c.id);
   });
 
   const added = $derived(
-    Object.values(series)
-      .flat()
+    lib.collections
+      .flatMap((c) => series[c.id] ?? [])
       .filter((s) => s.lastAddedAt)
       .sort((a, b) => b.lastAddedAt! - a.lastAddedAt!)
       .slice(0, ADDED),

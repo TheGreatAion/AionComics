@@ -4,8 +4,8 @@
   import Icon, { type IconName } from "$lib/components/Icon.svelte";
   import WindowControls from "$lib/components/WindowControls.svelte";
   import Wash from "$lib/components/Wash.svelte";
-  import { fly, flightMs, visible } from "$lib/flight";
-  import { menu, reader, showMenu } from "$lib/state.svelte";
+  import { CLOSE_EASE, closeMs, fadeMs, fly, flightMs, visible } from "$lib/flight";
+  import { lib, menu, reader, showMenu } from "$lib/state.svelte";
   import { ACTIONS, keysFor, menuItems } from "./actions";
   import Bookmarks from "./Bookmarks.svelte";
   import { Ctl, FIT_LABEL, type Step } from "./ctl.svelte";
@@ -46,6 +46,7 @@
   // (Not into continuous scroll, which has no one page to land on; see the load below.)
   let arriving = $state(!!reader.from && visible(reader.from.getBoundingClientRect()));
   let leaving = $state(false);
+  let leaveMs = $state(0);
 
   // Never leave a blank screen: if the first page is slow, skip the flight and bring the controls back.
   $effect(() => {
@@ -208,9 +209,11 @@
   });
 
   // Wherever the reader doesn't quite reach (a window edge mid-resize), the page background shows:
-  // make that the reader's too.
+  // make that the reader's too. Not while it opens or closes: the library shows through then, and it
+  // should be on its own background, not jump to it at the end.
   const readerBg = $derived(prefs.background === "gray" ? "#1b1b1b" : "#000");
   $effect(() => {
+    if (arriving || leaving) return;
     document.documentElement.style.background = document.body.style.background = readerBg;
     return () => (document.documentElement.style.background = document.body.style.background = "");
   });
@@ -227,25 +230,36 @@
 
   function close() {
     if (leaving) return;
-    if (c.fullscreen) c.setFullscreen(false);
+    const wasFull = c.fullscreen;
+    if (wasFull) c.setFullscreen(false);
     if (pending && pending[0] !== c.id) flush();
     if (c.info && movedIn === c.id) pending = [c.id, c.furthest, c.count];
     if (pendingSpot && pendingSpot[0] !== c.id) flushSpot();
     const spot = c.spot;
     if (c.info && !c.info.external && !c.resume && spot !== undefined) pendingSpot = [c.id, spot];
     const save = Promise.all([flush(), flushSpot()]);
+    // The library catches up now, while the reader still mostly covers it: the page lands on the
+    // page you stopped on, not on the old one that then changes.
+    save.finally(() => lib.version++);
     const to = reader.from;
-    // Shrink back only when the page is shown plainly; from a zoomed or turned page it would jump.
+    // Shrink back only when the page is shown plainly; from a zoomed or turned page it would jump, and
+    // leaving full screen moves everything mid-flight. Otherwise the reader fades away.
     const plain =
-      c.zoom === 1 && c.rotation === 0 && (c.mode === "pages" || (c.mode === "guided" && c.step === -1));
+      !wasFull && c.zoom === 1 && c.rotation === 0 && (c.mode === "pages" || (c.mode === "guided" && c.step === -1));
     if (to?.isConnected && pageImg?.isConnected && plain && visible(to.getBoundingClientRect())) {
+      leaveMs = closeMs();
       leaving = true;
       fly(pageImg.currentSrc || pageImg.src, pageImg.getBoundingClientRect(), to.getBoundingClientRect(), {
         hide: [pageImg, to],
+        ms: leaveMs,
+        easing: CLOSE_EASE,
+        landing: to,
         done: () => save.finally(onclose),
       });
     } else {
-      save.finally(onclose);
+      leaveMs = fadeMs();
+      leaving = true;
+      setTimeout(() => save.finally(onclose), leaveMs);
     }
   }
 
@@ -254,7 +268,7 @@
     if (c.error) {
       if (e.key === "Escape") {
         e.preventDefault();
-        onclose();
+        close();
       }
       return;
     }
@@ -399,6 +413,7 @@
   class:hide-cursor={!chrome && !c.magnifier}
   class:leaving
   style:--fade="{flightMs()}ms"
+  style:--leave="{leaveMs}ms"
   style:--reader-bg={readerBg}
   style:--page-filter={pageFilter()}
   onmousemove={(e) => bars(!!(e.target as Element).closest?.(".toolbar.shown, .bottom.shown"))}
@@ -418,7 +433,7 @@
         {#if trouble?.canShow}
           <button class="ico" title="Show in Explorer" aria-label="Show in Explorer" onclick={() => api.reveal(id)}><Icon name="folder" size={18} /></button>
         {/if}
-        <button class="ico" title="Back to library (Esc)" aria-label="Back to library" onclick={onclose}><Icon name="back" size={18} /></button>
+        <button class="ico" title="Back to library (Esc)" aria-label="Back to library" onclick={close}><Icon name="back" size={18} /></button>
       </div>
     </div>
   {:else if c.info}
@@ -600,15 +615,20 @@
     --muted: #6a6a6a;
     /* The library dims away behind the page as it flies in, and returns as it flies back. */
     animation: dim var(--fade) ease-out;
-    transition: background var(--fade) ease-in;
   }
   @keyframes dim {
     from {
       background: rgba(0, 0, 0, 0);
     }
   }
+  /* Opacity and scale alone, which the GPU animates by itself while the library refreshes behind. */
   .reader.leaving {
-    background: rgba(0, 0, 0, 0);
+    opacity: 0;
+    transform: scale(0.985);
+    pointer-events: none;
+    transition:
+      opacity var(--leave) cubic-bezier(0.4, 0, 0.2, 1),
+      transform var(--leave) cubic-bezier(0.4, 0, 0.2, 1);
   }
   .reader.hide-cursor {
     cursor: none;
