@@ -77,11 +77,11 @@
     return { title: `${m[1]}${m[3] ?? ""}`, by: `by ${m[2]}` };
   });
   const findOnCv = () => data && (sheets.matching = { seriesId: data.id, isManga: data.isManga, name: data.name });
-  // The name is set as on collection pages: its letters cut from the series' covers, picked at
-  // random each visit, over one more cover printed in a single ink of its own color. That one is
+  // The name is set as on collection pages: its letters cut from the covers of the format in view,
+  // picked at random each visit, over one more cover printed in a single ink of its own color. That one is
   // the first cover whose color will do, preferring one printed already (each series' is, ahead of
   // time), never a teal one; with none, its first cover prints in gray. Only ever a cover, as a page
-  // could give the story away. The pick holds while you're here, even as details and prints arrive.
+  // could give the story away. The pick holds until the format changes, even as details and prints arrive.
   const seed = Math.floor(Math.random() * 2 ** 32);
   const shuffled = (n: number) => Math.imul(n ^ seed, 2654435761) >>> 0;
   const inky = (c: ComicCard) => {
@@ -91,7 +91,7 @@
   const ink = (c: ComicCard) => (inky(c) ? hue(c.coverColor)!.h : null);
   let backdrop = $state<{ id: number; hue: number | null; at: number } | null>(null);
   $effect(() => {
-    const books = all;
+    const books = inView;
     const kept = untrack(() => backdrop);
     const still = kept && books.find((c) => c.id === kept.id);
     if (still) {
@@ -104,8 +104,8 @@
   });
   const letterCovers = $derived.by(() => {
     const letters = [...headline.title].filter((ch) => ch !== " ").length;
-    const others = all.filter((c) => c.id !== backdrop?.id);
-    return [...(others.length ? others : all)]
+    const others = inView.filter((c) => c.id !== backdrop?.id);
+    return [...(others.length ? others : inView)]
       .sort((a, b) => shuffled(a.id) - shuffled(b.id))
       .slice(0, letters)
       .map((c) => c.id);
