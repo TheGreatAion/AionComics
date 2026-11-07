@@ -256,7 +256,7 @@
   {#each groups as g (g.folder)}
     <p class="dest">
       {pretty(g.folder)}
-      <span class="fine">{#if g.isNew}new · {/if}{g.n}</span>
+      <span class="fine">{g.isNew ? "new · " : ""}{g.n}</span>
     </p>
   {/each}
   {#if count("exists")}<p class="aside">{count("exists")} already there</p>{/if}
