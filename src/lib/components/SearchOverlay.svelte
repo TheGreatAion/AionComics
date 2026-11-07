@@ -237,7 +237,8 @@
         <section>
           <h2>{lists.top.name}</h2>
           <button class="top" class:on={sel === 0} data-hit onmousemove={() => (sel = 0)} onclick={() => pick(lists.top ?? undefined)}>
-            <Cover id={lists.top.cover} ratio={lists.top.ratio} width={186} />
+            <!-- Its picture can finish loading just as the results are cleared. -->
+            <Cover id={lists.top?.cover} ratio={lists.top?.ratio} width={186} />
             <span class="info">
               {#if reading}
                 <span class="big">{reading.label}</span>
