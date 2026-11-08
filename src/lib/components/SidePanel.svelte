@@ -196,8 +196,8 @@
         <Icon name="plus" size={13} />
       </button>
     </div>
-    <!-- Your Want to read list, first among the libraries, once there's something on it. -->
-    {#if !words.length && (lib.wanted > 0 || here({ name: "wanted" }))}
+    <!-- Your Want to read list, first among the libraries. -->
+    {#if !words.length}
       <div class="coll want" class:on={here({ name: "wanted" })}>
         <button class="row" onclick={() => nav.root({ name: "wanted" })}>
           <span class="icon"><Icon name="bookmark" size={14} /></span>

@@ -52,8 +52,8 @@ export function wantItem(t: { series?: number; book?: number }, on: boolean, nam
 export function seriesMenu(e: MouseEvent, s: SeriesSummary, here: boolean) {
   const name = s.name.trim();
   showMenu(e, [
-    wantItem({ series: s.id }, s.wanted, name),
-    "separator",
+    // A series read all through has nothing left to want.
+    ...(s.readCount < s.count || s.wanted ? [wantItem({ series: s.id }, s.wanted, name), "separator" as const] : []),
     { label: `Add ${unitWord(s.isManga, 2)}`, items: addItems({ series: s.id, title: name }) },
     { label: "Read as", items: readAsItems(s.reading, (r) => api.setSeriesReading(s.id, r)) },
     "separator",

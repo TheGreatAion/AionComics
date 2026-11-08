@@ -43,7 +43,7 @@
       </button>
     {/if}
     <!-- With the side panel away, the way to Want to read. -->
-    {#if !side.open && (lib.wanted > 0 || route.name === "wanted")}
+    {#if !side.open}
       <button class="ico" class:on={route.name === "wanted"} title="Want to read" aria-label="Want to read" onclick={() => nav.root({ name: "wanted" })}>
         <Icon name="bookmark" size={16} />
       </button>

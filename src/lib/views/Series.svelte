@@ -352,8 +352,7 @@
     const name = data.name.trim();
     const allBooks = data.sections.reduce((n, sec) => n + sec.comics.length, 0);
     showMenu(e, [
-      wantItem({ series: sid }, data.wanted, name),
-      "separator",
+      ...(all.some((b) => !b.read) || data.wanted ? [wantItem({ series: sid }, data.wanted, name), "separator" as const] : []),
       { label: "Mark series as read", action: () => undoable(`${name} marked as read`, () => api.setSeriesRead(sid, true)) },
       { label: "Mark series as unread", action: () => undoable(`${name} marked as unread`, () => api.setSeriesRead(sid, false)) },
       "separator",
@@ -608,9 +607,10 @@
         <button
           class="ico"
           class:on={data.wanted}
-          title={data.wanted ? "On your Want to read list. Press to take it off" : "Want to read"}
+          title={data.wanted ? "On your Want to read list. Press to take it off" : all.every((b) => b.read) ? "You've read it all" : "Want to read"}
           aria-label="Want to read"
           aria-pressed={data.wanted}
+          disabled={!data.wanted && all.every((b) => b.read)}
           onclick={() => want({ series: data!.id }, !data!.wanted, data!.name.trim())}
         >
           <Icon name={data.wanted ? "bookmark" : "bookmarkOutline"} size={18} />
