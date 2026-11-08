@@ -18,6 +18,7 @@
     zoomOut: "M10.5 17.5a7 7 0 1 0 0-14 7 7 0 0 0 0 14zM20 20l-4.5-4.5M7.5 10.5h6",
     magnifier: "M10.5 17.5a7 7 0 1 0 0-14 7 7 0 0 0 0 14zM20 20l-4.5-4.5M8 10.5a2.5 2.5 0 0 1 2.5-2.5",
     bookmark: "M6 3h12v18l-6-4.5L6 21z",
+    bookmarkOutline: "M6 3h12v18l-6-4.5L6 21z",
     bookmarks: "M5 3h10v16l-5-3.8L5 19zM19 6v15",
     guided: "M3 8V3h5M16 3h5v5M21 16v5h-5M8 21H3v-5M9 9h6v6H9z",
     editPanels: "M3 3h18v18H3zM3 11h18M12 11v10",
@@ -61,7 +62,7 @@
 
   // Shapes with lines drawn inside them (a panel divider, the "!" of a warning, a window frame)
   // stay outlines: filled, the inside would vanish.
-  const OUTLINE = new Set<string>(["sidebar", "editPanels", "alert", "maximize", "doubleRtl", "fullSize", "keyboard", "storage"]);
+  const OUTLINE = new Set<string>(["bookmarkOutline", "sidebar", "editPanels", "alert", "maximize", "doubleRtl", "fullSize", "keyboard", "storage"]);
 
   // Each icon's pieces, and which are closed shapes to fill (curved ones, like a lens, stay lines).
   const PIECES = Object.fromEntries(

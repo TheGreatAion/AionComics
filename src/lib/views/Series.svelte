@@ -3,7 +3,7 @@
   import { slide } from "svelte/transition";
   import { addMenu } from "$lib/add.svelte";
   import CvNudge from "$lib/components/CvNudge.svelte";
-  import { readAsItems, removing } from "$lib/manage.svelte";
+  import { readAsItems, removing, want, wantItem } from "$lib/manage.svelte";
   import { api, chapterList, listText, plainText, storyTitle, unitWord, type ComicCard, type ComicMeta, type Edition, type EditionKind, type MetaField, type SeriesView } from "$lib/api";
   import { lib, nav, openReader, reader, search, sheets, showMenu, undoable, undoableWith, type MenuItem } from "$lib/state.svelte";
   import { bareEnter, nearest } from "$lib/keynav";
@@ -352,6 +352,8 @@
     const name = data.name.trim();
     const allBooks = data.sections.reduce((n, sec) => n + sec.comics.length, 0);
     showMenu(e, [
+      wantItem({ series: sid }, data.wanted, name),
+      "separator",
       { label: "Mark series as read", action: () => undoable(`${name} marked as read`, () => api.setSeriesRead(sid, true)) },
       { label: "Mark series as unread", action: () => undoable(`${name} marked as unread`, () => api.setSeriesRead(sid, false)) },
       "separator",
@@ -388,6 +390,7 @@
         : { label: "Mark as read", action: () => undoable(`${name} marked as read`, () => api.setRead(c.id, true)) },
       { label: "Mark earlier ones as read", action: () => undoable(`Books before ${c.label} marked as read`, () => api.markReadBefore(c.id)) },
       ...(!c.read && c.currentPage > 0 ? [{ label: "Remove from Continue reading", action: () => undoable(`${name} taken off`, () => api.hideFromReading(c.id)) }] : []),
+      ...(c.read ? [] : ["separator" as const, data?.wantedBooks.includes(c.id) ? wantItem({ book: c.id }, true, name) : { label: "Want to read this book", action: () => want({ book: c.id }, true, name) }]),
       "separator",
       { label: "Edit details…", action: () => (sheets.editing = c.id) },
       { label: "Find on Comic Vine…", action: () => data && (sheets.matching = { seriesId: data.id, isManga: data.isManga, name: data.name, comicId: c.id, label: c.label, count: data.editions.find((x) => x.kind === c.edition)?.sections.reduce((n, s) => n + s.comics.length, 0) }) },
@@ -601,6 +604,17 @@
         {#if by}<span class="by">· {by}</span>{/if}
       </div>
       <div class="tools">
+        <!-- On your Want to read list, or not: filled in when it is. -->
+        <button
+          class="ico"
+          class:on={data.wanted}
+          title={data.wanted ? "On your Want to read list. Press to take it off" : "Want to read"}
+          aria-label="Want to read"
+          aria-pressed={data.wanted}
+          onclick={() => want({ series: data!.id }, !data!.wanted, data!.name.trim())}
+        >
+          <Icon name={data.wanted ? "bookmark" : "bookmarkOutline"} size={18} />
+        </button>
         <button class="ico" class:on={unreadOnly} title="Only what's still unread" aria-label="Only what's still unread" aria-pressed={unreadOnly} onclick={toggleUnread}>
           <Icon name="unread" size={18} />
         </button>

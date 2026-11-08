@@ -107,6 +107,16 @@ export interface CollectionSummary {
 
 export interface NavInfo {
   collections: CollectionSummary[];
+  /** How many things are on Want to read. */
+  wanted: number;
+}
+
+/** Your Want to read list, the last put on first; `seriesAt` and `booksAt` say when each went on. */
+export interface WantList {
+  series: SeriesSummary[];
+  seriesAt: number[];
+  books: ComicCard[];
+  booksAt: number[];
 }
 
 export interface SeriesSummary {
@@ -126,6 +136,8 @@ export interface SeriesSummary {
   printed: boolean;
   /** How you've said this series reads, if you have. */
   reading: "comic" | "manga" | "webtoon" | null;
+  /** On your Want to read list (and not started since). */
+  wanted: boolean;
 }
 
 export interface CollectionView {
@@ -158,6 +170,9 @@ export interface SeriesView {
   backfill: { beforeId: number; beforeLabel: string; count: number } | null;
   /** The Comic Vine series this one is matched to. */
   cvVolumeId: string | null;
+  /** On your Want to read list, and which of its books are on it by themselves. */
+  wanted: boolean;
+  wantedBooks: number[];
 }
 
 /** Books that look like copies of one another, and why. Nothing is ever deleted for you. */
@@ -467,6 +482,9 @@ export const api = {
   // These four return how the books were before, for Undo (restoreReading).
   setRead: (id: number, read: boolean) => invoke<ReadState[]>("set_read", { id, read }),
   /** Off Continue reading, with the page you're on kept. Reading it again puts it back. */
+  wantList: () => invoke<WantList>("want_list"),
+  /** Put a series or one book on Want to read, or take it off. */
+  setWanted: (t: { series?: number; book?: number }, on: boolean) => invoke<void>("set_wanted", { series: t.series ?? null, book: t.book ?? null, on }),
   hideFromReading: (id: number) => invoke<ReadState[]>("hide_from_reading", { id }),
   markReadBefore: (id: number) => invoke<ReadState[]>("mark_read_before", { id }),
   setSeriesRead: (seriesId: number, read: boolean) => invoke<ReadState[]>("set_series_read", { seriesId, read }),

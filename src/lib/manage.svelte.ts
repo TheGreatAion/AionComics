@@ -1,6 +1,6 @@
 import { addItems } from "./add.svelte";
 import { api, unitWord, type SeriesSummary } from "./api";
-import { lib, showMenu, type MenuItem } from "./state.svelte";
+import { lib, showMenu, undoableWith, type MenuItem } from "./state.svelte";
 
 /** What the Remove box is asking about: some books, a series or a library. */
 export type RemoveTarget = {
@@ -32,10 +32,28 @@ export function readAsItems(current: Reading | undefined, pick: (r: Reading) => 
   ];
 }
 
+/** Put a series or one book on Want to read, or take it off (which can be taken back). `name` says
+ *  what it is, for the Undo bar. */
+export async function want(t: { series?: number; book?: number }, on: boolean, name: string) {
+  if (on) {
+    await api.setWanted(t, true);
+    lib.version++;
+  } else {
+    await undoableWith(`${name} taken off Want to read`, () => api.setWanted(t, false), () => api.setWanted(t, true));
+  }
+}
+
+/** The Want to read line of a series' or book's menu. */
+export function wantItem(t: { series?: number; book?: number }, on: boolean, name: string): MenuItem {
+  return on ? { label: "Take off Want to read", action: () => want(t, false, name) } : { label: "Want to read", action: () => want(t, true, name) };
+}
+
 /** A series' menu, when it's right-clicked anywhere but its own page. */
 export function seriesMenu(e: MouseEvent, s: SeriesSummary, here: boolean) {
   const name = s.name.trim();
   showMenu(e, [
+    wantItem({ series: s.id }, s.wanted, name),
+    "separator",
     { label: `Add ${unitWord(s.isManga, 2)}`, items: addItems({ series: s.id, title: name }) },
     { label: "Read as", items: readAsItems(s.reading, (r) => api.setSeriesReading(s.id, r)) },
     "separator",

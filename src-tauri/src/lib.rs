@@ -746,6 +746,8 @@ fn home(state: State<Shared>) -> CmdResult<Home> {
 #[serde(rename_all = "camelCase")]
 struct Nav {
     collections: Vec<db::CollectionSummary>,
+    /// How many things are on Want to read.
+    wanted: i64,
 }
 
 /// Everything the sidebar needs.
@@ -755,6 +757,7 @@ fn nav(state: State<Shared>) -> CmdResult<Nav> {
     (|| -> anyhow::Result<Nav> {
         Ok(Nav {
             collections: db::collections(&conn)?,
+            wanted: db::want_count(&conn)?,
         })
     })()
     .map_err(err)
@@ -811,6 +814,22 @@ fn series(state: State<Shared>, id: i64) -> CmdResult<db::SeriesView> {
     let mut view = db::series_view(&state.conn.lock().unwrap(), id).map_err(err)?;
     view.printed = view.sections.iter().flat_map(|s| &s.comics).map(|c| c.id).filter(|c| print_path(&state, *c).exists()).collect();
     Ok(view)
+}
+
+/// Your Want to read list.
+#[tauri::command(async)]
+fn want_list(state: State<Shared>) -> CmdResult<db::WantList> {
+    let mut list = db::want_list(&state.conn.lock().unwrap()).map_err(err)?;
+    for s in &mut list.series {
+        s.printed = s.cover_id.is_some_and(|c| print_path(&state, c).exists());
+    }
+    Ok(list)
+}
+
+/// Put a series or one book on Want to read, or take it off.
+#[tauri::command]
+fn set_wanted(state: State<Shared>, series: Option<i64>, book: Option<i64>, on: bool) -> CmdResult<()> {
+    db::set_wanted(&state.conn.lock().unwrap(), series, book, on, scan::now()).map_err(err)
 }
 
 /// Books that look like copies of one another.
@@ -1585,6 +1604,8 @@ pub fn run() {
             save_guided_spot,
             set_read,
             hide_from_reading,
+            want_list,
+            set_wanted,
             unhide_from_reading,
             taken_off_reading,
             restore_reading,

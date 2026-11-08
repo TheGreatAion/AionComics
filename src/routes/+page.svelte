@@ -22,6 +22,7 @@
   import Stats from "$lib/views/Stats.svelte";
   import Duplicates from "$lib/views/Duplicates.svelte";
   import Settings from "$lib/views/Settings.svelte";
+  import WantToRead from "$lib/views/WantToRead.svelte";
   import Welcome from "$lib/views/Welcome.svelte";
 
   const route = $derived(nav.current);
@@ -74,6 +75,7 @@
     void lib.version;
     api.nav().then((n) => {
       lib.collections = n.collections;
+      lib.wanted = n.wanted;
       lib.collectionsLoaded = true;
     });
   });
@@ -167,6 +169,8 @@
         <Stats />
       {:else if route.name === "settings"}
         <Settings />
+      {:else if route.name === "wanted"}
+        <WantToRead />
       {/if}
     </main>
   {/key}

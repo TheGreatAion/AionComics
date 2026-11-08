@@ -11,6 +11,8 @@ export type Route =
   | { name: "duplicates" }
   /** What your reading adds up to. */
   | { name: "stats" }
+  /** Series and books you mean to read. */
+  | { name: "wanted" }
   | { name: "settings" };
 
 type Entry = { route: Route; scroll: number };
@@ -55,6 +57,8 @@ export const lib = $state({
   collections: [] as CollectionSummary[],
   /** Whether `collections` has been fetched yet: nothing in it means no libraries only once it has. */
   collectionsLoaded: false,
+  /** How many things are on Want to read. */
+  wanted: 0,
   /** Why the last scan changed nothing (drive missing), or what it held back. Shown in the top bar. */
   notice: "",
   /** A few words for the top bar; the full notice is its tooltip and appears in Settings. */

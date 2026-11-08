@@ -196,6 +196,17 @@
         <Icon name="plus" size={13} />
       </button>
     </div>
+    <!-- Your Want to read list, first among the libraries, once there's something on it. -->
+    {#if !words.length && (lib.wanted > 0 || here({ name: "wanted" }))}
+      <div class="coll want" class:on={here({ name: "wanted" })}>
+        <button class="row" onclick={() => nav.root({ name: "wanted" })}>
+          <span class="icon"><Icon name="bookmark" size={14} /></span>
+          <span class="name">Want to read</span>
+          <span class="count">{lib.wanted}</span>
+        </button>
+        <span class="fold"></span>
+      </div>
+    {/if}
     {#each lib.collections as c (c.id)}
       {@const list = shownSeries(c.id)}
       {@const unfolded = opened[`c${c.id}`] || !!words.length}
@@ -462,6 +473,13 @@
     font-size: 21px;
     line-height: 1.15;
     letter-spacing: 0.01em;
+  }
+  .want .icon {
+    flex: none;
+    display: flex;
+    align-self: center;
+    margin-right: -1px;
+    color: var(--text-2);
   }
   .fold {
     flex: none;

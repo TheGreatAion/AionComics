@@ -93,7 +93,7 @@ pub fn forget(conn: &Connection, books: &[i64]) -> Result<()> {
     Ok(())
 }
 
-const ABOUT_A_BOOK: [&str; 11] = [
+const ABOUT_A_BOOK: [&str; 12] = [
     "panels",
     "bookmarks",
     "user_panels",
@@ -105,6 +105,7 @@ const ABOUT_A_BOOK: [&str; 11] = [
     "edition_override",
     "reading_hidden",
     "yac_outbox",
+    "want_books",
 ];
 
 fn forget_now(conn: &Connection, books: &[i64]) -> Result<()> {
@@ -121,6 +122,8 @@ pub fn clear_leftovers(conn: &Connection) -> Result<()> {
     for table in ABOUT_A_BOOK {
         conn.execute(&format!("DELETE FROM {table} WHERE comic_id NOT IN (SELECT id FROM comics)"), [])?;
     }
+    // A series with no books left is about to go too.
+    conn.execute("DELETE FROM want_series WHERE series_id NOT IN (SELECT DISTINCT series_id FROM comics)", [])?;
     Ok(())
 }
 

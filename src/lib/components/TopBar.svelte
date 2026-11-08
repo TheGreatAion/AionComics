@@ -42,6 +42,12 @@
         <Icon name="alert" size={17} />
       </button>
     {/if}
+    <!-- With the side panel away, the way to Want to read. -->
+    {#if !side.open && (lib.wanted > 0 || route.name === "wanted")}
+      <button class="ico" class:on={route.name === "wanted"} title="Want to read" aria-label="Want to read" onclick={() => nav.root({ name: "wanted" })}>
+        <Icon name="bookmark" size={16} />
+      </button>
+    {/if}
     <button class="ico" title="Search (Ctrl K)" aria-label="Search" onclick={() => (search.open = true)}>
       <Icon name="search" size={17} />
     </button>

@@ -191,6 +191,12 @@ fn migrate(conn: &Connection) -> Result<()> {
     )?;
     // Books you took off Continue reading, and when. Reading one again puts it back.
     conn.execute_batch("CREATE TABLE IF NOT EXISTS reading_hidden(comic_id INTEGER PRIMARY KEY, at INTEGER NOT NULL);")?;
+    // Your Want to read list: whole series, and single books (an omnibus, one volume), and when each
+    // went on it.
+    conn.execute_batch(
+        "CREATE TABLE IF NOT EXISTS want_series(series_id INTEGER PRIMARY KEY, at INTEGER NOT NULL);
+         CREATE TABLE IF NOT EXISTS want_books(comic_id INTEGER PRIMARY KEY, at INTEGER NOT NULL);",
+    )?;
     // Books in a matched series that were tried for an automatic Comic Vine pairing. Settled ones
     // are left alone for good: you left them unpaired in the matcher.
     let fresh: bool = conn.query_row("SELECT COUNT(*) FROM sqlite_master WHERE name='cv_auto'", [], |r| r.get::<_, i64>(0))? == 0;
@@ -482,16 +488,36 @@ pub struct SeriesSummary {
     pub printed: bool,
     /// How you've said this series reads, if you have.
     pub reading: Option<String>,
+    /// On your Want to read list (and not started since).
+    pub wanted: bool,
 }
 
-const SERIES_SELECT: &str = "SELECT s.id, s.name, COALESCE(COALESCE(s.reading, col.reading)='manga', col.is_manga), COUNT(c.id), COALESCE(SUM(c.read),0),
+/// A series on Want to read stays there until you start it (read a page of any of its books after
+/// putting it there) or every book in it is read: then it's gone on to Continue reading. Taken on
+/// `w`, a row of want_series.
+macro_rules! series_wanted {
+    () => {
+        "w.at > COALESCE((SELECT MAX(c3.last_read_at) FROM comics c3
+                          WHERE c3.series_id=w.series_id AND (c3.read=1 OR c3.current_page>0)), -1)
+         AND EXISTS (SELECT 1 FROM comics c3 WHERE c3.series_id=w.series_id AND c3.read=0)"
+    };
+}
+/// The same for one book `c`, put on the list at `w.at`.
+const BOOK_WANTED: &str = "c.read=0 AND (c.current_page=0 OR c.last_read_at IS NULL OR c.last_read_at < w.at)";
+
+const SERIES_SELECT: &str = concat!(
+    "SELECT s.id, s.name, COALESCE(COALESCE(s.reading, col.reading)='manga', col.is_manga), COUNT(c.id), COALESCE(SUM(c.read),0),
        COALESCE(MAX(c.read=0 AND c.current_page>0),0),
        (SELECT c2.id FROM comics c2 WHERE c2.series_id=s.id ORDER BY c2.sort_key LIMIT 1),
        (SELECT c2.cover_ratio FROM comics c2 WHERE c2.series_id=s.id ORDER BY c2.sort_key LIMIT 1),
        MAX(c.last_read_at), MAX(c.added_at),
        (SELECT c2.cover_color FROM comics c2 WHERE c2.series_id=s.id ORDER BY c2.sort_key LIMIT 1),
-       s.reading
-     FROM series s JOIN collections col ON col.id=s.collection_id LEFT JOIN comics c ON c.series_id=s.id";
+       s.reading,
+       EXISTS (SELECT 1 FROM want_series w WHERE w.series_id=s.id AND ",
+    series_wanted!(),
+    ")
+     FROM series s JOIN collections col ON col.id=s.collection_id LEFT JOIN comics c ON c.series_id=s.id"
+);
 
 fn series_summary(r: &Row) -> rusqlite::Result<SeriesSummary> {
     Ok(SeriesSummary {
@@ -508,6 +534,7 @@ fn series_summary(r: &Row) -> rusqlite::Result<SeriesSummary> {
         cover_color: r.get(10)?,
         printed: false,
         reading: r.get(11)?,
+        wanted: r.get(12)?,
     })
 }
 
@@ -619,6 +646,9 @@ pub struct SeriesView {
     pub printed: Vec<i64>,
     /// The Comic Vine series this one is matched to, if any.
     pub cv_volume_id: Option<String>,
+    /// On your Want to read list, and which of its books are on it by themselves.
+    pub wanted: bool,
+    pub wanted_books: Vec<i64>,
 }
 
 /// A book that may be the same as another, with where its file is.
@@ -863,7 +893,76 @@ pub fn series_view(conn: &Connection, id: i64) -> Result<SeriesView> {
         backfill: backfill(conn, id)?,
         printed: Vec::new(),
         cv_volume_id: cv.map(|(v, _)| v),
+        wanted: conn.query_row(
+            concat!("SELECT EXISTS (SELECT 1 FROM want_series w WHERE w.series_id=?1 AND ", series_wanted!(), ")"),
+            [id],
+            |r| r.get(0),
+        )?,
+        wanted_books: conn
+            .prepare(&format!("SELECT c.id FROM want_books w JOIN comics c ON c.id=w.comic_id WHERE c.series_id=?1 AND {BOOK_WANTED}"))?
+            .query_map([id], |r| r.get(0))?
+            .collect::<rusqlite::Result<_>>()?,
     })
+}
+
+/// Everything on your Want to read list, the last put on first, with when each went on.
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct WantList {
+    pub series: Vec<SeriesSummary>,
+    pub series_at: Vec<i64>,
+    pub books: Vec<ComicCard>,
+    pub books_at: Vec<i64>,
+}
+
+pub fn want_list(conn: &Connection) -> Result<WantList> {
+    let series = conn
+        .prepare(&format!(
+            "{SERIES_SELECT} JOIN want_series w ON w.series_id=s.id WHERE {} GROUP BY s.id ORDER BY w.at DESC",
+            series_wanted!()
+        ))?
+        .query_map([], series_summary)?
+        .collect::<rusqlite::Result<Vec<_>>>()?;
+    let books = cards(conn, &format!("JOIN want_books w ON w.comic_id=c.id WHERE {BOOK_WANTED} ORDER BY w.at DESC"), [])?;
+    let at = |table: &str, key: &str| -> Result<HashMap<i64, i64>> {
+        Ok(conn
+            .prepare(&format!("SELECT {key}, at FROM {table}"))?
+            .query_map([], |r| Ok((r.get(0)?, r.get(1)?)))?
+            .collect::<rusqlite::Result<_>>()?)
+    };
+    let (sa, ba) = (at("want_series", "series_id")?, at("want_books", "comic_id")?);
+    Ok(WantList {
+        series_at: series.iter().map(|s| sa[&s.id]).collect(),
+        series,
+        books_at: books.iter().map(|b| ba[&b.id]).collect(),
+        books,
+    })
+}
+
+/// How many things are on the list, for the side panel.
+pub fn want_count(conn: &Connection) -> Result<i64> {
+    Ok(conn.query_row(
+        &format!(
+            "SELECT (SELECT COUNT(*) FROM want_series w WHERE {})
+                  + (SELECT COUNT(*) FROM want_books w JOIN comics c ON c.id=w.comic_id WHERE {BOOK_WANTED})",
+            series_wanted!()
+        ),
+        [],
+        |r| r.get(0),
+    )?)
+}
+
+/// Put a series or a book on Want to read (again: it counts from now), or take it off.
+pub fn set_wanted(conn: &Connection, series: Option<i64>, book: Option<i64>, on: bool, now: i64) -> Result<()> {
+    for (table, key, id) in [("want_series", "series_id", series), ("want_books", "comic_id", book)] {
+        let Some(id) = id else { continue };
+        if on {
+            conn.execute(&format!("INSERT INTO {table}({key}, at) VALUES(?1, ?2) ON CONFLICT({key}) DO UPDATE SET at=excluded.at"), params![id, now])?;
+        } else {
+            conn.execute(&format!("DELETE FROM {table} WHERE {key}=?1"), [id])?;
+        }
+    }
+    Ok(())
 }
 
 /// The tab on a series page with every format's books in the order the story runs.
@@ -1996,6 +2095,44 @@ mod story_tests {
     }
 
     const RUN: [i64; 6] = [13, 14, 15, 16, 17, 18];
+
+    #[test]
+    fn want_to_read_lasts_until_you_start() {
+        let conn = saga("want", "Collects SAGA #13-18.");
+        // Read a little of #19 long ago; putting the series on the list afterward still counts.
+        conn.execute("UPDATE comics SET current_page=5, last_read_at=500 WHERE id=19", []).unwrap();
+        set_wanted(&conn, Some(1), None, true, 1000).unwrap();
+        set_wanted(&conn, None, Some(103), true, 1000).unwrap();
+        assert_eq!(want_count(&conn).unwrap(), 2);
+        let v = series_view(&conn, 1).unwrap();
+        assert!(v.wanted);
+        assert_eq!(v.wanted_books, [103]);
+        assert!(collection_view(&conn, 1).unwrap().series[0].wanted);
+        let list = want_list(&conn).unwrap();
+        assert_eq!((list.series.len(), list.books.len(), list.series_at[0], list.books_at[0]), (1, 1, 1000, 1000));
+
+        // Starting any book in it takes the series off; the book on its own stays.
+        conn.execute("UPDATE comics SET current_page=3, last_read_at=1100 WHERE id=13", []).unwrap();
+        assert!(!series_view(&conn, 1).unwrap().wanted);
+        assert_eq!(want_count(&conn).unwrap(), 1);
+        // Put back on, it counts from then.
+        set_wanted(&conn, Some(1), None, true, 1200).unwrap();
+        assert!(series_view(&conn, 1).unwrap().wanted);
+        // Reading the volume takes it off, and it took its issues (and so the series) with it.
+        set_read(&conn, 103, true, 1300).unwrap();
+        assert_eq!(want_count(&conn).unwrap(), 0);
+        assert!(want_list(&conn).unwrap().books.is_empty());
+
+        // Taken off by hand, and gone with the books.
+        set_wanted(&conn, Some(1), None, true, 1400).unwrap();
+        set_wanted(&conn, None, Some(19), true, 1400).unwrap();
+        set_wanted(&conn, None, Some(19), false, 1500).unwrap();
+        assert_eq!(want_count(&conn).unwrap(), 1);
+        conn.execute("DELETE FROM comics WHERE series_id=1", []).unwrap();
+        crate::removal::clear_leftovers(&conn).unwrap();
+        let left: i64 = conn.query_row("SELECT (SELECT COUNT(*) FROM want_series) + (SELECT COUNT(*) FROM want_books)", [], |r| r.get(0)).unwrap();
+        assert_eq!(left, 0);
+    }
 
     #[test]
     fn finishing_a_collection_finishes_its_issues() {
