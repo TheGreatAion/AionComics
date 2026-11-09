@@ -29,7 +29,8 @@
     maximize: "M5.5 5.5h13v13h-13z",
     restore: "M8.5 8.5h10v10h-10zM5.5 15.5v-10h10",
     close: "M6 6l12 12M18 6 6 18",
-    options: "M4 7h10M18 7h2M4 17h4M12 17h8M16 5v4M10 15v4",
+    // A gear with eight teeth and a hole through the middle.
+    options: "M19.01 10.37L21.37 10.44L21.37 13.56L19.01 13.63L18.11 15.81L19.73 17.52L17.52 19.73L15.81 18.11L13.63 19.01L13.56 21.37L10.44 21.37L10.37 19.01L8.19 18.11L6.48 19.73L4.27 17.52L5.89 15.81L4.99 13.63L2.63 13.56L2.63 10.44L4.99 10.37L5.89 8.19L4.27 6.48L6.48 4.27L8.19 5.89L10.37 4.99L10.44 2.63L13.56 2.63L13.63 4.99L15.81 5.89L17.52 4.27L19.73 6.48L18.11 8.19zM15 12a3 3 0 1 0-6 0a3 3 0 1 0 6 0",
     search: "M10.5 17.5a7 7 0 1 0 0-14 7 7 0 0 0 0 14zM20 20l-4.5-4.5",
     rescan: "M20 12a8 8 0 1 1-2.34-5.66M20 4v5h-5",
     folder: "M3 6.5A1.5 1.5 0 0 1 4.5 5H9l2 2h8.5A1.5 1.5 0 0 1 21 8.5v9a1.5 1.5 0 0 1-1.5 1.5h-15A1.5 1.5 0 0 1 3 17.5z",
@@ -48,7 +49,8 @@
     arrowRight: "M5 12h14M13 6l6 6-6 6",
     arrowLeft: "M19 12H5M11 6l-6 6 6 6",
     chevronLeft: "M15 6l-6 6 6 6",
-    stats: "M5 20v-7M12 20V5M19 20v-11M3 20.5h18",
+    // A line climbing to an arrow: how your reading is going.
+    stats: "M3.5 20.5h17M4 16l5-5 4 3.5 7-7.5M15.5 7H20v4.5",
     chevronRight: "M9 6l6 6-6 6",
     readRtl: "M12 6.5 6.5 12l5.5 5.5M18.5 6.5 13 12l5.5 5.5",
     order: "M10 6h10M10 12h10M10 18h10M4 4.5l1.5-1v5M4 13.5a1.5 1.5 0 1 1 2.6 1L4 17.5h3",
@@ -63,7 +65,7 @@
 
   // Shapes with lines drawn inside them (a panel divider, the "!" of a warning, a window frame)
   // stay outlines: filled, the inside would vanish.
-  const OUTLINE = new Set<string>(["bookmarkOutline", "sidebar", "editPanels", "alert", "maximize", "doubleRtl", "fullSize", "keyboard", "storage", "phone"]);
+  const OUTLINE = new Set<string>(["bookmarkOutline", "options", "sidebar", "editPanels", "alert", "maximize", "doubleRtl", "fullSize", "keyboard", "storage", "phone"]);
 
   // Each icon's pieces, and which are closed shapes to fill (curved ones, like a lens, stay lines).
   const PIECES = Object.fromEntries(
