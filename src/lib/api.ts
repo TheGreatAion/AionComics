@@ -1,4 +1,43 @@
 import { invoke } from "@tauri-apps/api/core";
+import { gate } from "./gate.svelte";
+
+export { gate };
+
+/** Opened in a web browser on another device (see remote.rs), not in AionComics' own window. */
+export const remote = typeof window !== "undefined" && !("__TAURI_INTERNALS__" in window);
+
+/** Ask AionComics for something: through the window, or from another device over the network. */
+async function call<T>(cmd: string, args?: Record<string, unknown>): Promise<T> {
+  if (!remote) return invoke<T>(cmd, args);
+  const res = await fetch(`/api/${cmd}`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(args ?? {}),
+  }).catch(() => {
+    throw "Can't reach AionComics. Is the PC on, and AionComics open?";
+  });
+  if (res.status === 401) gate.locked = true;
+  const body = await res.json().catch(() => null);
+  if (!res.ok) throw typeof body === "string" ? body : `Something went wrong (${res.status})`;
+  return body as T;
+}
+
+/** On another device: whether it's in yet, and typing the code to get in. */
+export const door = {
+  check: async () => {
+    const res = await fetch("/api/hello", { cache: "no-store" });
+    gate.locked = res.status === 401;
+  },
+  enter: async (code: string) => {
+    const res = await fetch("/api/login", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ code }),
+    });
+    if (!res.ok) throw (await res.json().catch(() => null)) ?? "That didn't work.";
+    gate.locked = false;
+  },
+};
 
 export interface ComicCard {
   id: number;
@@ -403,101 +442,120 @@ export type AddProgress = { done: number; total: number; bytes: number; totalByt
 export const COMIC_FILES = [{ name: "Comics", extensions: ["cbz", "cbr", "cb7", "pdf", "epub", "zip", "rar", "7z"] }];
 
 export const api = {
-  settings: () => invoke<Settings>("get_settings"),
-  setOptions: (options: Options) => invoke<void>("set_options", { options }),
-  storage: () => invoke<Storage>("storage"),
-  clearPages: () => invoke<void>("clear_pages"),
-  openDataFolder: () => invoke<void>("open_data_folder"),
-  setLibraryRoot: (path: string) => invoke<void>("set_library_root", { path }),
-  rescan: () => invoke<void>("rescan"),
+  settings: () => call<Settings>("get_settings"),
+  setOptions: (options: Options) => call<void>("set_options", { options }),
+  storage: () => call<Storage>("storage"),
+  clearPages: () => call<void>("clear_pages"),
+  openDataFolder: () => call<void>("open_data_folder"),
+  setLibraryRoot: (path: string) => call<void>("set_library_root", { path }),
+  rescan: () => call<void>("rescan"),
   /** A Comics folder in Documents becomes the comics folder. Returns where it is. */
-  startFresh: () => invoke<string>("start_fresh"),
-  setLayout: (layout: string) => invoke<void>("set_layout", { layout }),
-  setSeriesReading: (id: number, reading: string | null) => invoke<void>("set_series_reading", { id, reading }),
+  startFresh: () => call<string>("start_fresh"),
+  setLayout: (layout: string) => call<void>("set_layout", { layout }),
+  setSeriesReading: (id: number, reading: string | null) => call<void>("set_series_reading", { id, reading }),
   /** Returns how they were, for Undo. */
-  setFormatOrder: (id: number, order: string[] | null) => invoke<string[] | null>("set_format_order", { id, order }),
-  setLibraryReading: (id: number, reading: string | null) => invoke<void>("set_library_reading", { id, reading }),
+  setFormatOrder: (id: number, order: string[] | null) => call<string[] | null>("set_format_order", { id, order }),
+  setLibraryReading: (id: number, reading: string | null) => call<void>("set_library_reading", { id, reading }),
   /** Hide books, a series or a library; with `del`, move their files to the Recycle Bin. */
   removeBooks: (t: { books?: number[]; series?: number; library?: number; title: string }, del: boolean) =>
-    invoke<void>("remove_books", { books: t.books ?? null, series: t.series ?? null, library: t.library ?? null, label: t.title, delete: del }),
-  hiddenList: () => invoke<{ label: string; at: number }[]>("hidden_list"),
-  putBack: (label: string, at: number) => invoke<void>("put_back", { label, at }),
+    call<void>("remove_books", { books: t.books ?? null, series: t.series ?? null, library: t.library ?? null, label: t.title, delete: del }),
+  hiddenList: () => call<{ label: string; at: number }[]>("hidden_list"),
+  putBack: (label: string, at: number) => call<void>("put_back", { label, at }),
   /** A new, empty library: a folder at the top of the comics folder. Returns its id. */
-  newLibrary: (name: string) => invoke<number>("new_library", { name }),
-  backups: () => invoke<Backup[]>("backups"),
-  backupNow: () => invoke<Backup>("backup_now"),
+  newLibrary: (name: string) => call<number>("new_library", { name }),
+  backups: () => call<Backup[]>("backups"),
+  backupNow: () => call<Backup>("backup_now"),
   /** Backs up today's state, then restarts AionComics with the chosen backup in place. */
-  restoreBackup: (name: string) => invoke<void>("restore_backup", { name }),
-  home: () => invoke<Home>("home"),
-  nav: () => invoke<NavInfo>("nav"),
-  search: (q: string) => invoke<SearchHits>("search", { q }),
-  collection: (id: number) => invoke<CollectionView>("collection", { id }),
-  series: (id: number) => invoke<SeriesView>("series", { id }),
-  people: (kind: PeopleKind, name: string) => invoke<PeopleView>("people", { kind, name }),
-  bookTrouble: (id: number) => invoke<BookTrouble>("book_trouble", { id }),
-  bookStats: (id: number) => invoke<BookStats>("book_stats", { id }),
-  duplicates: () => invoke<DupGroup[]>("duplicates"),
-  ignoreDuplicate: (key: string) => invoke<void>("ignore_duplicate", { key }),
-  readingStats: () => invoke<ReadingStats>("reading_stats", { tzMinutes: -new Date().getTimezoneOffset() }),
-  openComic: (id: number) => invoke<ReaderInfo>("open_comic", { id, screen: screenHeight }),
-  pagePanels: (id: number, page: number, rtl: boolean) => invoke<Panel[]>("page_panels", { id, page, rtl }),
+  restoreBackup: (name: string) => call<void>("restore_backup", { name }),
+  home: () => call<Home>("home"),
+  nav: () => call<NavInfo>("nav"),
+  search: (q: string) => call<SearchHits>("search", { q }),
+  collection: (id: number) => call<CollectionView>("collection", { id }),
+  series: (id: number) => call<SeriesView>("series", { id }),
+  people: (kind: PeopleKind, name: string) => call<PeopleView>("people", { kind, name }),
+  bookTrouble: (id: number) => call<BookTrouble>("book_trouble", { id }),
+  bookStats: (id: number) => call<BookStats>("book_stats", { id }),
+  duplicates: () => call<DupGroup[]>("duplicates"),
+  ignoreDuplicate: (key: string) => call<void>("ignore_duplicate", { key }),
+  readingStats: () => call<ReadingStats>("reading_stats", { tzMinutes: -new Date().getTimezoneOffset() }),
+  openComic: (id: number) => call<ReaderInfo>("open_comic", { id, screen: screenHeight }),
+  pagePanels: (id: number, page: number, rtl: boolean) => call<Panel[]>("page_panels", { id, page, rtl }),
   /** Guided View: work out the book's panels in the background, from page `from` on. */
-  panelsAhead: (id: number, from: number, rtl: boolean) => invoke<void>("panels_ahead", { id, from, rtl }),
-  comicMeta: (id: number) => invoke<ComicMeta>("comic_meta", { id }),
+  panelsAhead: (id: number, from: number, rtl: boolean) => call<void>("panels_ahead", { id, from, rtl }),
+  comicMeta: (id: number) => call<ComicMeta>("comic_meta", { id }),
   /** Who's in each of these books: [teams, characters]. */
-  casts: (ids: number[]) => invoke<[string | null, string | null][]>("casts", { ids }),
+  casts: (ids: number[]) => call<[string | null, string | null][]>("casts", { ids }),
   editComicMeta: (id: number, changes: Partial<Record<MetaField, string | null>>) =>
-    invoke<ComicMeta>("edit_comic_meta", { id, changes }),
-  cvStatus: () => invoke<CvStatus>("cv_status"),
-  cvOpenSite: () => invoke<void>("cv_open_site"),
-  setEdition: (id: number, kind: EditionKind | null) => invoke<void>("set_edition", { id, kind }),
+    call<ComicMeta>("edit_comic_meta", { id, changes }),
+  cvStatus: () => call<CvStatus>("cv_status"),
+  cvOpenSite: () => call<void>("cv_open_site"),
+  setEdition: (id: number, kind: EditionKind | null) => call<void>("set_edition", { id, kind }),
   /** Several books at once; returns how they were, for Undo (restoreEditions). */
-  setEditions: (ids: number[], kind: EditionKind | null) => invoke<EditionState[]>("set_editions", { ids, kind }),
-  restoreEditions: (states: EditionState[]) => invoke<void>("restore_editions", { states }),
-  cvSetKey: (key: string) => invoke<void>("cv_set_key", { key }),
+  setEditions: (ids: number[], kind: EditionKind | null) => call<EditionState[]>("set_editions", { ids, kind }),
+  restoreEditions: (states: EditionState[]) => call<void>("restore_editions", { states }),
+  cvSetKey: (key: string) => call<void>("cv_set_key", { key }),
   cvSearch: (seriesId: number, query?: string) =>
-    invoke<{ query: string; volumes: CvVolume[] }>("cv_search", { seriesId, query: query ?? null }),
+    call<{ query: string; volumes: CvVolume[] }>("cv_search", { seriesId, query: query ?? null }),
   cvPlan: (seriesId: number, volumeId: string) =>
-    invoke<{ issues: CvIssue[]; proposals: CvProposal[] }>("cv_plan", { seriesId, volumeId }),
+    call<{ issues: CvIssue[]; proposals: CvProposal[] }>("cv_plan", { seriesId, volumeId }),
   cvApply: (seriesId: number, volumeId: string, pairs: { comicId: number; issueId: string | null }[]) =>
-    invoke<number>("cv_apply", { seriesId, volumeId, pairs }),
+    call<number>("cv_apply", { seriesId, volumeId, pairs }),
   cvApplyBook: (comicId: number, volumeId: string, issueId: string | null) =>
-    invoke<number>("cv_apply_book", { comicId, volumeId, issueId }),
+    call<number>("cv_apply_book", { comicId, volumeId, issueId }),
   setUserPanels: (id: number, page: number, panels: Panel[] | null) =>
-    invoke<void>("set_user_panels", { id, page, panels }),
-  toggleBookmark: (id: number, page: number) => invoke<boolean>("toggle_bookmark", { id, page }),
-  openPath: (path: string) => invoke<number>("open_path", { path }),
-  takeOpenRequest: () => invoke<string | null>("take_open_request"),
+    call<void>("set_user_panels", { id, page, panels }),
+  toggleBookmark: (id: number, page: number) => call<boolean>("toggle_bookmark", { id, page }),
+  openPath: (path: string) => call<number>("open_path", { path }),
+  takeOpenRequest: () => call<string | null>("take_open_request"),
   /** Where these would go. `name` puts everything for a collection into the one series of that name. */
   planAdd: (paths: string[], seriesId: number | null, collectionId: number | null, name: string | null = null) =>
-    invoke<Placement[]>("plan_add", { paths, seriesId, collectionId, name }),
+    call<Placement[]>("plan_add", { paths, seriesId, collectionId, name }),
   addComics: (paths: string[], seriesId: number | null, collectionId: number | null, name: string | null = null) =>
-    invoke<number>("add_comics", { paths, seriesId, collectionId, name }),
-  savePage: (id: number, page: number, dest: string) => invoke<void>("save_page", { id, page, dest }),
+    call<number>("add_comics", { paths, seriesId, collectionId, name }),
+  savePage: (id: number, page: number, dest: string) => call<void>("save_page", { id, page, dest }),
   extractPages: (id: number, from: number, to: number, dir: string) =>
-    invoke<number>("extract_pages", { id, from, to, dir }),
+    call<number>("extract_pages", { id, from, to, dir }),
   saveProgress: (id: number, page: number, pageCount: number) =>
-    invoke<void>("save_progress", { id, page, pageCount }),
-  saveGuidedSpot: (id: number, spot: GuidedSpot | null) => invoke<void>("save_guided_spot", { id, spot }),
+    call<void>("save_progress", { id, page, pageCount }),
+  saveGuidedSpot: (id: number, spot: GuidedSpot | null) => call<void>("save_guided_spot", { id, spot }),
   // These four return how the books were before, for Undo (restoreReading).
-  setRead: (id: number, read: boolean) => invoke<ReadState[]>("set_read", { id, read }),
+  setRead: (id: number, read: boolean) => call<ReadState[]>("set_read", { id, read }),
   /** Off Continue reading, with the page you're on kept. Reading it again puts it back. */
-  wantList: () => invoke<WantList>("want_list"),
+  wantList: () => call<WantList>("want_list"),
   /** Put a series or one book on Want to read, or take it off. */
-  setWanted: (t: { series?: number; book?: number }, on: boolean) => invoke<void>("set_wanted", { series: t.series ?? null, book: t.book ?? null, on }),
-  hideFromReading: (id: number) => invoke<ReadState[]>("hide_from_reading", { id }),
-  markReadBefore: (id: number) => invoke<ReadState[]>("mark_read_before", { id }),
-  setSeriesRead: (seriesId: number, read: boolean) => invoke<ReadState[]>("set_series_read", { seriesId, read }),
-  restoreReading: (states: ReadState[]) => invoke<void>("restore_reading", { states }),
+  setWanted: (t: { series?: number; book?: number }, on: boolean) => call<void>("set_wanted", { series: t.series ?? null, book: t.book ?? null, on }),
+  hideFromReading: (id: number) => call<ReadState[]>("hide_from_reading", { id }),
+  markReadBefore: (id: number) => call<ReadState[]>("mark_read_before", { id }),
+  setSeriesRead: (seriesId: number, read: boolean) => call<ReadState[]>("set_series_read", { seriesId, read }),
+  restoreReading: (states: ReadState[]) => call<void>("restore_reading", { states }),
   /** Books taken off Continue reading and not read since. */
-  takenOffReading: () => invoke<ComicCard[]>("taken_off_reading"),
-  unhideFromReading: (id: number) => invoke<void>("unhide_from_reading", { id }),
-  dismissBackfill: (seriesId: number) => invoke<void>("dismiss_backfill", { seriesId }),
-  reveal: (id: number) => invoke<void>("reveal", { id }),
+  takenOffReading: () => call<ComicCard[]>("taken_off_reading"),
+  unhideFromReading: (id: number) => call<void>("unhide_from_reading", { id }),
+  dismissBackfill: (seriesId: number) => call<void>("dismiss_backfill", { seriesId }),
+  reveal: (id: number) => call<void>("reveal", { id }),
+  remoteStatus: () => call<RemoteStatus>("remote_status"),
+  setRemote: (on: boolean) => call<RemoteStatus>("set_remote", { on }),
+  newRemoteCode: () => call<RemoteStatus>("new_remote_code"),
 };
 
-// Custom protocol: Windows' WebView2 exposes it as http://aion.localhost.
-const base = navigator.userAgent.includes("Windows") ? "http://aion.localhost" : "aion://localhost";
+/** Reading from another device, as Settings shows it. */
+export interface RemoteStatus {
+  on: boolean;
+  /** "http://192.168.1.20:8642": on the same Wi-Fi. */
+  home: string | null;
+  /** Through Tailscale: works away from home too. */
+  away: string | null;
+  /** Square codes for a phone's camera (SVG). */
+  homeQr: string | null;
+  awayQr: string | null;
+  code: string;
+  devices: number;
+  problem: string | null;
+}
+
+// Custom protocol: Windows' WebView2 exposes it as http://aion.localhost. On another device, the
+// same pictures come from AionComics' web server.
+const base = remote ? "/img" : navigator.userAgent.includes("Windows") ? "http://aion.localhost" : "aion://localhost";
 export const coverUrl = (id: number) => `${base}/cover/${id}`;
 export const pageUrl = (id: number, n: number) => `${base}/page/${id}/${n}`;
 export const thumbUrl = (id: number, n: number) => `${base}/thumb/${id}/${n}`;

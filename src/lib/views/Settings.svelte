@@ -1,7 +1,7 @@
 <script lang="ts">
   import { getVersion } from "@tauri-apps/api/app";
   import { open } from "@tauri-apps/plugin-dialog";
-  import { api, type Backup, type ComicCard, type CvStatus, type Options, type Settings, type Storage } from "$lib/api";
+  import { api, type Backup, type ComicCard, type CvStatus, type Options, type RemoteStatus, type Settings, type Storage } from "$lib/api";
   import Cover from "$lib/components/Cover.svelte";
   import Icon, { type IconName } from "$lib/components/Icon.svelte";
   import { look, setBackdrop, setMotion, type Motion } from "$lib/look.svelte";
@@ -75,6 +75,27 @@
     await api.unhideFromReading(c.id);
     lib.version++;
   }
+  // ---------- other devices ----------
+  let remoteSt = $state<RemoteStatus | null>(null);
+  let remoteBusy = $state(false);
+  let remoteError = $state("");
+  $effect(() => {
+    api.remoteStatus().then((v) => (remoteSt = v)).catch(() => {});
+  });
+  async function remoteDo(change: () => Promise<RemoteStatus>) {
+    if (remoteBusy) return;
+    remoteBusy = true;
+    remoteError = "";
+    try {
+      remoteSt = await change();
+    } catch (e) {
+      remoteError = String(e);
+    } finally {
+      remoteBusy = false;
+    }
+  }
+  const deviceCount = (n: number) => (n === 0 ? "No devices in yet" : n === 1 ? "1 device in" : `${n} devices in`);
+
   $effect(() => {
     api.storage().then((v) => (storage = v));
     getVersion().then((v) => (version = v));
@@ -88,6 +109,7 @@
     { id: "keys", icon: "keyboard", name: "Keyboard" },
     { id: "library", icon: "folder", name: "Library" },
     { id: "details", icon: "fetch", name: "Details" },
+    { id: "remote", icon: "phone", name: "Devices" },
     { id: "storage", icon: "storage", name: "Storage" },
     { id: "backups", icon: "undo", name: "Backups" },
   ];
@@ -657,6 +679,42 @@
         </div>
 
         <div>
+          <!-- Reading from a phone, tablet or another computer, in its web browser (see remote.rs). -->
+          <section bind:this={sections.remote}>
+            <div class="caption">Other devices</div>
+            <div class="row">
+              <div class="lbl">Read on another device<small>A phone, tablet or another computer, in its web browser, while AionComics is open here</small></div>
+              {@render toggle(!!remoteSt?.on, () => remoteDo(() => api.setRemote(!remoteSt?.on)), "Read on another device")}
+            </div>
+            {#if remoteError || remoteSt?.problem}<p class="err"><Icon name="alert" size={14} />{remoteError || remoteSt?.problem}</p>{/if}
+            {#if remoteSt?.on}
+              {#each [{ url: remoteSt.home, qr: remoteSt.homeQr, name: "On your home Wi-Fi", note: "Scan the square with the device's camera, or type the address" }, { url: remoteSt.away, qr: remoteSt.awayQr, name: "Anywhere, through Tailscale", note: "Works away from home too, on devices signed in to your Tailscale" }] as a (a.name)}
+                {#if a.url}
+                  <div class="row addr">
+                    <div class="qr">{@html a.qr}</div>
+                    <div class="lbl">{a.name}<small>{a.note}</small><span class="url">{a.url}</span></div>
+                  </div>
+                {/if}
+              {/each}
+              {#if !remoteSt.home && !remoteSt.away}
+                <p class="hint">This PC isn't on a network right now. Its address shows here once it is.</p>
+              {/if}
+              <div class="row">
+                <div class="lbl">Code to get in<small>{deviceCount(remoteSt.devices)} · each device types it once</small></div>
+                <div class="ctl">
+                  <span class="pin">{remoteSt.code}</span>
+                  <button class="ico" title="New code: every device has to type it again" aria-label="New code" disabled={remoteBusy} onclick={() => remoteDo(api.newRemoteCode)}>
+                    <Icon name="rescan" size={16} />
+                  </button>
+                </div>
+              </div>
+              {#if !remoteSt.away}
+                <p class="hint">To read away from home too, install Tailscale on this PC and on the device, signed in to the same account. A second address then shows here.</p>
+              {/if}
+              <p class="hint">If Windows asks whether AionComics may use your network, choose Allow.</p>
+            {/if}
+          </section>
+
           <section bind:this={sections.storage}>
             <div class="caption">Storage</div>
             <div class="meter big">
@@ -1290,5 +1348,40 @@
     display: flex;
     align-items: center;
     gap: 8px;
+  }
+  /* Other devices: the square code for a phone's camera beside the address it opens. */
+  .row.addr {
+    justify-content: flex-start;
+    gap: 18px;
+    padding: 14px 0;
+  }
+  .qr {
+    flex: none;
+    width: 112px;
+    height: 112px;
+    padding: 6px;
+    background: #fff;
+    border-radius: 4px;
+  }
+  .qr :global(svg) {
+    display: block;
+    width: 100%;
+    height: 100%;
+  }
+  .url {
+    display: block;
+    margin-top: 10px;
+    font: 400 14px/1.3 var(--mono);
+    user-select: text;
+  }
+  .pin {
+    font: 400 20px/1 var(--mono);
+    letter-spacing: 0.12em;
+    user-select: text;
+  }
+  .hint {
+    margin-top: 12px;
+    font-size: 12px;
+    color: var(--text-3);
   }
 </style>

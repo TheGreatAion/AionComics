@@ -1,8 +1,9 @@
 <script lang="ts">
   import { tick } from "svelte";
-  import { api, coverUrl, duration, storyTitle, type BookStats, type BookTrouble, type ComicCard, type GuidedSpot, type Panel } from "$lib/api";
+  import { api, coverUrl, duration, remote, storyTitle, type BookStats, type BookTrouble, type ComicCard, type GuidedSpot, type Panel } from "$lib/api";
   import Icon, { type IconName } from "$lib/components/Icon.svelte";
   import WindowControls from "$lib/components/WindowControls.svelte";
+  import { viewport } from "$lib/components/SidePanel.svelte";
   import Wash from "$lib/components/Wash.svelte";
   import { CLOSE_EASE, closeMs, fadeMs, fly, flightMs, visible } from "$lib/flight";
   import { lib, menu, reader, showMenu } from "$lib/state.svelte";
@@ -372,7 +373,7 @@
     else wake();
   }
 
-  const openMenu = (e: MouseEvent) => showMenu(e, menuItems(c, overrides));
+  const openMenu = (e: MouseEvent) => showMenu(e, menuItems(c, overrides), true);
 
   $effect(() => {
     wake();
@@ -407,6 +408,8 @@
 </script>
 
 <svelte:window onkeydown={onkey} />
+<!-- In a web browser, full screen can also end by the browser's own gesture or button. -->
+<svelte:document onfullscreenchange={() => remote && (c.fullscreen = !!document.fullscreenElement)} />
 
 <div
   class="reader"
@@ -540,7 +543,7 @@
           >
             {#if c.view.fit === "full"}<span class="txt fine">1:1</span>{:else}<Icon name={FIT_ICON[c.view.fit]} />{/if}
           </button>
-          {@render tool("double", "double")}
+          {#if !viewport.narrow}{@render tool("double", "double")}{/if}
           {@render tool("guided", "guided")}
           {@render tool("bookmark", "bookmark")}
           {@render tool("options", "options")}
@@ -574,6 +577,7 @@
         <button
           class="tool"
           class:on={c.fullscreen}
+          hidden={remote && !document.fullscreenEnabled}
           onclick={() => c.setFullscreen(!c.fullscreen)}
           title={tip("fullscreen")}
           aria-label="Full screen"
@@ -581,7 +585,7 @@
           <Icon name={c.fullscreen ? "exitFullscreen" : "fullscreen"} />
         </button>
       </div>
-      {#if !c.fullscreen}<div class="win"><WindowControls /></div>{/if}
+      {#if !c.fullscreen && !remote}<div class="win"><WindowControls /></div>{/if}
     </header>
 
     <div class="bottom" class:shown={showChrome} onpointerenter={() => bars(true)} onpointerleave={() => bars(false)} role="presentation">
@@ -794,6 +798,9 @@
     gap: 2px;
     overflow: hidden;
   }
+  .tool[hidden] {
+    display: none;
+  }
   .tool {
     width: 32px;
     height: 32px;
@@ -982,5 +989,17 @@
     display: inline-flex;
     align-items: center;
     gap: 9px;
+  }
+  /* A phone: the toolbar takes the screen's width, keeping the tools and the page number; the
+     book's name and the clock make way. */
+  @media (max-width: 700px) {
+    .tab {
+      max-width: calc(100% - 12px);
+    }
+    .title,
+    .title + .sep,
+    .clock {
+      display: none;
+    }
   }
 </style>

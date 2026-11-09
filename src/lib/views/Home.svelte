@@ -318,7 +318,7 @@
               >
                 <Icon name="strip" size={18} />
               </button>
-              <button class="ico" title="Remove from Continue reading" aria-label="Remove from Continue reading" onclick={() => remove(hero)}>
+              <button class="ico pc-only" title="Remove from Continue reading" aria-label="Remove from Continue reading" onclick={() => remove(hero)}>
                 <Icon name="close" size={16} />
               </button>
             </div>
@@ -402,7 +402,7 @@
                   {#each c.covers as id (id)}<Cover {id} width={Math.round(fanH * 0.65)} pages={null} />{/each}
                 </div>
               </button>
-              <button class="ico add" title="Add a series to {c.name}" aria-label="Add a series to {c.name}" onclick={(e) => addMenu(e, { collection: c.id, title: c.name })}>
+              <button class="ico add pc-only" title="Add a series to {c.name}" aria-label="Add a series to {c.name}" onclick={(e) => addMenu(e, { collection: c.id, title: c.name })}>
                 <Icon name="plus" size={16} />
               </button>
             </div>
@@ -417,7 +417,7 @@
       <h1>No comics yet</h1>
       {#if addHere}
         <p>Add some here, or drag files and folders anywhere in this window.</p>
-        <div class="ways">
+        <div class="ways pc-only">
           <button class="btn" onclick={(e) => addMenu(e, addHere)}><Icon name="plus" size={16} />Add comics</button>
           <button class="link" onclick={() => (adding.newLibrary = true)}>New library</button>
         </div>
@@ -775,5 +775,22 @@
     display: inline-flex;
     align-items: center;
     gap: 10px;
+  }
+  /* A phone: the book's name across the panel's whole width, the open book under it. */
+  @media (max-width: 700px) {
+    .hero {
+      grid-template-columns: minmax(0, 1fr);
+      grid-template-rows: auto minmax(0, 1fr);
+      gap: 8px;
+      padding: 36px 18px 12px;
+      margin-top: 64px;
+    }
+    .text {
+      padding-bottom: 0;
+    }
+    .stage {
+      grid-column: 1;
+      grid-row: 2;
+    }
   }
 </style>

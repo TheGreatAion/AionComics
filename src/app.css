@@ -277,3 +277,22 @@ img {
     transform: rotate(360deg);
   }
 }
+
+/* Things only the PC does (adding, editing, Comic Vine, removing): left out in a web browser on
+   another device (see remote.rs). */
+html.remote .pc-only {
+  display: none !important;
+}
+
+/* A phone or small tablet, reading from another device: tighter margins, smaller covers, and the
+   side panel a little wider so names fit. */
+@media (max-width: 700px) {
+  :root {
+    --pad: 16px;
+    --side: min(300px, 86vw);
+  }
+  .grid {
+    grid-template-columns: repeat(auto-fill, minmax(104px, 1fr));
+    gap: 36px 14px;
+  }
+}

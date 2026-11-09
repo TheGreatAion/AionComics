@@ -3,6 +3,7 @@
   import type { Ctl } from "./ctl.svelte";
   import PageStatus from "./PageStatus.svelte";
   import { DOUBLE_CLICK_MS, prefs } from "./prefs.svelte";
+  import { swiper } from "./swipe";
 
   /** Turns this close together are skipping; loading waits until none came for QUIET_MS. */
   const SKIPPING_MS = 90;
@@ -137,17 +138,52 @@
     }
   }
 
-  // ---------- pointer: click zones, drag to pan, magnifier ----------
+  // ---------- pointer: click zones, drag to pan, magnifier; on a touch screen, flick and pinch ----------
   let drag: { x: number; y: number; sx: number; sy: number; moved: boolean } | null = null;
+  const flick = swiper((side) => onzone(side));
+  /** Fingers on the page, and the pinch two of them make: how far apart they started, at what zoom. */
+  const fingers = new Map<number, { x: number; y: number }>();
+  let pinch: { d: number; zoom: number } | null = null;
+  const spread = () => {
+    const [a, b] = [...fingers.values()];
+    return Math.hypot(a.x - b.x, a.y - b.y) || 1;
+  };
   let lens = $state<{ x: number; y: number; ax: number; ay: number } | null>(null);
   const R = 130;
 
   function down(e: PointerEvent) {
     if (e.button !== 0 || !stage) return;
-    drag = { x: e.clientX, y: e.clientY, sx: stage.scrollLeft, sy: stage.scrollTop, moved: false };
+    flick.down(e);
+    if (e.pointerType === "touch") {
+      fingers.set(e.pointerId, { x: e.clientX, y: e.clientY });
+      if (fingers.size === 2) pinch = { d: spread(), zoom: c.zoom };
+    }
+    drag = { x: e.clientX, y: e.clientY, sx: stage.scrollLeft, sy: stage.scrollTop, moved: fingers.size > 1 };
+  }
+
+  function up(e: PointerEvent) {
+    fingers.delete(e.pointerId);
+    if (fingers.size < 2) pinch = null;
+    if (!stage) return;
+    // A flick turns only once the page has been seen to that side.
+    const room = stage.scrollWidth - stage.clientWidth;
+    const edge = (side: string) => (side === "left" ? stage!.scrollLeft <= 1 : stage!.scrollLeft >= room - 1);
+    if (flick.up(e, edge) && drag) drag.moved = true;
+  }
+
+  function cancel(e: PointerEvent) {
+    fingers.delete(e.pointerId);
+    pinch = null;
+    flick.cancel();
   }
 
   function move(e: PointerEvent) {
+    if (fingers.has(e.pointerId)) fingers.set(e.pointerId, { x: e.clientX, y: e.clientY });
+    if (pinch && fingers.size === 2) {
+      c.zoom = Math.max(0.5, Math.min(8, +(pinch.zoom * (spread() / pinch.d)).toFixed(3)));
+      if (drag) drag.moved = true;
+      return;
+    }
     if (c.magnifier && area) {
       const r = area.getBoundingClientRect();
       lens = { x: e.clientX, y: e.clientY, ax: r.left + r.width / 2, ay: r.top + r.height / 2 };
@@ -222,6 +258,8 @@
   bind:clientHeight={vh}
   onpointerdown={down}
   onpointermove={move}
+  onpointerup={up}
+  onpointercancel={cancel}
   onpointerleave={() => (lens = null)}
   onclick={click}
   ondblclick={dblclick}
@@ -287,6 +325,10 @@
   }
   .stage::-webkit-scrollbar {
     display: none;
+  }
+  /* Fingers pan, flick and pinch the page here, not the browser. */
+  .stage {
+    touch-action: none;
   }
   .stage.pan {
     cursor: grab;

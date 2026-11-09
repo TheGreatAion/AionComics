@@ -3,8 +3,9 @@
   import { slide } from "svelte/transition";
   import { addMenu } from "$lib/add.svelte";
   import CvNudge from "$lib/components/CvNudge.svelte";
+  import { viewport } from "$lib/components/SidePanel.svelte";
   import { readAsItems, removing, want, wantItem } from "$lib/manage.svelte";
-  import { api, chapterList, listText, plainText, storyTitle, unitWord, type ComicCard, type ComicMeta, type Edition, type EditionKind, type MetaField, type SeriesView } from "$lib/api";
+  import { api, chapterList, listText, plainText, remote, storyTitle, unitWord, type ComicCard, type ComicMeta, type Edition, type EditionKind, type MetaField, type SeriesView } from "$lib/api";
   import { lib, nav, openReader, reader, search, sheets, showMenu, undoable, undoableWith, type MenuItem } from "$lib/state.svelte";
   import { bareEnter, nearest } from "$lib/keynav";
   import { motionMs } from "$lib/look.svelte";
@@ -511,10 +512,11 @@
 
   // How big the covers are: Ctrl + the mouse wheel, remembered.
   const SIZE_KEY = "aion.cover-size";
-  const GAP = 26;
+  // A phone fits three covers across, closer together.
+  const GAP = $derived(viewport.narrow ? 14 : 26);
   let size = $state(Number((() => { try { return localStorage.getItem(SIZE_KEY); } catch { return null; } })()) || 190);
   let galleryW = $state(0);
-  const cols = $derived(Math.max(1, Math.floor((galleryW + GAP) / (size + GAP))));
+  const cols = $derived(Math.max(1, Math.floor((galleryW + GAP) / ((viewport.narrow ? 100 : size) + GAP))));
   const trackW = $derived((galleryW - GAP * (cols - 1)) / cols);
   function onwheel(e: WheelEvent) {
     if (!e.ctrlKey || reader.id !== null) return;
@@ -619,7 +621,7 @@
           <Icon name="unread" size={18} />
         </button>
         <button
-          class="ico"
+          class="ico pc-only"
           title="Add {unitWord(data.isManga, 2)}"
           aria-label="Add {unitWord(data.isManga, 2)}"
           onclick={(e) => addMenu(e, { series: data!.id, title: data!.name })}
@@ -627,18 +629,18 @@
           <Icon name="plus" size={18} />
         </button>
         <!-- Always here, so a series can fetch its details again (a new issue, a wrong match). -->
-        <button class="ico" title={cvLabel} aria-label={cvLabel} onclick={findOnCv}>
+        <button class="ico pc-only" title={cvLabel} aria-label={cvLabel} onclick={findOnCv}>
           <Icon name="fetch" size={18} />
         </button>
-        <button class="ico" title="More" aria-label="More" onclick={seriesMenu} oncontextmenu={seriesMenu}><Icon name="more" size={18} /></button>
+        <button class="ico pc-only" title="More" aria-label="More" onclick={seriesMenu} oncontextmenu={seriesMenu}><Icon name="more" size={18} /></button>
       </div>
     </header>
 
-    {#if !data.cvVolumeId}<CvNudge onsaved={findOnCv} />{/if}
+    {#if !data.cvVolumeId && !remote}<CvNudge onsaved={findOnCv} />{/if}
 
     {#if data.backfill}
       {@const b = data.backfill}
-      <p class="backfill" title="You're on {b.beforeLabel}">
+      <p class="backfill pc-only" title="You're on {b.beforeLabel}">
         {b.count} earlier {unitWord(data.isManga, b.count)} read?
         <button class="ico" title="Mark them read" aria-label="Mark them read" onclick={() => undoable(`${b.count} earlier ${unitWord(data!.isManga, b.count)} marked as read`, () => api.markReadBefore(b.beforeId))}>
           <Icon name="check" size={16} />
@@ -785,7 +787,7 @@
                     {:else if book.read}
                       <span class="where fine"><Icon name="check" size={13} />Read</span>
                     {/if}
-                    <button class="ico" title="More" aria-label="More for this book" onclick={(e) => bookMenu(e, book!)}><Icon name="more" size={18} /></button>
+                    <button class="ico pc-only" title="More" aria-label="More for this book" onclick={(e) => bookMenu(e, book!)}><Icon name="more" size={18} /></button>
                   </div>
                 </div>
               </section>

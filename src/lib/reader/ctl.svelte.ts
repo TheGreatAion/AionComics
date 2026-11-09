@@ -2,7 +2,7 @@
 
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { open, save } from "@tauri-apps/plugin-dialog";
-import { COMIC_FILES, api, pageUrl, previewUrl, screenUrl, thumbUrl, type GuidedSpot, type Panel, type ReaderInfo } from "$lib/api";
+import { COMIC_FILES, api, remote, pageUrl, previewUrl, screenUrl, thumbUrl, type GuidedSpot, type Panel, type ReaderInfo } from "$lib/api";
 import { keepView, prefs, viewFor, type Fit, type View } from "./prefs.svelte";
 
 export type Overlay = null | "flow" | "bookmarks" | "shortcuts" | "options" | "extract" | "editor";
@@ -450,6 +450,13 @@ export class Ctl {
   }
 
   async setFullscreen(on: boolean) {
+    if (remote) {
+      // In a web browser, the page itself goes full screen (where the browser allows it).
+      if (on) await document.documentElement.requestFullscreen?.().catch(() => {});
+      else if (document.fullscreenElement) await document.exitFullscreen().catch(() => {});
+      this.fullscreen = !!document.fullscreenElement;
+      return;
+    }
     await getCurrentWindow().setFullscreen(on);
     this.fullscreen = on;
   }

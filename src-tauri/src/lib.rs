@@ -13,6 +13,7 @@ mod stats;
 mod warm;
 mod window;
 mod pdf;
+mod remote;
 mod removal;
 mod yacsync;
 
@@ -1370,9 +1371,11 @@ fn print(state: &AppState, id: i64) -> anyhow::Result<Vec<u8>> {
     Ok(print)
 }
 
-fn handle_image(state: &AppState, req: &Request<Vec<u8>>) -> Response<Vec<u8>> {
-    let parts: Vec<&str> = req.uri().path().trim_matches('/').split('/').collect();
-    let result = match parts.as_slice() {
+/// A cover, print, preview or page, by its address ("cover/12", "screen/12/3/1440"): for the window,
+/// and for another device reading through the web server (see remote.rs).
+fn image(state: &AppState, path: &str) -> anyhow::Result<(Vec<u8>, &'static str)> {
+    let parts: Vec<&str> = path.trim_matches('/').split('/').collect();
+    match parts.as_slice() {
         ["cover", id] => id
             .parse()
             .map_err(anyhow::Error::from)
@@ -1429,10 +1432,79 @@ fn handle_image(state: &AppState, req: &Request<Vec<u8>>) -> Response<Vec<u8>> {
             state.archives.page_first(id, &path, n)
         })(),
         _ => Err(anyhow::anyhow!("not found")),
-    };
-    match result {
+    }
+}
+
+fn handle_image(state: &AppState, req: &Request<Vec<u8>>) -> Response<Vec<u8>> {
+    match image(state, req.uri().path()) {
         Ok((body, mime)) => respond(StatusCode::OK, mime, body, true),
         Err(e) => respond(StatusCode::NOT_FOUND, "text/plain", e.to_string().into_bytes(), false),
+    }
+}
+
+// ---------- reading from another device (see remote.rs) ----------
+
+/// Whether another device can read, where it goes, its code and the square codes for a phone's camera.
+#[tauri::command(async)]
+fn remote_status(state: State<Shared>) -> CmdResult<remote::Status> {
+    remote::status(&state.conn.lock().unwrap(), None).map_err(err)
+}
+
+/// Switch reading from another device on or off; it stays that way across restarts.
+#[tauri::command(async)]
+fn set_remote(app: AppHandle, state: State<Shared>, on: bool) -> CmdResult<remote::Status> {
+    let conn = state.conn.lock().unwrap();
+    db::set_setting(&conn, remote::SETTING, if on { "1" } else { "0" }).map_err(err)?;
+    let problem = if on { remote::start(&app, &conn).err().map(|e| e.to_string()) } else { remote::stop(); None };
+    remote::status(&conn, problem).map_err(err)
+}
+
+/// A new code: every device has to type it to get back in.
+#[tauri::command(async)]
+fn new_remote_code(state: State<Shared>) -> CmdResult<remote::Status> {
+    let conn = state.conn.lock().unwrap();
+    remote::new_code(&conn).map_err(err)?;
+    remote::status(&conn, None).map_err(err)
+}
+
+fn arg<T: serde::de::DeserializeOwned>(args: &serde_json::Value, key: &str) -> Result<T, String> {
+    serde_json::from_value(args.get(key).cloned().unwrap_or(serde_json::Value::Null)).map_err(|e| format!("{key}: {e}"))
+}
+
+fn out<T: Serialize>(r: CmdResult<T>) -> Result<serde_json::Value, String> {
+    r.and_then(|v| serde_json::to_value(v).map_err(err))
+}
+
+/// What another device may ask for, by the same names and arguments the window uses: browsing,
+/// reading, and keeping your place, bookmarks and Want to read. Nothing that removes, adds, edits
+/// or changes settings.
+fn remote_call(app: &AppHandle, cmd: &str, a: &serde_json::Value) -> Result<serde_json::Value, String> {
+    use tauri::async_runtime::block_on;
+    let st = || app.state::<Shared>();
+    match cmd {
+        "get_settings" => out(get_settings(st())),
+        "home" => out(home(st())),
+        "nav" => out(nav(st())),
+        "search" => out(search(st(), arg(a, "q")?)),
+        "collection" => out(collection(st(), arg(a, "id")?)),
+        "series" => out(series(st(), arg(a, "id")?)),
+        "people" => out(people(st(), arg(a, "kind")?, arg(a, "name")?)),
+        "want_list" => out(want_list(st())),
+        "set_wanted" => out(set_wanted(st(), arg(a, "series")?, arg(a, "book")?, arg(a, "on")?)),
+        "book_stats" => out(book_stats(st(), arg(a, "id")?)),
+        "reading_stats" => out(reading_stats(st(), arg(a, "tzMinutes")?)),
+        "open_comic" => out(block_on(open_comic(st(), arg(a, "id")?, arg(a, "screen")?))),
+        "book_trouble" => out(book_trouble(st(), arg(a, "id")?)),
+        "page_panels" => out(block_on(page_panels(st(), arg(a, "id")?, arg(a, "page")?, arg(a, "rtl")?))),
+        "panels_ahead" => out(Ok(panels_ahead(st(), arg(a, "id")?, arg(a, "from")?, arg(a, "rtl")?))),
+        "save_progress" => out(save_progress(st(), arg(a, "id")?, arg(a, "page")?, arg(a, "pageCount")?)),
+        "save_guided_spot" => out(save_guided_spot(st(), arg(a, "id")?, arg(a, "spot")?)),
+        "toggle_bookmark" => out(toggle_bookmark(st(), arg(a, "id")?, arg(a, "page")?)),
+        "comic_meta" => out(comic_meta(st(), arg(a, "id")?)),
+        "casts" => out(casts(st(), arg(a, "ids")?)),
+        "cv_status" => out(cv_status(st())),
+        "take_open_request" => Ok(serde_json::Value::Null),
+        _ => Err("That can only be done on the PC.".into()),
     }
 }
 
@@ -1563,6 +1635,15 @@ pub fn run() {
                     send_to_yacreader(&state);
                 });
             }
+            // Reading from another device, if it was left on.
+            {
+                let conn = state.conn.lock().unwrap();
+                if remote::enabled(&conn) {
+                    if let Err(e) = remote::start(app.handle(), &conn) {
+                        eprintln!("couldn't start remote reading: {e}");
+                    }
+                }
+            }
             // Pick up anything added or moved since last launch, and tidy the cache, once the first
             // screen is up: both work the database and the drive, and would hold it up.
             {
@@ -1642,7 +1723,10 @@ pub fn run() {
             put_back,
             set_layout,
             new_library,
-            take_open_request
+            take_open_request,
+            remote_status,
+            set_remote,
+            new_remote_code
         ])
         .build(tauri::generate_context!())
         .expect("error while running AionComics")

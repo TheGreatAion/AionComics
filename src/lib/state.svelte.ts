@@ -1,4 +1,4 @@
-import { api, type CollectionSummary, type ReadState } from "./api";
+import { api, remote, type CollectionSummary, type ReadState } from "./api";
 
 export type Route =
   | { name: "home" }
@@ -148,9 +148,12 @@ export const menu = $state({
   items: [] as MenuItem[],
 });
 
-export function showMenu(e: MouseEvent, items: MenuItem[]) {
+/** `anywhere`: this menu works from another device too (the reader's tools). The library's menus
+ *  (mark read, hide, edit details…) are for the PC only. */
+export function showMenu(e: MouseEvent, items: MenuItem[], anywhere = false) {
   e.preventDefault();
   e.stopPropagation();
+  if (remote && !anywhere) return;
   menu.x = e.clientX;
   menu.y = e.clientY;
   menu.items = items;

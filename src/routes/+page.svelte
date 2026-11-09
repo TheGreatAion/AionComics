@@ -1,7 +1,8 @@
 <script lang="ts">
-  import { listen } from "@tauri-apps/api/event";
   import { onMount } from "svelte";
-  import { api, type ScanStats } from "$lib/api";
+  import { api, gate, remote, door, type ScanStats } from "$lib/api";
+  import { listen } from "$lib/events";
+  import Door from "$lib/components/Door.svelte";
   import { lib, menu, nav, openReader, reader, search, sheets, takeBack, undo } from "$lib/state.svelte";
   import { arrowNav } from "$lib/keynav";
   import ContextMenu from "$lib/components/ContextMenu.svelte";
@@ -12,7 +13,7 @@
   import RemoveBox from "$lib/components/RemoveBox.svelte";
   import SearchOverlay from "$lib/components/SearchOverlay.svelte";
   import TopBar from "$lib/components/TopBar.svelte";
-  import SidePanel, { side, toggleSide } from "$lib/components/SidePanel.svelte";
+  import SidePanel, { viewport, side, toggleSide } from "$lib/components/SidePanel.svelte";
   import WindowControls from "$lib/components/WindowControls.svelte";
   import Reader from "$lib/reader/Reader.svelte";
   import Collection from "$lib/views/Collection.svelte";
@@ -30,6 +31,13 @@
 
   onMount(() => {
     history.scrollRestoration = "manual";
+    if (remote) {
+      document.documentElement.classList.add("remote");
+      door.check().catch(() => {});
+      // No news reaches another device: what's shown is brought up to date when you come back to it.
+      const back = () => document.visibilityState === "visible" && reader.id === null && lib.version++;
+      document.addEventListener("visibilitychange", back);
+    }
     api.settings().then((s) => {
       lib.hasRoot = !!s.libraryRoot;
       lib.scanning = s.scanning;
@@ -103,7 +111,8 @@
   // the slide made it stutter.
   let shown: boolean | null = null;
   $effect(() => {
-    const open = side.open && !!lib.hasRoot && !lib.welcoming;
+    // On a phone the panel lies over the page, which keeps its whole width.
+    const open = side.open && !!lib.hasRoot && !lib.welcoming && !viewport.narrow;
     document.documentElement.style.setProperty("--side-now", open ? "var(--side)" : "0px");
     const main = document.querySelector("main");
     if (shown !== null && shown !== open && main) {
@@ -120,6 +129,13 @@
   $effect(() => {
     void route;
     window.scrollTo(0, 0);
+  });
+
+  // On a phone, the panel goes away once you've picked where to go (or a book to read).
+  $effect(() => {
+    void route;
+    void reader.id;
+    if (viewport.narrow) side.open = false;
   });
 
   function onkey(e: KeyboardEvent) {
@@ -147,11 +163,16 @@
 
 <svelte:window onkeydown={onkey} {onmouseup} />
 
-{#if lib.hasRoot === false || lib.welcoming}
+{#if remote && gate.locked}
+  <Door />
+{:else if remote && lib.hasRoot === false}
+  <Door empty />
+{:else if lib.hasRoot === false || lib.welcoming}
   <div class="bare" data-tauri-drag-region><WindowControls /></div>
   <Welcome />
 {:else}
   <TopBar />
+  {#if viewport.narrow && side.open}<button class="scrim" aria-label="Hide the side panel" onclick={toggleSide}></button>{/if}
   <SidePanel />
   {#key nav.stack.length + JSON.stringify(route)}
     <main>
@@ -194,7 +215,7 @@
 {#if sheets.editing !== null}{#key sheets.editing}<MetaEditor id={sheets.editing} />{/key}{/if}
 {#if sheets.matching}<Matcher seriesId={sheets.matching.seriesId} isManga={sheets.matching.isManga} name={sheets.matching.name} comicId={sheets.matching.comicId} label={sheets.matching.label} count={sheets.matching.count} />{/if}
 <ContextMenu />
-<DropZone />
+{#if !remote}<DropZone />{/if}
 <RemoveBox />
 <UndoBar />
 
@@ -207,6 +228,14 @@
     z-index: 20;
     display: flex;
     justify-content: flex-end;
+  }
+  /* Under the panel on a phone: a tap beside it puts it away. */
+  .scrim {
+    position: fixed;
+    inset: 0;
+    z-index: 24;
+    background: rgb(0 0 0 / 0.4);
+    cursor: default;
   }
   main {
     min-height: 100vh;

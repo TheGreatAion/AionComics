@@ -6,6 +6,7 @@
   import { DIM_BLEED, dimClip, outline } from "./outline";
   import PageStatus from "./PageStatus.svelte";
   import { DOUBLE_CLICK_MS, GUIDED_DIM, GUIDED_MS, prefs } from "./prefs.svelte";
+  import { swiper } from "./swipe";
 
   // Tall panels (see `cam`): read in parts once the screen's width would show them this much
   // closer than they fit whole; each part overlapping the last by this share; at most this many;
@@ -17,6 +18,10 @@
   // A new page slides this far in from the way you're reading, fading in, as the last one goes.
   const TURN_MS = 300;
   const TURN_PX = 56;
+  // A phone or tablet: the page stays one picture the camera only moves and scales, which a phone
+  // does smoothly on its graphics chip. Laying the page out again at each stop (sharper on the PC)
+  // makes a phone redraw the whole page as each glide starts and ends, and it stutters.
+  const touch = typeof matchMedia === "function" && matchMedia("(pointer: coarse)").matches;
 
   let {
     c,
@@ -159,7 +164,7 @@
     settleTimer = setTimeout(() => {
       if (t !== token) return;
       moving = false;
-      crisp = true;
+      crisp = !touch;
     }, ms + 40);
   }
 
@@ -174,11 +179,18 @@
         clearTimeout(settleTimer);
         view = next;
         moving = false;
-        crisp = true;
+        crisp = !touch;
         return;
       }
       // Already gliding: retarget mid-flight.
       if (moving) {
+        view = next;
+        settleLater(t);
+        return;
+      }
+      // Already a transform (a phone): glide straight away.
+      if (touch) {
+        moving = true;
         view = next;
         settleLater(t);
         return;
@@ -244,8 +256,16 @@
     return null;
   }
 
+  // On a touch screen, a flick steps to the next or previous panel, as tapping that side does.
+  const flick = swiper((side) => onzone(side));
+
   function down(e: PointerEvent) {
+    flick.down(e);
     if (e.button === 0 && view) drag = { x: e.clientX, y: e.clientY, tx: view.tx, ty: view.ty, moved: false };
+  }
+
+  function up(e: PointerEvent) {
+    if (flick.up(e) && drag) drag.moved = true;
   }
 
   function move(e: PointerEvent) {
@@ -316,6 +336,8 @@
   ondblclick={dblclick}
   onpointerdown={down}
   onpointermove={move}
+  onpointerup={up}
+  onpointercancel={() => flick.cancel()}
   onwheel={wheel}
   role="presentation"
 >
@@ -358,6 +380,8 @@
 
 <style>
   .stage {
+    /* Fingers pan and flick here, not the browser. */
+    touch-action: none;
     position: absolute;
     inset: 0;
     overflow: hidden;
@@ -395,7 +419,10 @@
     background: color-mix(in srgb, var(--reader-bg) calc(var(--dim) * 100%), transparent);
     pointer-events: none;
   }
+  /* On its own layer while it glides: its outline changing each frame then redraws only the
+     dimming, not the page under it. */
   .camera.animate .dim {
     transition: clip-path var(--ms) cubic-bezier(0.65, 0, 0.35, 1);
+    will-change: transform;
   }
 </style>

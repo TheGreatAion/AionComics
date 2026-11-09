@@ -1,7 +1,8 @@
 <script lang="ts">
+  import { remote } from "$lib/api";
   import { lib, nav, search } from "$lib/state.svelte";
   import Icon from "./Icon.svelte";
-  import { side, toggleSide } from "./SidePanel.svelte";
+  import { viewport, side, toggleSide } from "./SidePanel.svelte";
   import WindowControls from "./WindowControls.svelte";
 
   let scrolled = $state(false);
@@ -14,7 +15,7 @@
 <!-- The window has no OS title bar: this bar is where you drag it from. -->
 <!-- With the side panel open, the panel holds the app's name and the way around; the bar starts
      beside it and keeps back, search, stats and settings. -->
-<header class:solid={scrolled} class:beside={side.open} data-tauri-drag-region>
+<header class:solid={scrolled} class:beside={side.open && !viewport.narrow} class:remote data-tauri-drag-region>
   {#if !side.open}
     <button class="ico panel" title="Show the side panel (Ctrl B)" aria-label="Show the side panel" onclick={toggleSide}>
       <Icon name="sidebar" size={17} />
@@ -37,7 +38,7 @@
   <div class="right" data-tauri-drag-region>
     {#if lib.scanning}
       <span class="ico" title="Scanning your library"><span class="spin"><Icon name="rescan" size={16} /></span></span>
-    {:else if lib.notice}
+    {:else if lib.notice && !remote}
       <button class="ico on" title={lib.notice} aria-label={lib.noticeLabel} onclick={() => nav.root({ name: "settings" })}>
         <Icon name="alert" size={17} />
       </button>
@@ -54,7 +55,7 @@
     <button class="ico" class:on={route.name === "stats"} title="Your reading" aria-label="Your reading" onclick={() => nav.root({ name: "stats" })}>
       <Icon name="stats" size={17} />
     </button>
-    <button
+    {#if !remote}<button
       class="ico"
       class:on={route.name === "settings"}
       title="Settings"
@@ -62,9 +63,9 @@
       onclick={() => nav.root({ name: "settings" })}
     >
       <Icon name="options" size={17} />
-    </button>
+    </button>{/if}
   </div>
-  <div class="win"><WindowControls /></div>
+  {#if !remote}<div class="win"><WindowControls /></div>{/if}
 </header>
 
 <style>
@@ -124,4 +125,24 @@
     gap: 6px;
   }
 
+  /* In a web browser there are no window buttons to make room for. */
+  header.remote {
+    padding-right: var(--pad);
+  }
+  /* A phone: the libraries are in the side panel, and everything sits closer. */
+  @media (max-width: 700px) {
+    header {
+      gap: 14px;
+      height: 56px;
+    }
+    nav {
+      display: none;
+    }
+    .panel {
+      margin: 0 -6px 0 -8px;
+    }
+    .back {
+      margin: 0;
+    }
+  }
 </style>

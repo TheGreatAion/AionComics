@@ -2,7 +2,14 @@
   /** Shown or hidden, remembered between sessions (Ctrl B, or the panel button). */
   export const side = $state({ open: load() });
 
+  /** A phone-sized screen (reading from another device): the panel lies over the page instead of
+   *  pushing it aside, and starts hidden. */
+  const small = typeof matchMedia === "function" ? matchMedia("(max-width: 700px)") : null;
+  export const viewport = $state({ narrow: !!small?.matches });
+  small?.addEventListener("change", () => (viewport.narrow = !!small?.matches));
+
   function load() {
+    if (small?.matches) return false;
     try {
       return localStorage.getItem("aion.side") !== "0";
     } catch {
@@ -29,7 +36,7 @@
   // it's open it is the app's navigation: the top bar keeps only back, search, stats and settings.
   import { addMenu, adding } from "$lib/add.svelte";
   import { libraryMenu, seriesMenu } from "$lib/manage.svelte";
-  import { api, progressOf, type ComicCard, type SeriesSummary } from "$lib/api";
+  import { api, progressOf, remote, type ComicCard, type SeriesSummary } from "$lib/api";
   import { lib, nav, openReader, showMenu, undoable } from "$lib/state.svelte";
   import Icon from "./Icon.svelte";
 
@@ -192,9 +199,11 @@
 
     <div class="head label">
       Library
-      <button class="fold new" title="New library" aria-label="New library" onclick={() => (adding.newLibrary = true)}>
-        <Icon name="plus" size={13} />
-      </button>
+      {#if !remote}
+        <button class="fold new" title="New library" aria-label="New library" onclick={() => (adding.newLibrary = true)}>
+          <Icon name="plus" size={13} />
+        </button>
+      {/if}
     </div>
     <!-- Your Want to read list, first among the libraries. -->
     {#if !words.length}
@@ -223,7 +232,7 @@
             <span class="name">{c.name}</span>
             <span class="count">{words.length ? list.length : c.seriesCount}</span>
           </button>
-          {#if unfolded}
+          {#if unfolded && !remote}
             <button
               class="fold"
               title="Add a series to {c.name}"
