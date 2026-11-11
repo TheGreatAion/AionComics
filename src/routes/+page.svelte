@@ -21,6 +21,7 @@
   import People from "$lib/views/People.svelte";
   import Stats from "$lib/views/Stats.svelte";
   import Duplicates from "$lib/views/Duplicates.svelte";
+  import Health from "$lib/views/Health.svelte";
   import Settings from "$lib/views/Settings.svelte";
   import WantToRead from "$lib/views/WantToRead.svelte";
   import Welcome from "$lib/views/Welcome.svelte";
@@ -165,6 +166,8 @@
         <People kind={route.kind} value={route.value} />
       {:else if route.name === "duplicates"}
         <Duplicates />
+      {:else if route.name === "health"}
+        <Health />
       {:else if route.name === "stats"}
         <Stats />
       {:else if route.name === "settings"}

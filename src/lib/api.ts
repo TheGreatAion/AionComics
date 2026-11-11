@@ -173,6 +173,8 @@ export interface SeriesView {
   /** On your Want to read list, and which of its books are on it by themselves. */
   wanted: boolean;
   wantedBooks: number[];
+  /** Issues (or manga volumes) out on Comic Vine past the last one here: "19", "20". */
+  newIssues: string[];
 }
 
 /** Books that look like copies of one another, and why. Nothing is ever deleted for you. */
@@ -320,6 +322,30 @@ export interface ReaderInfo {
   webtoon: boolean;
   /** The panel the book was left on in Guided View. */
   guidedSpot: GuidedSpot | null;
+  /** Where its chapters start, when its pages say. */
+  chapters: BookChapter[];
+}
+
+/** What the library check found wrong with a book. */
+export type HealthKind = "missing" | "damaged" | "empty" | "cover";
+
+export interface HealthStatus {
+  running: boolean;
+  done: number;
+  total: number;
+  /** When the last full check finished (seconds since the epoch). */
+  finishedAt: number | null;
+  problems: { comic: ComicCard; relPath: string; kind: HealthKind }[];
+}
+
+/** A chapter inside the book being read. */
+export interface BookChapter {
+  /** The page it starts on, from 0. */
+  page: number;
+  /** As the book writes it: "13", "105.5". */
+  number: string;
+  /** When the book names it. */
+  title: string | null;
 }
 
 /** Normalized (0–1) panel rectangle, in reading order. */
@@ -437,6 +463,10 @@ export const api = {
   bookTrouble: (id: number) => invoke<BookTrouble>("book_trouble", { id }),
   bookStats: (id: number) => invoke<BookStats>("book_stats", { id }),
   duplicates: () => invoke<DupGroup[]>("duplicates"),
+  healthStart: () => invoke<void>("health_start"),
+  healthStop: () => invoke<void>("health_stop"),
+  healthStatus: () => invoke<HealthStatus>("health_status"),
+  healthRecheck: (id: number) => invoke<HealthKind | null>("health_recheck", { id }),
   ignoreDuplicate: (key: string) => invoke<void>("ignore_duplicate", { key }),
   readingStats: () => invoke<ReadingStats>("reading_stats", { tzMinutes: -new Date().getTimezoneOffset() }),
   openComic: (id: number) => invoke<ReaderInfo>("open_comic", { id, screen: screenHeight }),

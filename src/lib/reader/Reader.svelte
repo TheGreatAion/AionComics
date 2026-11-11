@@ -6,7 +6,7 @@
   import Wash from "$lib/components/Wash.svelte";
   import { CLOSE_EASE, closeMs, fadeMs, fly, flightMs, visible } from "$lib/flight";
   import { lib, menu, reader, showMenu } from "$lib/state.svelte";
-  import { ACTIONS, keysFor, menuItems } from "./actions";
+  import { ACTIONS, chapterName, keysFor, menuItems } from "./actions";
   import Bookmarks from "./Bookmarks.svelte";
   import { Ctl, FIT_LABEL, type Step } from "./ctl.svelte";
   import Extract from "./Extract.svelte";
@@ -387,6 +387,17 @@
   });
   const time = $derived(clock.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }));
   // Where Guided View is. On a page it found no panels on (past the cover), say how to draw them.
+  // The chapter you're in, and how much of it is left: "Ch. 14 · 6 pages left".
+  const chapter = $derived.by(() => {
+    const k = c.chapterAt;
+    if (k === null) return null;
+    const list = c.chapters;
+    const end = list[k + 1]?.page ?? c.count;
+    const left = end - (c.shown[c.shown.length - 1] + 1);
+    const rest = left <= 0 ? "last page" : left === 1 ? "1 page left" : `${left} pages left`;
+    return { name: chapterName(list[k]), rest };
+  });
+
   const panel = $derived.by(() => {
     if (c.mode !== "guided" || !c.steps) return "";
     if (c.steps.length && c.step >= 0) return `Panel ${c.step + 1} / ${c.steps.length}`;
@@ -585,6 +596,7 @@
     </header>
 
     <div class="bottom" class:shown={showChrome} onpointerenter={() => bars(true)} onpointerleave={() => bars(false)} role="presentation">
+      {#if chapter}<span class="chapter fine" title="{chapter.name} · {chapter.rest}"><span class="chname">{chapter.name}</span><span class="dim">&nbsp;· {chapter.rest}</span></span>{/if}
       <Ticks {c} />
       {#if panel}<span class="panel fine">{panel}</span>{/if}
     </div>
@@ -868,6 +880,17 @@
     border-right: 0;
     border-radius: 0 0 0 8px;
     overflow: hidden;
+  }
+  .chapter {
+    display: flex;
+    max-width: 34%;
+    margin-right: 18px;
+    color: #d0d0d0;
+    white-space: nowrap;
+  }
+  .chname {
+    overflow: hidden;
+    text-overflow: ellipsis;
   }
   .panel {
     margin-left: 18px;

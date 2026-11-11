@@ -9,6 +9,8 @@ export type Route =
   | { name: "people"; kind: "creator" | "character" | "arc"; value: string }
   /** Books that may be in the library twice. */
   | { name: "duplicates" }
+  /** Books that wouldn't open: missing, damaged, empty, or a cover that won't load. */
+  | { name: "health" }
   /** What your reading adds up to. */
   | { name: "stats" }
   /** Series and books you mean to read. */

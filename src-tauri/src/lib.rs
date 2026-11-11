@@ -1,10 +1,12 @@
 mod archive;
 mod backup;
+mod chapters;
 mod comicinfo;
 mod cv;
 mod db;
 mod editions;
 mod frames;
+mod health;
 mod intake;
 mod panels;
 mod rarindex;
@@ -52,6 +54,8 @@ pub struct AppState {
     reading: Mutex<Option<(i64, usize)>>,
     /// The book whose page previews are being made, and the flag that stops it (see warm.rs).
     warming: Mutex<Option<(i64, Arc<AtomicBool>)>>,
+    /// The library check (see health.rs).
+    health: health::Check,
 }
 
 type Shared = Arc<AppState>;
@@ -832,6 +836,27 @@ fn set_wanted(state: State<Shared>, series: Option<i64>, book: Option<i64>, on: 
     db::set_wanted(&state.conn.lock().unwrap(), series, book, on, scan::now()).map_err(err)
 }
 
+/// Start checking every book in the library (see health.rs).
+#[tauri::command]
+fn health_start(state: State<Shared>) -> CmdResult<()> {
+    health::start(state.inner()).map_err(err)
+}
+
+#[tauri::command]
+fn health_stop(state: State<Shared>) {
+    health::stop(state.inner());
+}
+
+#[tauri::command(async)]
+fn health_status(state: State<Shared>) -> CmdResult<health::Status> {
+    health::status(state.inner()).map_err(err)
+}
+
+#[tauri::command(async)]
+fn health_recheck(state: State<Shared>, id: i64) -> CmdResult<Option<health::Kind>> {
+    health::recheck(state.inner(), id).map_err(err)
+}
+
 /// Books that look like copies of one another.
 #[tauri::command(async)]
 fn duplicates(state: State<Shared>) -> CmdResult<Vec<db::DupGroup>> {
@@ -867,6 +892,8 @@ struct ReaderInfo {
     webtoon: bool,
     /// The panel the book was left on in Guided View.
     guided_spot: Option<db::GuidedSpot>,
+    /// Where its chapters start, when its pages say.
+    chapters: Vec<chapters::Chapter>,
 }
 
 /// Open a file or folder picked from disk. Books inside the library open as themselves.
@@ -1113,6 +1140,7 @@ async fn open_comic(state: State<'_, Shared>, id: i64, screen: Option<u32>) -> C
         let listing = state.archives.listing(id, &path)?;
         let n = listing.pages.len();
         anyhow::ensure!(n > 0, "No pages found in this book");
+        let chapters = chapters::find(&listing.pages);
         if id < 0 {
             let comic = external_card(&path, id, n);
             return Ok(ReaderInfo {
@@ -1126,6 +1154,7 @@ async fn open_comic(state: State<'_, Shared>, id: i64, screen: Option<u32>) -> C
                 rtl: false,
                 webtoon: false,
                 guided_spot: None,
+                chapters,
             });
         }
         let conn = state.conn.lock().unwrap();
@@ -1152,7 +1181,7 @@ async fn open_comic(state: State<'_, Shared>, id: i64, screen: Option<u32>) -> C
         warm::start(&state, id, n, start, screen);
         let s = state.clone();
         std::thread::spawn(move || tidy_cache(&s, Some(id)));
-        Ok(ReaderInfo { comic, page_count: n, start_page: start, prev_id, next, bookmarks, external: false, rtl, webtoon, guided_spot })
+        Ok(ReaderInfo { comic, page_count: n, start_page: start, prev_id, next, bookmarks, external: false, rtl, webtoon, guided_spot, chapters })
     })
     .await
     .map_err(err)?
@@ -1510,6 +1539,7 @@ pub fn run() {
                 open_request: Mutex::new(comic_arg(std::env::args())),
                 warming: Mutex::new(None),
                 reading: Mutex::new(None),
+                health: Default::default(),
             });
             app.manage(state.clone());
             if let Some(w) = app.get_webview_window("main") {
@@ -1593,6 +1623,10 @@ pub fn run() {
             series,
             people,
             duplicates,
+            health_start,
+            health_stop,
+            health_status,
+            health_recheck,
             ignore_duplicate,
             book_stats,
             reading_stats,

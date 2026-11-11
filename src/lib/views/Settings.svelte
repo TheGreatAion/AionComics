@@ -519,6 +519,10 @@
               <div class="lbl">Duplicates<small>Books that may be in your library twice</small></div>
               <span class="ico"><Icon name="chevronRight" size={17} /></span>
             </button>
+            <button class="row go" onclick={() => nav.go({ name: "health" })}>
+              <div class="lbl">Library check<small>Find books that won't open: missing, damaged or empty files, and covers that won't load</small></div>
+              <span class="ico"><Icon name="chevronRight" size={17} /></span>
+            </button>
           </section>
         </div>
       </div>

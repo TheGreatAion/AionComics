@@ -124,6 +124,7 @@ pub fn clear_leftovers(conn: &Connection) -> Result<()> {
     }
     // A series with no books left is about to go too.
     conn.execute("DELETE FROM want_series WHERE series_id NOT IN (SELECT DISTINCT series_id FROM comics)", [])?;
+    conn.execute("DELETE FROM cv_new WHERE series_id NOT IN (SELECT DISTINCT series_id FROM comics)", [])?;
     Ok(())
 }
 

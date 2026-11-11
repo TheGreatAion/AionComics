@@ -18,11 +18,16 @@
     const shown = c.shown;
     const [lo, hi] = [shown[0], shown[shown.length - 1]];
     const marks = new Set(c.bookmarks);
+    const starts = new Set(c.chapters.map((ch) => ch.page));
     return Array.from({ length: Math.ceil(c.count / per) }, (_, i) => {
       const [a, b] = [i * per, Math.min(c.count, (i + 1) * per) - 1];
       let mark = false;
-      for (let p = a; p <= b && !mark; p++) mark = marks.has(p);
-      return { a, b, here: a <= hi && b >= lo, read: b < lo, mark };
+      let chapter = false;
+      for (let p = a; p <= b; p++) {
+        mark ||= marks.has(p);
+        chapter ||= starts.has(p) && p > 0;
+      }
+      return { a, b, here: a <= hi && b >= lo, read: b < lo, mark, chapter };
     });
   });
 
@@ -52,6 +57,13 @@
   // The preview shows what a click would put on screen: in double page mode, the whole spread.
   const spread = $derived(hover ? c.spreadAt(hover.page) : []);
   const PAGE_W = 87; // one page in the preview
+  // Which chapter the hovered page is in.
+  const hoverChapter = $derived.by(() => {
+    if (!hover) return null;
+    const h = hover.page;
+    const ch = c.chapters.findLast((x) => x.page <= h);
+    return ch ? (ch.title ? `Ch. ${ch.number} · ${ch.title}` : `Ch. ${ch.number}`) : null;
+  });
   const previewW = $derived(spread.length * PAGE_W + (spread.length - 1) * 2 + 8);
   // The preview stays inside the row, however near the ends the pointer is.
   const previewX = $derived(hover ? Math.min(width - previewW / 2, Math.max(previewW / 2, hover.x)) : 0);
@@ -75,7 +87,7 @@
 >
   {#each ticks as t (t.a)}
     {@const hot = spread.some((p) => p >= t.a && p <= t.b)}
-    <span class="tick" class:here={t.here} class:read={t.read} class:hot>
+    <span class="tick" class:here={t.here} class:read={t.read} class:hot class:chapter={t.chapter}>
       {#if t.mark}<i class="mark"></i>{/if}
     </span>
   {/each}
@@ -86,6 +98,7 @@
         {#each spread as p (p)}<img src={thumbUrl(c.id, p)} alt="" draggable="false" />{/each}
       </div>
       <span class="fine">{spread.map((p) => p + 1).join("–")}</span>
+      {#if hoverChapter}<span class="fine ch">{hoverChapter}</span>{/if}
     </div>
   {/if}
 </div>
@@ -115,6 +128,10 @@
   }
   .tick.read {
     background: #bdbdbd;
+  }
+  /* Where a chapter starts: a taller tick. */
+  .tick.chapter {
+    height: 11px;
   }
   .tick.hot {
     height: 10px;
@@ -166,5 +183,12 @@
   .preview .fine {
     color: #d0d0d0;
     font-size: 12px;
+  }
+  .preview .ch {
+    max-width: 220px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    color: #9a9a9a;
   }
 </style>

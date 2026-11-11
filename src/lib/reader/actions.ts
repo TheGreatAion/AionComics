@@ -52,6 +52,22 @@ export const ACTIONS: Action[] = [
   { id: "last", label: "Last page", group: "pages", keys: ["End"], run: (c) => c.goTo(c.last), hidden: true },
   { id: "goto", label: "Go to page…", group: "pages", keys: ["g"], run: (c) => c.hooks.focusPage?.() },
   {
+    id: "nextChapter",
+    label: "Next chapter",
+    group: "pages",
+    keys: ["]"],
+    run: (c) => c.chapterStep(1),
+    enabled: (c) => c.chapters.length > 0,
+  },
+  {
+    id: "prevChapter",
+    label: "Previous chapter",
+    group: "pages",
+    keys: ["["],
+    run: (c) => c.chapterStep(-1),
+    enabled: (c) => c.chapters.length > 0,
+  },
+  {
     id: "flow",
     label: "Page strip",
     group: "pages",
@@ -133,6 +149,15 @@ export const ACTIONS: Action[] = [
     run: (c) => c.toggleMangaDouble(),
     checked: (c) => c.double && c.pairRtl,
   },
+  {
+    id: "shiftPairs",
+    label: "Shift pairs by one page",
+    group: "layout",
+    keys: ["shift+d"],
+    run: (c) => c.toggleShift(),
+    checked: (c) => c.double && c.shifted,
+    enabled: (c) => c.double,
+  },
 
   {
     id: "magnifier",
@@ -209,6 +234,9 @@ export const ACTIONS: Action[] = [
 ];
 
 /** Keys in effect for an action: the user's override, or the default. */
+/** "Ch. 421 · Herculopolis High", or "Ch. 13". */
+export const chapterName = (ch: { number: string; title: string | null }) => (ch.title ? `Ch. ${ch.number} · ${ch.title}` : `Ch. ${ch.number}`);
+
 export const keysFor = (a: Action, overrides: Record<string, string[]>) => overrides[a.id] ?? a.keys;
 
 export function menuItems(c: Ctl, overrides: Record<string, string[]>): MenuItem[] {
@@ -228,6 +256,19 @@ export function menuItems(c: Ctl, overrides: Record<string, string[]>): MenuItem
       disabled: a.enabled ? !a.enabled(c) : false,
       action: () => a.run(c),
     });
+    // The chapters themselves, to jump straight to one, after the page strip.
+    if (a.id === "flow" && c.chapters.length) {
+      const at = c.chapterAt;
+      items.push({
+        label: "Chapters",
+        items: c.chapters.map((ch, k) => ({
+          label: chapterName(ch),
+          hint: String(ch.page + 1),
+          checked: k === at,
+          action: () => c.goTo(ch.page),
+        })),
+      });
+    }
   }
   return items;
 }

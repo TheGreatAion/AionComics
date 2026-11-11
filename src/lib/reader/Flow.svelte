@@ -1,10 +1,12 @@
 <script lang="ts">
   import { thumbUrl } from "$lib/api";
   import type { Ctl } from "./ctl.svelte";
+  import { chapterName } from "./actions";
 
   let { c }: { c: Ctl } = $props();
   let strip = $state<HTMLDivElement>();
   const pages = $derived(Array.from({ length: c.count }, (_, i) => i));
+  const starts = $derived(new Map(c.chapters.map((ch) => [ch.page, ch])));
 
   // Keep the current page in the middle of the strip.
   $effect(() => {
@@ -15,7 +17,9 @@
 
 <div class="flow" bind:this={strip} class:rtl={c.flipped} onwheel={(e) => strip && (strip.scrollLeft += e.deltaY)}>
   {#each pages as i (i)}
-    <button class:on={c.shown.includes(i)} onclick={() => c.goTo(i)} title="Page {i + 1}">
+    {@const ch = starts.get(i)}
+    <button class:on={c.shown.includes(i)} class:starts={!!ch} onclick={() => c.goTo(i)} title={ch ? `${chapterName(ch)}, page ${i + 1}` : `Page ${i + 1}`}>
+      {#if starts.size}<span class="chmark fine">{ch ? `Ch. ${ch.number}` : ""}</span>{/if}
       <img src={thumbUrl(c.id, i)} alt="" loading="lazy" draggable="false" />
       <span class="fine">{i + 1}{#if c.bookmarks.includes(i)}&ensp;●{/if}</span>
     </button>
@@ -79,5 +83,17 @@
   .fine {
     color: var(--text-2);
     font-size: 12px;
+  }
+  /* Over the first page of each chapter; the same height empty elsewhere, so pages line up. */
+  .chmark {
+    align-self: stretch;
+    min-height: 16px;
+    padding-left: 6px;
+    border-left: 1px solid transparent;
+    color: var(--text);
+    white-space: nowrap;
+  }
+  button.starts .chmark {
+    border-left-color: var(--text-2);
   }
 </style>

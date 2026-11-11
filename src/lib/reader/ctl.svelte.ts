@@ -12,6 +12,17 @@ export type Step = { page: number; panel: Panel | null };
 
 const LAST_PART = 99;
 
+/** Books whose double page pairs are shifted by one page, remembered in this browser. */
+const SHIFTED = "aion.shiftedBooks";
+function shiftedBooks(): number[] {
+  try {
+    const list = JSON.parse(localStorage.getItem(SHIFTED) ?? "[]");
+    return Array.isArray(list) ? list : [];
+  } catch {
+    return [];
+  }
+}
+
 export const FIT_LABEL: Record<Fit, string> = {
   height: "Fit height",
   width: "Fit width",
@@ -37,6 +48,9 @@ export class Ctl {
   hints = $state<Record<number, Dims>>({});
   /** Fit, scrolling, double page and Guided View, as this book's series is read (see View). */
   view = $state<View>(viewFor(false));
+  /** In double page mode, page 1 stands alone, moving every pair after it over by one: for books
+   *  whose spreads come out split across two screens. Kept for each book. */
+  shifted = $state(false);
   zoom = $state(1);
   rotation = $state(0);
   magnifier = $state(false);
@@ -122,6 +136,7 @@ export class Ctl {
     this.info = info;
     this.bookmarks = info.bookmarks;
     this.view = viewFor(info.rtl, info.webtoon);
+    this.shifted = !info.external && shiftedBooks().includes(info.comic.id);
     this.step = -1;
     this.part = 0;
     this.endCard = false;
@@ -222,7 +237,51 @@ export class Ctl {
   /** In double page mode, a page that can't share the screen: the last page, a wide page, or one
    *  whose neighbor is wide. (The cover, page 0, always stands alone too.) */
   private alone(p: number) {
-    return p >= this.last || this.wide(p) || this.wide(p + 1);
+    return p >= this.last || this.wide(p) || this.wide(p + 1) || (this.shifted && p === 1);
+  }
+
+  /** Move the double page pairs over by one page, or back. The page you're on stays on screen. */
+  toggleShift() {
+    if (!this.double) return;
+    const here = this.shown[0];
+    this.shifted = !this.shifted;
+    if (!this.info?.external) {
+      const others = shiftedBooks().filter((id) => id !== this.id);
+      try {
+        localStorage.setItem(SHIFTED, JSON.stringify(this.shifted ? [...others, this.id] : others));
+      } catch {
+        // Not remembered; it still shifts this time.
+      }
+    }
+    this.goTo(here);
+    this.say(this.shifted ? "Pairs shifted by one page" : "Pairs back as they were");
+  }
+
+  // ---------- chapters ----------
+
+  get chapters() {
+    return this.info?.chapters ?? [];
+  }
+  /** The chapter the first page on screen is in; null before the first one starts, or in a book
+   *  whose pages don't say. */
+  get chapterAt(): number | null {
+    const list = this.chapters;
+    let at: number | null = null;
+    for (let k = 0; k < list.length && list[k].page <= this.shown[0]; k++) at = k;
+    return at;
+  }
+  /** Go to the start of the next chapter, or back to the start of this one (the one before, from
+   *  its first page). */
+  chapterStep(dir: 1 | -1) {
+    const list = this.chapters;
+    if (!list.length) return;
+    const at = this.chapterAt;
+    let to: number;
+    if (dir > 0) to = at === null ? 0 : at + 1;
+    else to = at === null ? -1 : list[at].page < this.shown[0] ? at : at - 1;
+    if (to < 0) return this.goTo(0);
+    if (to >= list.length) return this.say("This is the last chapter");
+    this.goTo(list[to].page);
   }
 
   /** Pages on screen, in reading order. */

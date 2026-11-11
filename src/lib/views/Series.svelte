@@ -123,6 +123,19 @@
   // Until a format is picked, the strip shows the first tab; or, when you've come here for a particular
   // book, the one that book is in.
   const edition = $derived(data?.editions.find((e) => e.kind === (chosen ?? (startBook == null ? front?.kind : null) ?? book?.edition)) ?? data?.editions[0]);
+  // What's out on Comic Vine past the last one here, on the tab of the kind it counts (single
+  // issues, or a manga's volumes): "#19 is out", "#19 and #20 are out", "6 new, #19 to #24".
+  const newHere = $derived(
+    data && data.newIssues.length && (data.editions.length <= 1 || edition?.kind === (data.isManga ? "volume" : "issue")) ? data.newIssues : [],
+  );
+  const newLine = $derived.by(() => {
+    const mark = (n: string) => (data?.isManga ? `Vol. ${n}` : `#${n}`);
+    const n = newHere.length;
+    if (!n) return "";
+    if (n === 1) return `${mark(newHere[0])} is out`;
+    if (n <= 3) return `${newHere.slice(0, -1).map(mark).join(", ")} and ${mark(newHere[n - 1])} are out`;
+    return `${n} new, ${mark(newHere[0])} to ${mark(newHere[n - 1])}`;
+  });
   const inView = $derived(edition?.sections.flatMap((s) => s.comics) ?? all);
   // Only what's still unread, when asked; remembered from one series to the next.
   let unreadOnly = $state((() => { try { return localStorage.getItem("aion.unreadOnly") === "1"; } catch { return false; } })());
@@ -650,7 +663,7 @@
     {/if}
 
     <!-- One format at a time; what's picked with Ctrl or Shift; what's missing. -->
-    {#if data.editions.length > 1 || many.length || edition?.missing.length}
+    {#if data.editions.length > 1 || many.length || edition?.missing.length || newHere.length}
       <div class="bar">
         {#if data.editions.length > 1}
           <div class="tabs" class:dragging={drag && !drag.landing} class:landing={drag?.landing} role="tablist" aria-label="Formats" bind:this={tabsEl}>
@@ -676,8 +689,12 @@
             {many.length} picked · right-click to change them
             <button class="ico" title="Clear (Esc)" aria-label="Clear the picks" onclick={() => (many = [])}><Icon name="close" size={13} /></button>
           </span>
-        {:else if edition?.missing.length}
-          <span class="missing fine" title="Not in your library">{edition.missing.map((n) => `#${n}`).join(", ")} missing</span>
+        {:else if edition?.missing.length || newHere.length}
+          <span class="missing fine">
+            {#if newHere.length}<span class="new" title="On Comic Vine, after the last one you have">{newLine}</span>{/if}
+            {#if newHere.length && edition?.missing.length}<span class="sep">·</span>{/if}
+            {#if edition?.missing.length}<span title="Not in your library">{edition.missing.map((n) => `#${n}`).join(", ")} missing</span>{/if}
+          </span>
         {/if}
       </div>
     {/if}
@@ -937,6 +954,13 @@
     margin-left: auto;
     font-size: 12px;
     color: var(--text-2);
+  }
+  .missing .new {
+    color: var(--text);
+  }
+  .missing .sep {
+    margin: 0 8px;
+    color: var(--text-3);
   }
   .picked {
     display: inline-flex;

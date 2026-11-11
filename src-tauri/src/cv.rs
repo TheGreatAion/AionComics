@@ -666,6 +666,71 @@ pub fn auto_match(client: &Client, conn: &Connection, now: i64) -> Result<usize>
     Ok(n)
 }
 
+/// How often a series is looked at for new issues.
+const NEW_EVERY_SECS: i64 = 3 * 86_400;
+/// Series read in this long, or on Want to read, are the ones looked at.
+const FOLLOWED_SECS: i64 = 365 * 86_400;
+
+/// Look at the next series due for new issues on Comic Vine: one you've read in the last year or
+/// want to read, matched to a Comic Vine series. Returns whether what's new for it changed, or
+/// None when no series is due.
+pub fn check_new(client: &Client, conn: &Connection, now: i64) -> Result<Option<bool>> {
+    let due: Option<(i64, String)> = conn
+        .query_row(
+            "SELECT s.series_id, s.volume_id FROM cv_series s LEFT JOIN cv_new n ON n.series_id=s.series_id
+             WHERE (n.checked_at IS NULL OR n.checked_at<?1 OR n.checked_at<s.updated_at)
+               AND (EXISTS (SELECT 1 FROM comics c WHERE c.series_id=s.series_id AND (c.read=1 OR c.current_page>0) AND c.last_read_at>?2)
+                    OR EXISTS (SELECT 1 FROM want_series w WHERE w.series_id=s.series_id))
+             ORDER BY n.checked_at IS NOT NULL, n.checked_at LIMIT 1",
+            params![now - NEW_EVERY_SECS, now - FOLLOWED_SECS],
+            |r| Ok((r.get(0)?, r.get(1)?)),
+        )
+        .optional()?;
+    let Some((series_id, volume_id)) = due else { return Ok(None) };
+    let found = issues(client, &volume_id, 1)?;
+    let numbers = new_numbers(&series_books(conn, series_id, "")?, &found, &date_after(now, 60));
+    let json = serde_json::to_string(&numbers)?;
+    let before: Option<String> = conn.query_row("SELECT numbers FROM cv_new WHERE series_id=?1", [series_id], |r| r.get(0)).optional()?;
+    conn.execute("INSERT OR REPLACE INTO cv_new(series_id, numbers, checked_at) VALUES(?1, ?2, ?3)", params![series_id, json, now])?;
+    Ok(Some(before.as_deref() != Some(json.as_str())))
+}
+
+/// A date as Comic Vine writes one ("2026-11-11"), `days` after `now` (seconds since the epoch).
+fn date_after(now: i64, days: i64) -> String {
+    // Days since 1970-01-01 to a calendar date (the civil_from_days method).
+    let z = now.div_euclid(86_400) + days + 719_468;
+    let era = z.div_euclid(146_097);
+    let doe = z - era * 146_097;
+    let yoe = (doe - doe / 1460 + doe / 36_524 - doe / 146_096) / 365;
+    let doy = doe - (365 * yoe + yoe / 4 - yoe / 100);
+    let mp = (5 * doy + 2) / 153;
+    let d = doy - (153 * mp + 2) / 5 + 1;
+    let m = if mp < 10 { mp + 3 } else { mp - 9 };
+    let y = yoe + era * 400 + i64::from(m <= 2);
+    format!("{y:04}-{m:02}-{d:02}")
+}
+
+/// The numbers of the issues past the last one here that are out by `until`. Only books of the
+/// kind the Comic Vine series holds count (single issues, or a manga's volumes), and an issue
+/// already paired with a book here isn't new. A cover date runs about two months ahead of the day
+/// an issue goes on sale, so `until` is two months from today.
+fn new_numbers(books: &[Book], issues: &[Issue], until: &str) -> Vec<String> {
+    let holds = holds(books, issues);
+    let held: Vec<&Book> = books.iter().filter(|b| b.section.is_empty() && holds(b) == Some("sure")).collect();
+    let value = |b: &Book| book_number(b.number.clone(), &b.label).and_then(|n| n.parse::<f64>().ok());
+    let Some(last) = held.iter().filter_map(|b| value(b)).reduce(f64::max) else { return Vec::new() };
+    let paired: HashSet<&str> = held.iter().filter_map(|b| b.cv_id.as_deref()).collect();
+    issues
+        .iter()
+        .filter(|i| !paired.contains(i.id.as_str()))
+        .filter(|i| i.cover_date.as_deref().is_none_or(|d| d <= until))
+        .filter_map(|i| {
+            let n = norm_number(i.number.as_deref()?);
+            (n.parse::<f64>().ok()? > last).then_some(n)
+        })
+        .collect()
+}
+
 /// Save matched books: the series' details, each book's issue details from the issue list, and a
 /// queue of books whose credits, characters and story arcs are fetched in the background.
 /// `link_series` also makes `volume_id` the series' own Comic Vine series; a single book matched on
@@ -892,6 +957,18 @@ pub fn run_queue(client: &Client, db_path: &Path, changed: impl Fn(i64, i64)) {
                     }
                     Ok(_) => {}
                     Err(e) => eprintln!("comic vine auto match: {e}"),
+                }
+                // Then, one series at a time, whether new issues are out.
+                match check_new(client, &conn, crate::scan::now()) {
+                    // Only a change is worth redrawing the screen for.
+                    Ok(Some(news)) => {
+                        if news {
+                            changed(0, 0);
+                        }
+                        continue;
+                    }
+                    Ok(None) => {}
+                    Err(e) => eprintln!("comic vine new issues: {e}"),
                 }
             }
             let g = client.wake_lock.lock().unwrap();
@@ -1143,6 +1220,47 @@ mod tests {
             st.query_map([], |r| r.get(0)).unwrap().collect::<rusqlite::Result<_>>().unwrap()
         };
         assert_eq!(settled, vec![2, 3, 4]);
+    }
+
+    #[test]
+    fn new_issues_past_the_last_one_here() {
+        assert_eq!(date_after(0, 0), "1970-01-01");
+        assert_eq!(date_after(1_794_355_200, 60), "2027-01-10");
+        let book = |id: i64, n: &str, cv: Option<&str>| Book {
+            id,
+            label: format!("#{n}"),
+            section: String::new(),
+            number: Some(n.into()),
+            year: None,
+            kind: "issue",
+            manga: false,
+            cv_id: cv.map(Into::into),
+            cv_volume_id: None,
+            settled: false,
+        };
+        let issue = |id: &str, n: &str, date: &str| Issue {
+            id: id.into(),
+            number: Some(n.into()),
+            name: None,
+            cover_date: Some(date.into()),
+            image: None,
+            description: None,
+        };
+        let books = [book(1, "1", Some("a")), book(2, "2", Some("b")), book(3, "4", None)];
+        let issues = [
+            issue("a", "1", "2026-01-01"),
+            issue("b", "2", "2026-02-01"),
+            issue("c", "3", "2026-03-01"),
+            issue("d", "4", "2026-04-01"),
+            issue("e", "5", "2026-05-01"),
+            issue("f", "6", "2026-12-01"),
+            issue("g", "7", "2027-03-01"),
+        ];
+        // #3 is a gap, not new; #5 and #6 are out by mid-January; #7 isn't yet.
+        assert_eq!(new_numbers(&books, &issues, "2027-01-10"), ["5", "6"]);
+        // Nothing here of the kind it holds: nothing to compare with.
+        let trades = [Book { kind: "volume", ..book(9, "1", None) }];
+        assert!(new_numbers(&trades, &issues, "2027-01-10").is_empty());
     }
 
     #[test]

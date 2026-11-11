@@ -197,6 +197,9 @@ fn migrate(conn: &Connection) -> Result<()> {
         "CREATE TABLE IF NOT EXISTS want_series(series_id INTEGER PRIMARY KEY, at INTEGER NOT NULL);
          CREATE TABLE IF NOT EXISTS want_books(comic_id INTEGER PRIMARY KEY, at INTEGER NOT NULL);",
     )?;
+    // Issues out on Comic Vine past the last one you have, for series you're reading or want to
+    // (see cv::check_new): their numbers as a JSON list, and when that was last looked at.
+    conn.execute_batch("CREATE TABLE IF NOT EXISTS cv_new(series_id INTEGER PRIMARY KEY, numbers TEXT NOT NULL, checked_at INTEGER NOT NULL);")?;
     // Books in a matched series that were tried for an automatic Comic Vine pairing. Settled ones
     // are left alone for good: you left them unpaired in the matcher.
     let fresh: bool = conn.query_row("SELECT COUNT(*) FROM sqlite_master WHERE name='cv_auto'", [], |r| r.get::<_, i64>(0))? == 0;
@@ -649,6 +652,8 @@ pub struct SeriesView {
     /// On your Want to read list, and which of its books are on it by themselves.
     pub wanted: bool,
     pub wanted_books: Vec<i64>,
+    /// Issues (or manga volumes) out on Comic Vine past the last one here: "19", "20".
+    pub new_issues: Vec<String>,
 }
 
 /// A book that may be the same as another, with where its file is.
@@ -902,6 +907,7 @@ pub fn series_view(conn: &Connection, id: i64) -> Result<SeriesView> {
             .prepare(&format!("SELECT c.id FROM want_books w JOIN comics c ON c.id=w.comic_id WHERE c.series_id=?1 AND {BOOK_WANTED}"))?
             .query_map([id], |r| r.get(0))?
             .collect::<rusqlite::Result<_>>()?,
+        new_issues: new_issues(conn, id)?,
     })
 }
 
@@ -1425,6 +1431,28 @@ pub fn neighbors(conn: &Connection, id: i64) -> Result<(Option<i64>, Option<i64>
         )
         .optional()?;
     Ok((prev, next))
+}
+
+/// The issues Comic Vine had past the last one here when it was last looked at, less any that
+/// have come into the library since.
+fn new_issues(conn: &Connection, series_id: i64) -> Result<Vec<String>> {
+    let Some(json) = conn.query_row("SELECT numbers FROM cv_new WHERE series_id=?1", [series_id], |r| r.get::<_, String>(0)).optional()? else {
+        return Ok(Vec::new());
+    };
+    let numbers: Vec<String> = serde_json::from_str(&json).unwrap_or_default();
+    let have: Vec<f64> = conn
+        .prepare("SELECT number FROM comics WHERE series_id=?1 AND section='' AND number IS NOT NULL")?
+        .query_map([series_id], |r| r.get::<_, String>(0))?
+        .filter_map(|n| n.ok()?.parse::<f64>().ok())
+        .collect();
+    Ok(numbers.into_iter().filter(|n| n.parse::<f64>().map_or(true, |v| !have.contains(&v))).collect())
+}
+
+/// Every book in the library and its file, in folder order.
+pub fn all_book_paths(conn: &Connection) -> Result<Vec<(i64, String)>> {
+    let mut st = conn.prepare("SELECT id, rel_path FROM comics ORDER BY rel_path")?;
+    let rows = st.query_map([], |r| Ok((r.get(0)?, r.get(1)?)))?;
+    Ok(rows.collect::<rusqlite::Result<_>>()?)
 }
 
 pub fn card_by_id(conn: &Connection, id: i64) -> Result<ComicCard> {
