@@ -1,6 +1,6 @@
 # AionComics
 
-A desktop comic and manga library and reader. It builds on the ideas behind YACReader: folder-based libraries, Comic Vine metadata, and reading progress. It adds a quieter interface and Guided View, which steps through a page panel by panel.
+A desktop comic and manga library and reader. It builds on the ideas behind YACReader: folder-based libraries, Comic Vine metadata, and reading progress. It adds a better interface and Guided View, which steps through a page panel by panel.
 
 Built with Tauri 2 (Rust core), SvelteKit 5 and SQLite.
 
