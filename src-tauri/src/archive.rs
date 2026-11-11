@@ -107,6 +107,20 @@ fn rar_name(h: &unrar::FileHeader) -> String {
 
 type Zip = zip::ZipArchive<BufReader<File>>;
 
+/// Where an entry sits in a ZIP, by the name `file_names` gave it. Those names are decoded (an
+/// older ZIP's names from the DOS character set), but a lookup by name compares the bytes stored
+/// in the file, so a name with a character like a non-breaking space in it is only found by
+/// going through the decoded names.
+pub(crate) fn zip_index<R: std::io::Read + std::io::Seek>(z: &zip::ZipArchive<R>, name: &str) -> Option<usize> {
+    z.index_for_name(name).or_else(|| z.file_names().position(|n| n.is_ok_and(|n| n == name)))
+}
+
+/// An entry of a ZIP, by the name `file_names` gave it (see `zip_index`).
+pub(crate) fn zip_entry<'a, R: std::io::Read + std::io::Seek>(z: &'a mut zip::ZipArchive<R>, name: &str) -> Result<zip::read::ZipFile<'a, R>> {
+    let i = zip_index(z, name).ok_or_else(|| anyhow::anyhow!("{name} not found in archive"))?;
+    Ok(z.by_index(i)?)
+}
+
 /// Open a ZIP trusting it starts at byte 0. The crate's default "detect" mode
 /// scans the whole file for stray signatures, which costs seconds per 50 MB.
 pub(crate) fn open_zip(path: &Path) -> Result<Zip> {
@@ -188,7 +202,7 @@ fn epub_path(base: &str, href: &str) -> String {
 fn epub_pages(z: &mut Zip) -> Option<Vec<String>> {
     fn text(z: &mut Zip, name: &str) -> Option<String> {
         let mut s = String::new();
-        z.by_name(name).ok()?.read_to_string(&mut s).ok()?;
+        zip_entry(z, name).ok()?.read_to_string(&mut s).ok()?;
         Some(s)
     }
     let tag = regex::Regex::new(r"<[^>]+>").ok()?;
@@ -690,7 +704,7 @@ impl Archives {
             None => open_zip(path)?,
         };
         let buf = {
-            let mut f = z.by_name(name)?;
+            let mut f = zip_entry(&mut z, name)?;
             let mut buf = Vec::with_capacity(f.size() as usize);
             f.read_to_end(&mut buf)?;
             buf
@@ -1060,6 +1074,63 @@ pub fn make_page_thumb(bytes: &[u8]) -> Result<Vec<u8>> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// A ZIP of stored files whose names are raw bytes, flagged as the old DOS character set (not
+    /// UTF-8), as older tools wrote them.
+    fn dos_zip(path: &Path, files: &[(&[u8], &[u8])]) {
+        let (mut body, mut dir) = (Vec::new(), Vec::new());
+        for (name, data) in files {
+            let crc = crc32fast::hash(data);
+            let at = body.len() as u32;
+            let le16 = |v: usize| (v as u16).to_le_bytes();
+            let mut head = Vec::new();
+            head.extend(b"PK\x03\x04");
+            head.extend([20, 0, 0, 0, 0, 0, 0, 0, 0, 0]); // version, flags 0 (not UTF-8), stored, time, date
+            head.extend(crc.to_le_bytes());
+            head.extend((data.len() as u32).to_le_bytes());
+            head.extend((data.len() as u32).to_le_bytes());
+            head.extend(le16(name.len()));
+            head.extend([0, 0]);
+            head.extend(*name);
+            body.extend(&head);
+            body.extend(*data);
+            dir.extend(b"PK\x01\x02");
+            dir.extend([20, 0, 20, 0, 0, 0, 0, 0, 0, 0, 0, 0]);
+            dir.extend(crc.to_le_bytes());
+            dir.extend((data.len() as u32).to_le_bytes());
+            dir.extend((data.len() as u32).to_le_bytes());
+            dir.extend(le16(name.len()));
+            dir.extend([0; 12]); // extra, comment, disk, internal and external attributes
+            dir.extend(at.to_le_bytes());
+            dir.extend(*name);
+        }
+        let mut out = body.clone();
+        out.extend(&dir);
+        out.extend(b"PK\x05\x06");
+        out.extend([0, 0, 0, 0]);
+        out.extend((files.len() as u16).to_le_bytes());
+        out.extend((files.len() as u16).to_le_bytes());
+        out.extend((dir.len() as u32).to_le_bytes());
+        out.extend((body.len() as u32).to_le_bytes());
+        out.extend([0, 0]);
+        fs::write(path, out).unwrap();
+    }
+
+    /// A page whose name has a character outside plain ASCII in an old ZIP (Conan Omnibus v05:
+    /// 0xFF, a non-breaking space in the DOS character set) is listed and read like any other.
+    #[test]
+    fn pages_named_in_the_old_character_set() {
+        let dir = std::env::temp_dir().join(format!("aion-dosname-{}", std::process::id()));
+        fs::create_dir_all(&dir).unwrap();
+        let book = dir.join("book.cbz");
+        dos_zip(&book, &[(b"Conan\xffv05/001.jpg", b"first page"), (b"Conan\xffv05/002.jpg", b"second page")]);
+        let listing = list(&book).unwrap();
+        assert_eq!(listing.pages, ["Conan\u{a0}v05/001.jpg", "Conan\u{a0}v05/002.jpg"]);
+        let archives = Archives::new(&dir.join("cache"));
+        assert_eq!(archives.page(1, &book, 1).unwrap().0, b"second page");
+        assert_eq!(archives.first_page(1, &book).unwrap(), b"first page");
+        let _ = fs::remove_dir_all(&dir);
+    }
 
     /// While two pages are being read, a request waits; one for a page far from a newer request
     /// is dropped, and the newest goes as soon as a reader is free.

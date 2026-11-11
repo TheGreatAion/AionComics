@@ -31,7 +31,7 @@ pub fn read(path: &Path) -> Result<Option<String>> {
             let Some(name) = z.file_names().filter_map(|n| n.ok()).find(|n| is_info(n)).map(|n| n.into_owned()) else {
                 return Ok(None);
             };
-            let mut f = z.by_name(&name)?;
+            let mut f = archive::zip_entry(&mut z, &name)?;
             if f.size() > MAX_SIZE {
                 return Ok(None);
             }

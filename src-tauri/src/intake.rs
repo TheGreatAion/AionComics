@@ -507,7 +507,7 @@ fn write_book(from: &Source, part: &Path, moved: &mut dyn FnMut(u64)) -> Result<
         }
         Source::Zipped { zip, entry } => {
             let mut z = crate::archive::open_zip(zip)?;
-            let f = z.by_name(entry)?;
+            let f = crate::archive::zip_entry(&mut z, entry)?;
             let mut w = std::io::BufWriter::new(File::create(part)?);
             pour(f, &mut w, moved)?;
             w.into_inner().map_err(|e| e.into_error())?.sync_all()?;
