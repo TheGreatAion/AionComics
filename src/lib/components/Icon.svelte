@@ -22,6 +22,8 @@
     bookmarks: "M5 3h10v16l-5-3.8L5 19zM19 6v15",
     guided: "M3 8V3h5M16 3h5v5M21 16v5h-5M8 21H3v-5M9 9h6v6H9z",
     editPanels: "M3 3h18v18H3zM3 11h18M12 11v10",
+    cutPanel: "M4 5.5h16v13H4zM14.5 2l-5 20",
+    mergePanels: "M4 5.5h16v13H4zM12 9v.01M12 12v.01M12 15v.01",
     more: "M5 12h.01M12 12h.01M19 12h.01",
     fullscreen: "M8 3H3v5M16 3h5v5M21 16v5h-5M8 21H3v-5",
     exitFullscreen: "M3 8h5V3M21 8h-5V3M16 21v-5h5M3 16h5v5",
@@ -65,7 +67,7 @@
 
   // Shapes with lines drawn inside them (a panel divider, the "!" of a warning, a window frame)
   // stay outlines: filled, the inside would vanish.
-  const OUTLINE = new Set<string>(["bookmarkOutline", "options", "sidebar", "editPanels", "alert", "maximize", "doubleRtl", "fullSize", "keyboard", "storage", "phone"]);
+  const OUTLINE = new Set<string>(["bookmarkOutline", "options", "sidebar", "editPanels", "cutPanel", "mergePanels", "alert", "maximize", "doubleRtl", "fullSize", "keyboard", "storage", "phone"]);
 
   // Each icon's pieces, and which are closed shapes to fill (curved ones, like a lens, stay lines).
   const PIECES = Object.fromEntries(

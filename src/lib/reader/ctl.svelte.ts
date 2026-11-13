@@ -48,6 +48,9 @@ export class Ctl {
    *  bottom; this is the one shown. LAST_PART stands for its last, however many there are. */
   part = $state(0);
   parts = $state(1);
+  /** A page just turned to that will go straight to a panel, while its panels are still being
+   *  found: Guided View keeps it dimmed for that moment instead of showing it whole. */
+  holding = $state(false);
   /** The panel the book was left on, to go back to once the page's panels have come in. */
   resume = $state<GuidedSpot | null>(null);
   fullscreen = $state(false);

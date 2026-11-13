@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { tick } from "svelte";
+  import { tick, untrack } from "svelte";
   import { api, coverUrl, duration, remote, storyTitle, type BookStats, type BookTrouble, type ComicCard, type GuidedSpot, type Panel } from "$lib/api";
   import Icon, { type IconName } from "$lib/components/Icon.svelte";
   import WindowControls from "$lib/components/WindowControls.svelte";
@@ -16,6 +16,7 @@
   import { chord, loadOverrides, pretty } from "./keys";
   import Options from "./Options.svelte";
   import PageView from "./PageView.svelte";
+  import { forget, panelsOf, peek } from "./panelCache";
   import PanelEditor from "./PanelEditor.svelte";
   import { pageFilter, prefs } from "./prefs.svelte";
   import ScrollView from "./ScrollView.svelte";
@@ -91,15 +92,18 @@
       });
   });
 
-  // Guided View stops for the page or spread on screen; the pages after it are worked out ahead.
+  // Guided View stops for the page or spread on screen. The pages either side are asked for as
+  // soon as this one is in, so a turn lands on its panel at once; the rest of the book is worked
+  // out behind that.
+  /** How long a page on its way to a panel stays dimmed, waiting for its panels, before it's shown whole. */
+  const HOLD_MS = 450;
   $effect(() => {
     void panelsRev;
     if (!c.info || c.mode !== "guided") return;
-    const [book, pages, rtl] = [c.id, c.shown, c.rtl];
+    const [book, pages, rtl, count] = [c.id, c.shown, c.rtl, c.count];
     const key = pages.join("-");
-    c.steps = null;
-    Promise.all(pages.map((p) => api.pagePanels(book, p, rtl).catch(() => [] as Panel[]))).then((lists) => {
-      if (book !== c.id || key !== c.shown.join("-")) return;
+    const here = () => book === c.id && key === c.shown.join("-") && c.mode === "guided";
+    const land = (lists: Panel[][]) => {
       const steps: Step[] = [];
       lists.forEach((list, k) => {
         if (list.length) for (const panel of list) steps.push({ page: pages[k], panel });
@@ -121,9 +125,35 @@
       else if (!prefs.guidedOverview && steps.length && c.step < 0) c.step = 0;
       c.zoomAt = null;
       c.landOnLast = false;
-      // The rest of the book's panels, from the next page on, in the background.
-      api.panelsAhead(book, pages[pages.length - 1] + 1, rtl).catch(() => {});
+      c.holding = false;
+      // The pages a turn either way would show, then the rest of the book from the next page on,
+      // in the background (after, so the two never work on the same page at once).
+      const [first, last] = [pages[0], pages[pages.length - 1]];
+      const near = [last + 1, last + 2, first - 1, first - 2].slice(0, pages.length > 1 ? 4 : 3).filter((p) => p >= 0 && p < count);
+      Promise.allSettled(near.map((p) => panelsOf(book, p, rtl))).then(() => {
+        if (here()) api.panelsAhead(book, last + 1, rtl).catch(() => {});
+      });
+    };
+    const ready = pages.map((p) => peek(book, p, rtl));
+    if (ready.every((list) => list)) {
+      // Already here: no wait, so the page comes in on its panel.
+      untrack(() => land(ready as Panel[][]));
+      return;
+    }
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    untrack(() => {
+      c.steps = null;
+      c.holding = !prefs.guidedOverview || c.landOnLast || !!c.zoomAt || !!c.resume;
+      if (c.holding) timer = setTimeout(() => (c.holding = false), HOLD_MS);
     });
+    Promise.all(pages.map((p) => panelsOf(book, p, rtl).catch(() => [] as Panel[]))).then((lists) => {
+      clearTimeout(timer);
+      if (here()) land(lists);
+    });
+    return () => {
+      clearTimeout(timer);
+      c.holding = false;
+    };
   });
 
   // Save progress shortly after the page settles. Opening a book isn't reading it: nothing is saved
@@ -599,7 +629,7 @@
     {#if c.overlay === "extract"}<Extract {c} />{/if}
     {#if c.overlay === "shortcuts"}<Shortcuts bind:overrides onclose={() => (c.overlay = null)} />{/if}
     {#if c.overlay === "editor"}
-      <PanelEditor {c} onsaved={() => panelsRev++} />
+      <PanelEditor {c} onsaved={() => (forget(), panelsRev++)} />
     {/if}
 
     <div class="note" class:on={!!c.note}>{c.note}</div>

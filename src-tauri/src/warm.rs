@@ -14,6 +14,15 @@ use crate::{archive, db, now_ms, panels, Shared, PANELS_VERSION};
 /// The pass waits this long after the reader last asked for a page.
 const YIELD_MS: i64 = 300;
 
+/// With nothing asked of it, the panels pass looks this often for books to prepare by itself...
+const IDLE_CHECK: Duration = Duration::from_secs(20);
+/// ...works only when no page has been shown for this long...
+const IDLE_MS: i64 = 8000;
+/// ...and prepares this many books: the ones you are in the middle of in Guided View.
+const IDLE_BOOKS: i64 = 3;
+/// ...this many pages on from where each was left (the rest follows once the book is open).
+const IDLE_PAGES: usize = 80;
+
 /// Start previewing book `id` from page `from` (and making copies for a screen `screen` pixels
 /// tall), stopping the pass for any other book.
 pub fn start(state: &Shared, id: i64, count: usize, from: usize, screen: Option<u32>) {
@@ -128,31 +137,57 @@ static AHEAD: OnceLock<(Mutex<Option<(i64, bool, usize)>>, Condvar)> = OnceLock:
 /// Work out the panels of book `id` (as read in direction `rtl`) from page `from` on, in place of
 /// whatever the pass was doing. One pass for the whole app, started the first time.
 pub fn panels_ahead(state: &Shared, id: i64, rtl: bool, from: usize) {
+    let (want, cv) = panels_thread(state);
+    *want.lock().unwrap() = Some((id, rtl, from));
+    cv.notify_all();
+}
+
+/// Called when the app starts: with nothing asked of it, the pass prepares the books you are in
+/// the middle of in Guided View while the app sits idle, so opening one never waits for panels.
+pub fn panels_when_idle(state: &Shared) {
+    panels_thread(state);
+}
+
+/// What the pass is asked to work on; the pass is started the first time.
+fn panels_thread(state: &Shared) -> &'static (Mutex<Option<(i64, bool, usize)>>, Condvar) {
     let mut first = false;
-    let (want, cv) = AHEAD.get_or_init(|| {
+    let ahead = AHEAD.get_or_init(|| {
         first = true;
         (Mutex::new(None), Condvar::new())
     });
-    *want.lock().unwrap() = Some((id, rtl, from));
-    cv.notify_all();
     if first {
         let state = state.clone();
         std::thread::spawn(move || panels_pass(&state));
     }
+    ahead
 }
 
 fn panels_pass(state: &Shared) {
     let (want, cv) = AHEAD.get().unwrap();
+    // Books gone through to the end while idle: not looked at again this session.
+    let mut prepared = std::collections::HashSet::new();
     loop {
         let job = {
             let mut w = want.lock().unwrap();
-            while w.is_none() {
-                w = cv.wait(w).unwrap();
+            loop {
+                if let Some(job) = *w {
+                    break Some(job);
+                }
+                let (back, wait) = cv.wait_timeout(w, IDLE_CHECK).unwrap();
+                w = back;
+                if wait.timed_out() && w.is_none() {
+                    break None;
+                }
             }
-            w.unwrap()
+        };
+        let Some(job) = job else {
+            if let Err(e) = panels_idle(state, &mut prepared, &|| want.lock().unwrap().is_some()) {
+                eprintln!("panels while idle: {e}");
+            }
+            continue;
         };
         let changed = || *want.lock().unwrap() != Some(job);
-        if let Err(e) = panels_book(state, job, &changed) {
+        if let Err(e) = panels_book(state, job, &changed, false) {
             eprintln!("panels for {}: {e}", job.0);
         }
         // Done with this book (or it was replaced): wait for the next request.
@@ -163,37 +198,76 @@ fn panels_pass(state: &Shared) {
     }
 }
 
-fn panels_book(state: &Shared, (id, rtl, from): (i64, bool, usize), changed: &dyn Fn() -> bool) -> anyhow::Result<()> {
+/// The books you are in the middle of in Guided View, from the page each was left on to its end.
+/// Only while the app sits idle: it stops the moment a page is shown or a book asks for its own.
+fn panels_idle(state: &Shared, prepared: &mut std::collections::HashSet<i64>, asked: &dyn Fn() -> bool) -> anyhow::Result<()> {
+    let resting = || now_ms() - state.last_page.load(Ordering::SeqCst) >= IDLE_MS && !state.scanning.load(Ordering::SeqCst);
+    if !resting() {
+        return Ok(());
+    }
+    let books = db::guided_unfinished(&state.conn.lock().unwrap(), IDLE_BOOKS)?;
+    for (id, page) in books {
+        if prepared.contains(&id) {
+            continue;
+        }
+        if asked() || !resting() {
+            return Ok(());
+        }
+        match panels_book(state, (id, false, page.max(0) as usize), asked, true) {
+            Ok(false) => return Ok(()),
+            Ok(true) => {}
+            // A book that can't be read (its file moved, say) isn't tried again and again.
+            Err(e) => eprintln!("panels for {id} while idle: {e}"),
+        }
+        prepared.insert(id);
+    }
+    Ok(())
+}
+
+/// Find and keep the panels of the book's pages, nearest to `from` first. `idle` is the pass
+/// working unasked: only from `from` on, only while no page has been shown for a good while, and
+/// unpacking the book itself if it has to. False when it was stopped before the end.
+///
+/// Panels are kept once, as read left to right: the other direction only reorders them (see
+/// `page_panels`), so the direction the book is read in makes no difference here.
+fn panels_book(state: &Shared, (id, _, from): (i64, bool, usize), changed: &dyn Fn() -> bool, idle: bool) -> anyhow::Result<bool> {
     // Outside books get new ids each session, so there's no keeping their panels.
     if id < 0 {
-        return Ok(());
+        return Ok(true);
     }
     let (path, _) = state.comic_path(id)?;
     let count = state.archives.listing(id, &path)?.pages.len();
+    let quiet = if idle { IDLE_MS } else { YIELD_MS };
     // Covers are shown whole: no panels to find.
-    for n in order(count, from).filter(|&n| n > 0) {
+    for n in order(count, from).filter(|&n| n > 0 && (!idle || (n >= from && n < from + IDLE_PAGES))) {
         if changed() {
-            return Ok(());
+            return Ok(false);
         }
         let page = n as i64;
         let known = {
             let conn = state.conn.lock().unwrap();
-            db::user_panels(&conn, id, page)?.is_some() || db::cached_panels(&conn, id, page, rtl, PANELS_VERSION)?.is_some()
+            db::user_panels(&conn, id, page)?.is_some() || db::cached_panels(&conn, id, page, false, PANELS_VERSION)?.is_some()
         };
         if known {
             continue;
         }
-        while now_ms() - state.last_page.load(Ordering::SeqCst) < YIELD_MS {
+        while now_ms() - state.last_page.load(Ordering::SeqCst) < quiet {
             std::thread::sleep(Duration::from_millis(50));
             if changed() {
-                return Ok(());
+                return Ok(false);
             }
         }
-        let Some(bytes) = state.archives.page_if_ready(id, &path, n)? else { continue };
-        let found = panels::detect(&bytes, rtl)?;
-        db::store_panels(&state.conn.lock().unwrap(), id, page, rtl, PANELS_VERSION, &serde_json::to_string(&found)?)?;
+        let bytes = if idle {
+            state.archives.page(id, &path, n)?.0
+        } else {
+            // A CBR's page may not be there yet (still being unpacked): the reader asks again.
+            let Some(bytes) = state.archives.page_if_ready(id, &path, n)? else { continue };
+            bytes
+        };
+        let found = panels::detect(&bytes, false)?;
+        db::store_panels(&state.conn.lock().unwrap(), id, page, false, PANELS_VERSION, &serde_json::to_string(&found)?)?;
     }
-    Ok(())
+    Ok(true)
 }
 
 #[cfg(test)]
