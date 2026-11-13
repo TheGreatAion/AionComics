@@ -59,12 +59,13 @@
     theme: "M12 21a9 9 0 1 0 0-18 9 9 0 0 0 0 18zM12 3v18",
     keyboard: "M3 6h18v12H3zM7 10h.01M11 10h.01M15 10h.01M8 14h8",
     storage: "M4 4h16v6H4zM4 14h16v6H4zM8 7h.01M8 17h.01",
+    phone: "M7 2.5h10v19H7zM11 18.5h2",
   } as const;
   export type IconName = keyof typeof PATHS;
 
   // Shapes with lines drawn inside them (a panel divider, the "!" of a warning, a window frame)
   // stay outlines: filled, the inside would vanish.
-  const OUTLINE = new Set<string>(["bookmarkOutline", "options", "sidebar", "editPanels", "alert", "maximize", "doubleRtl", "fullSize", "keyboard", "storage"]);
+  const OUTLINE = new Set<string>(["bookmarkOutline", "options", "sidebar", "editPanels", "alert", "maximize", "doubleRtl", "fullSize", "keyboard", "storage", "phone"]);
 
   // Each icon's pieces, and which are closed shapes to fill (curved ones, like a lens, stay lines).
   const PIECES = Object.fromEntries(

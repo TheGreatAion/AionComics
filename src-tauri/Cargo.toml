@@ -37,6 +37,11 @@ notify = "8.2.0"
 tauri-plugin-single-instance = "2.5.4"
 trash = "5.2.9"
 sevenz-rust2 = { version = "0.24.2", default-features = false }
+# Reading from another device: a small web server, its square code, and this PC's addresses.
+tiny_http = "0.12"
+qrcode = { version = "0.14", default-features = false, features = ["svg"] }
+if-addrs = "0.13"
+getrandom = "0.2"
 
 
 # Read the optimization guideline for more details: https://tauri.app/concept/size/#cargo-configuration

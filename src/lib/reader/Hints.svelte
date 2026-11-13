@@ -5,6 +5,9 @@
   import type { Ctl } from "./ctl.svelte";
   import { pretty } from "./keys";
 
+  /** A finger, not a mouse and keyboard: a phone or tablet. */
+  const touch = typeof matchMedia === "function" && matchMedia("(pointer: coarse)").matches;
+
   const SEEN = "aion.readerHints";
   const SHOWN_MS = 8000;
   const PAGES_BEFORE_GUIDED = 4;
@@ -46,6 +49,10 @@
   $effect(() => {
     if (!c.info || seen.around || c.info.external) return;
     mark("around");
+    if (touch) {
+      show(c.mode === "scroll" ? "Scroll to read. Tap the middle for the tools." : "Tap or swipe the sides to turn pages. Tap the middle for the tools.");
+      return;
+    }
     const how = c.mode === "scroll" ? "Scroll to read" : "The arrow keys turn pages";
     show(`${how}. Press ${key("shortcuts", "?")} for every shortcut.`);
   });
@@ -59,7 +66,7 @@
     if (first < 0) first = page;
     if (seen.guided || c.info.webtoon || c.mode !== "pages" || Math.abs(page - first) < PAGES_BEFORE_GUIDED) return;
     mark("guided");
-    show(`Press ${key("guided", "V")} for Guided View: it reads the page panel by panel.`);
+    show(touch ? "Try Guided View, the square button at the top: it reads the page panel by panel." : `Press ${key("guided", "V")} for Guided View: it reads the page panel by panel.`);
   });
 
   $effect(() => () => clearTimeout(timer));

@@ -1,5 +1,6 @@
 // Every reader tool, once. The menu, the shortcuts sheet and key handling all read this table.
 
+import { remote } from "$lib/api";
 import type { MenuItem } from "$lib/state.svelte";
 import type { Ctl } from "./ctl.svelte";
 import { pretty } from "./keys";
@@ -239,11 +240,20 @@ export const chapterName = (ch: { number: string; title: string | null }) => (ch
 
 export const keysFor = (a: Action, overrides: Record<string, string[]>) => overrides[a.id] ?? a.keys;
 
+/** A finger, not a mouse and keyboard: a phone or tablet. */
+const touch = () => typeof matchMedia === "function" && matchMedia("(pointer: coarse)").matches;
+
+/** Tools that need this PC's files or change what's kept about a book: left out when reading from another device. */
+export const PC_ONLY = new Set(["open", "openFolder", "save", "extract", "editPanels"]);
+/** Tools for a keyboard and mouse: left out on a phone or tablet. */
+const POINTER_ONLY = new Set(["shortcuts", "magnifier"]);
+
 export function menuItems(c: Ctl, overrides: Record<string, string[]>): MenuItem[] {
   const items: MenuItem[] = [];
   let group = "";
   for (const a of ACTIONS) {
-    if (a.hidden) continue;
+    if (a.hidden || (remote && PC_ONLY.has(a.id)) || (touch() && POINTER_ONLY.has(a.id))) continue;
+    if (remote && a.id === "fullscreen" && !document.fullscreenEnabled) continue;
     if (group && a.group !== group) items.push("separator");
     group = a.group;
     const keys = keysFor(a, overrides);
@@ -251,7 +261,8 @@ export function menuItems(c: Ctl, overrides: Record<string, string[]>): MenuItem
     const arrow = a.id === "next" ? (c.flipped ? "ArrowLeft" : "ArrowRight") : a.id === "prev" ? (c.flipped ? "ArrowRight" : "ArrowLeft") : null;
     items.push({
       label: a.label,
-      hint: arrow ? pretty(arrow) : keys[0] ? pretty(keys[0]) : undefined,
+      // No keys to show on a phone or tablet.
+      hint: touch() ? undefined : arrow ? pretty(arrow) : keys[0] ? pretty(keys[0]) : undefined,
       checked: a.checked ? a.checked(c) : false,
       disabled: a.enabled ? !a.enabled(c) : false,
       action: () => a.run(c),

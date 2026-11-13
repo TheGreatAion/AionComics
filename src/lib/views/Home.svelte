@@ -8,6 +8,7 @@
   import { bareEnter } from "$lib/keynav";
   import { hue } from "$lib/color";
   import Cover from "$lib/components/Cover.svelte";
+  import { viewport } from "$lib/components/SidePanel.svelte";
   import Icon from "$lib/components/Icon.svelte";
   import InkPrint from "$lib/components/InkPrint.svelte";
   import { look, motionMs } from "$lib/look.svelte";
@@ -285,7 +286,7 @@
     <!-- The book you're in tints the top of Home in its cover's color. -->
     {#if hero}
       <!-- A splash panel: the book you're in, over its cover printed in one ink. -->
-      <section class="hero" class:inked={look.backdrop} style:height="{heroH}px">
+      <section class="hero" class:inked={look.backdrop} style:height={viewport.narrow ? undefined : `${heroH}px`}>
         {#if look.backdrop}
           {#key hero.id}
             <div class="print" transition:fade={{ duration: motionMs(300, 600) }}>
@@ -318,7 +319,7 @@
               >
                 <Icon name="strip" size={18} />
               </button>
-              <button class="ico" title="Remove from Continue reading" aria-label="Remove from Continue reading" onclick={() => remove(hero)}>
+              <button class="ico pc-only" title="Remove from Continue reading" aria-label="Remove from Continue reading" onclick={() => remove(hero)}>
                 <Icon name="close" size={16} />
               </button>
             </div>
@@ -402,7 +403,7 @@
                   {#each c.covers as id (id)}<Cover {id} width={Math.round(fanH * 0.65)} pages={null} />{/each}
                 </div>
               </button>
-              <button class="ico add" title="Add a series to {c.name}" aria-label="Add a series to {c.name}" onclick={(e) => addMenu(e, { collection: c.id, title: c.name })}>
+              <button class="ico add pc-only" title="Add a series to {c.name}" aria-label="Add a series to {c.name}" onclick={(e) => addMenu(e, { collection: c.id, title: c.name })}>
                 <Icon name="plus" size={16} />
               </button>
             </div>
@@ -417,7 +418,7 @@
       <h1>No comics yet</h1>
       {#if addHere}
         <p>Add some here, or drag files and folders anywhere in this window.</p>
-        <div class="ways">
+        <div class="ways pc-only">
           <button class="btn" onclick={(e) => addMenu(e, addHere)}><Icon name="plus" size={16} />Add comics</button>
           <button class="link" onclick={() => (adding.newLibrary = true)}>New library</button>
         </div>
@@ -775,5 +776,27 @@
     display: inline-flex;
     align-items: center;
     gap: 10px;
+  }
+  /* A phone, or a tablet held upright (the same rule as UPRIGHT_TABLET in SidePanel.svelte): the
+     book's name across the panel's whole width, and the pile under it with room of its own, about
+     as tall as the screen is wide, instead of what's left of a screen-high panel. The panel grows to
+     hold both, so it sizes by its width only. */
+  @media (max-width: 700px), (max-width: 1100px) and (orientation: portrait) and (pointer: coarse) {
+    .hero {
+      container-type: inline-size;
+      grid-template-columns: minmax(0, 1fr);
+      grid-template-rows: auto auto;
+      gap: 20px;
+      padding: 36px 18px 8px;
+      margin-top: 64px;
+    }
+    .text {
+      padding-bottom: 0;
+    }
+    .stage {
+      grid-column: 1;
+      grid-row: 2;
+      height: clamp(300px, 100vw, 560px);
+    }
   }
 </style>

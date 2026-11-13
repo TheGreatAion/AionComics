@@ -220,7 +220,7 @@
         {/each}
       </div>
     </div>
-    <button class="ico add" title="Add a series" aria-label="Add a series" onclick={(e) => addMenu(e, { collection: data!.id, title: data!.name })}>
+    <button class="ico add pc-only" title="Add a series" aria-label="Add a series" onclick={(e) => addMenu(e, { collection: data!.id, title: data!.name })}>
       <Icon name="plus" size={18} />
     </button>
     <button
@@ -408,5 +408,26 @@
   }
   .foot {
     height: 140px;
+  }
+  /* A phone: one series to a row, and the filter and sorts close in. */
+  @media (max-width: 700px) {
+    .head {
+      gap: 14px;
+    }
+    .tools {
+      gap: 10px;
+    }
+    .features,
+    .features.pair {
+      grid-template-columns: 1fr;
+      padding-top: 36px;
+      gap: 36px;
+    }
+    .feature {
+      gap: 16px;
+    }
+    .fname {
+      font-size: 18px;
+    }
   }
 </style>

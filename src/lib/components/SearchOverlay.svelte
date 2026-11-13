@@ -226,8 +226,8 @@
     <header>
       <input bind:this={input} bind:value={q} onkeydown={onkey} aria-label="Search" placeholder="Series, book, creator, character, arc" spellcheck="false" />
       <span class="fine hint">
-        {#if found}{total.toLocaleString()} found ·{/if}
-        ↑↓ ↵ esc
+        {#if found}{total.toLocaleString()} found<span class="keys"> ·</span>{/if}
+        <span class="keys">↑↓ ↵ esc</span>
       </span>
       <button class="ico" title="Close (Esc)" aria-label="Close" onclick={() => (search.open = false)}><Icon name="close" /></button>
     </header>
@@ -511,5 +511,14 @@
 
   .none {
     color: var(--text-2);
+  }
+  /* A phone: no keyboard to point to, and a smaller box to type in. */
+  @media (max-width: 700px) {
+    .keys {
+      display: none;
+    }
+    input {
+      font-size: 40px;
+    }
   }
 </style>

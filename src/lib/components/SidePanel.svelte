@@ -1,8 +1,23 @@
 <script lang="ts" module>
-  /** Shown or hidden, remembered between sessions (Ctrl B, or the panel button). */
+  /** A tablet held upright (a finger, not a mouse, so the PC's own window never counts). Kept in
+   *  step with the same rule in Home.svelte's styles. */
+  const UPRIGHT_TABLET = "(max-width: 1100px) and (orientation: portrait) and (pointer: coarse)";
+  /** Reading from another device. `narrow`: a phone, or a tablet held upright, where there's no room
+   *  for the panel beside the page: it lies over the page instead, and starts hidden. `phone`: a
+   *  phone-sized screen, where covers and tools get smaller too. */
+  const query = (q: string) => (typeof matchMedia === "function" ? matchMedia(q) : null);
+  const phone = query("(max-width: 700px)");
+  const small = query(`(max-width: 700px), ${UPRIGHT_TABLET}`);
+  export const viewport = $state({ narrow: !!small?.matches, phone: !!phone?.matches });
+  small?.addEventListener("change", () => (viewport.narrow = !!small?.matches));
+  phone?.addEventListener("change", () => (viewport.phone = !!phone?.matches));
+
+  /** Shown or hidden, remembered between sessions (Ctrl B, or the panel button). Set after `small`
+   *  above, which `load` reads. */
   export const side = $state({ open: load() });
 
   function load() {
+    if (small?.matches) return false;
     try {
       return localStorage.getItem("aion.side") !== "0";
     } catch {
@@ -29,7 +44,7 @@
   // it's open it is the app's navigation: the top bar keeps only back, search, stats and settings.
   import { addMenu, adding } from "$lib/add.svelte";
   import { libraryMenu, seriesMenu } from "$lib/manage.svelte";
-  import { api, progressOf, type ComicCard, type SeriesSummary } from "$lib/api";
+  import { api, progressOf, remote, type ComicCard, type SeriesSummary } from "$lib/api";
   import { lib, nav, openReader, showMenu, undoable } from "$lib/state.svelte";
   import Icon from "./Icon.svelte";
 
@@ -192,9 +207,11 @@
 
     <div class="head label">
       Library
-      <button class="fold new" title="New library" aria-label="New library" onclick={() => (adding.newLibrary = true)}>
-        <Icon name="plus" size={13} />
-      </button>
+      {#if !remote}
+        <button class="fold new" title="New library" aria-label="New library" onclick={() => (adding.newLibrary = true)}>
+          <Icon name="plus" size={13} />
+        </button>
+      {/if}
     </div>
     <!-- Your Want to read list, first among the libraries. -->
     {#if !words.length}
@@ -223,7 +240,7 @@
             <span class="name">{c.name}</span>
             <span class="count">{words.length ? list.length : c.seriesCount}</span>
           </button>
-          {#if unfolded}
+          {#if unfolded && !remote}
             <button
               class="fold"
               title="Add a series to {c.name}"
