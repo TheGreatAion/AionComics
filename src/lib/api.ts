@@ -9,17 +9,36 @@ export const remote = typeof window !== "undefined" && !("__TAURI_INTERNALS__" i
 /** Ask AionComics for something: through the window, or from another device over the network. */
 async function call<T>(cmd: string, args?: Record<string, unknown>): Promise<T> {
   if (!remote) return invoke<T>(cmd, args);
-  const res = await fetch(`/api/${cmd}`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(args ?? {}),
-  }).catch(() => {
-    throw "Can't reach AionComics. Is the PC on, and AionComics open?";
-  });
+  const send = () =>
+    fetch(`/api/${cmd}`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(args ?? {}),
+    });
+  // A phone on Wi-Fi drops the odd request (waking up, switching networks): one more try first.
+  const res = await send()
+    .catch(() => new Promise((r) => setTimeout(r, 700)).then(send))
+    .catch(() => {
+      throw "Can't reach AionComics. Is the PC on, and AionComics open?";
+    });
   if (res.status === 401) gate.locked = true;
   const body = await res.json().catch(() => null);
   if (!res.ok) throw typeof body === "string" ? body : `Something went wrong (${res.status})`;
   return body as T;
+}
+
+/** On another device, a problem the page ran into goes to a log on the PC (remote.log beside the
+ *  library database): a phone's browser shows no errors of its own. A few per visit at most. */
+let reported = 0;
+export function report(what: unknown) {
+  const text = what instanceof Error ? `${what.message} ${what.stack ?? ""}` : String(what);
+  if (!remote || reported++ >= 20 || text === "Type the code") return;
+  const where = `${location.pathname} ${innerWidth}x${innerHeight} ${navigator.userAgent}`;
+  fetch("/api/report", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ text: `${text} | ${where}` }),
+  }).catch(() => {});
 }
 
 /** On another device: whether it's in yet, and typing the code to get in. */

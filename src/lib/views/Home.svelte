@@ -8,6 +8,7 @@
   import { bareEnter } from "$lib/keynav";
   import { hue } from "$lib/color";
   import Cover from "$lib/components/Cover.svelte";
+  import { viewport } from "$lib/components/SidePanel.svelte";
   import Icon from "$lib/components/Icon.svelte";
   import InkPrint from "$lib/components/InkPrint.svelte";
   import { look, motionMs } from "$lib/look.svelte";
@@ -285,7 +286,7 @@
     <!-- The book you're in tints the top of Home in its cover's color. -->
     {#if hero}
       <!-- A splash panel: the book you're in, over its cover printed in one ink. -->
-      <section class="hero" class:inked={look.backdrop} style:height="{heroH}px">
+      <section class="hero" class:inked={look.backdrop} style:height={viewport.narrow ? undefined : `${heroH}px`}>
         {#if look.backdrop}
           {#key hero.id}
             <div class="print" transition:fade={{ duration: motionMs(300, 600) }}>
@@ -776,13 +777,17 @@
     align-items: center;
     gap: 10px;
   }
-  /* A phone: the book's name across the panel's whole width, the open book under it. */
-  @media (max-width: 700px) {
+  /* A phone, or a tablet held upright (the same rule as UPRIGHT_TABLET in SidePanel.svelte): the
+     book's name across the panel's whole width, and the pile under it with room of its own, about
+     as tall as the screen is wide, instead of what's left of a screen-high panel. The panel grows to
+     hold both, so it sizes by its width only. */
+  @media (max-width: 700px), (max-width: 1100px) and (orientation: portrait) and (pointer: coarse) {
     .hero {
+      container-type: inline-size;
       grid-template-columns: minmax(0, 1fr);
-      grid-template-rows: auto minmax(0, 1fr);
-      gap: 8px;
-      padding: 36px 18px 12px;
+      grid-template-rows: auto auto;
+      gap: 20px;
+      padding: 36px 18px 8px;
       margin-top: 64px;
     }
     .text {
@@ -791,6 +796,7 @@
     .stage {
       grid-column: 1;
       grid-row: 2;
+      height: clamp(300px, 100vw, 560px);
     }
   }
 </style>

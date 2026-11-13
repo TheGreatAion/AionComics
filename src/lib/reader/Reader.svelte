@@ -543,7 +543,7 @@
           >
             {#if c.view.fit === "full"}<span class="txt fine">1:1</span>{:else}<Icon name={FIT_ICON[c.view.fit]} />{/if}
           </button>
-          {#if !viewport.narrow}{@render tool("double", "double")}{/if}
+          {#if !viewport.phone}{@render tool("double", "double")}{/if}
           {@render tool("guided", "guided")}
           {@render tool("bookmark", "bookmark")}
           {@render tool("options", "options")}

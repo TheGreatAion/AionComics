@@ -278,7 +278,16 @@ fn handle(app: &AppHandle, mut req: tiny_http::Request) {
             json(401, &"Type the code".into())
         } else {
             let args = body(&mut req);
+            // A problem the page on the device ran into, kept for looking into later.
+            if cmd == "report" {
+                note(&state.data_dir, &format!("device: {}", args.get("text").and_then(|t| t.as_str()).unwrap_or("?")));
+                let _ = req.respond(json(200, &serde_json::json!({})));
+                return;
+            }
             let result = crate::remote_call(app, cmd, &args);
+            if let Err(e) = &result {
+                note(&state.data_dir, &format!("{cmd} failed: {e}"));
+            }
             if result.is_ok() && matches!(cmd, "save_progress" | "save_guided_spot" | "toggle_bookmark" | "set_wanted") {
                 changed(app);
             }
@@ -300,6 +309,21 @@ fn handle(app: &AppHandle, mut req: tiny_http::Request) {
         asset(app, &path)
     };
     let _ = req.respond(response);
+}
+
+/// What went wrong for a device, one line each, in remote.log beside the library database: a phone's
+/// browser shows no errors, so this is where they can be looked at. Kept small: once it grows past
+/// a quarter of a megabyte, it starts over (the last one kept as remote.old.log).
+fn note(data_dir: &std::path::Path, line: &str) {
+    use std::io::Write;
+    let path = data_dir.join("remote.log");
+    if std::fs::metadata(&path).is_ok_and(|m| m.len() > 256 * 1024) {
+        let _ = std::fs::rename(&path, data_dir.join("remote.old.log"));
+    }
+    let line: String = line.chars().filter(|c| !c.is_control()).take(2000).collect();
+    if let Ok(mut f) = std::fs::OpenOptions::new().create(true).append(true).open(&path) {
+        let _ = writeln!(f, "{} {line}", crate::scan::now());
+    }
 }
 
 fn login(conn: &Connection, typed: &str) -> Reply {

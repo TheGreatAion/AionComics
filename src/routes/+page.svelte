@@ -1,6 +1,6 @@
 <script lang="ts">
   import { onMount } from "svelte";
-  import { api, gate, remote, door, type ScanStats } from "$lib/api";
+  import { api, gate, remote, door, report, type ScanStats } from "$lib/api";
   import { listen } from "$lib/events";
   import Door from "$lib/components/Door.svelte";
   import { lib, menu, nav, openReader, reader, search, sheets, takeBack, undo } from "$lib/state.svelte";
@@ -37,6 +37,8 @@
       // No news reaches another device: what's shown is brought up to date when you come back to it.
       const back = () => document.visibilityState === "visible" && reader.id === null && lib.version++;
       document.addEventListener("visibilitychange", back);
+      addEventListener("error", (e) => report(e.error ?? e.message));
+      addEventListener("unhandledrejection", (e) => report(e.reason));
     }
     api.settings().then((s) => {
       lib.hasRoot = !!s.libraryRoot;
@@ -79,13 +81,26 @@
     return () => subs.forEach((p) => p.then((un) => un()));
   });
 
+  // The libraries, for Home and the side panel. If they don't come (a phone's Wi-Fi drops a
+  // request now and then), ask again a few times rather than leave both without them.
   $effect(() => {
     void lib.version;
-    api.nav().then((n) => {
-      lib.collections = n.collections;
-      lib.wanted = n.wanted;
-      lib.collectionsLoaded = true;
-    });
+    let tries = 0;
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const load = () =>
+      api
+        .nav()
+        .then((n) => {
+          lib.collections = n.collections;
+          lib.wanted = n.wanted;
+          lib.collectionsLoaded = true;
+        })
+        .catch((e) => {
+          if (++tries < 5 && !gate.locked) timer = setTimeout(load, 800 * tries);
+          else report(e);
+        });
+    load();
+    return () => clearTimeout(timer);
   });
 
   // The library stays mounted under the reader; stop it scrolling meanwhile. Its scrollbar gutter goes

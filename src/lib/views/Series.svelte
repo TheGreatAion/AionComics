@@ -513,10 +513,10 @@
   // How big the covers are: Ctrl + the mouse wheel, remembered.
   const SIZE_KEY = "aion.cover-size";
   // A phone fits three covers across, closer together.
-  const GAP = $derived(viewport.narrow ? 14 : 26);
+  const GAP = $derived(viewport.phone ? 14 : 26);
   let size = $state(Number((() => { try { return localStorage.getItem(SIZE_KEY); } catch { return null; } })()) || 190);
   let galleryW = $state(0);
-  const cols = $derived(Math.max(1, Math.floor((galleryW + GAP) / ((viewport.narrow ? 100 : size) + GAP))));
+  const cols = $derived(Math.max(1, Math.floor((galleryW + GAP) / ((viewport.phone ? 100 : size) + GAP))));
   const trackW = $derived((galleryW - GAP * (cols - 1)) / cols);
   function onwheel(e: WheelEvent) {
     if (!e.ctrlKey || reader.id !== null) return;

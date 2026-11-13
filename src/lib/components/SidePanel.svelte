@@ -1,12 +1,20 @@
 <script lang="ts" module>
-  /** Shown or hidden, remembered between sessions (Ctrl B, or the panel button). */
-  export const side = $state({ open: load() });
-
-  /** A phone-sized screen (reading from another device): the panel lies over the page instead of
-   *  pushing it aside, and starts hidden. */
-  const small = typeof matchMedia === "function" ? matchMedia("(max-width: 700px)") : null;
-  export const viewport = $state({ narrow: !!small?.matches });
+  /** A tablet held upright (a finger, not a mouse, so the PC's own window never counts). Kept in
+   *  step with the same rule in Home.svelte's styles. */
+  const UPRIGHT_TABLET = "(max-width: 1100px) and (orientation: portrait) and (pointer: coarse)";
+  /** Reading from another device. `narrow`: a phone, or a tablet held upright, where there's no room
+   *  for the panel beside the page: it lies over the page instead, and starts hidden. `phone`: a
+   *  phone-sized screen, where covers and tools get smaller too. */
+  const query = (q: string) => (typeof matchMedia === "function" ? matchMedia(q) : null);
+  const phone = query("(max-width: 700px)");
+  const small = query(`(max-width: 700px), ${UPRIGHT_TABLET}`);
+  export const viewport = $state({ narrow: !!small?.matches, phone: !!phone?.matches });
   small?.addEventListener("change", () => (viewport.narrow = !!small?.matches));
+  phone?.addEventListener("change", () => (viewport.phone = !!phone?.matches));
+
+  /** Shown or hidden, remembered between sessions (Ctrl B, or the panel button). Set after `small`
+   *  above, which `load` reads. */
+  export const side = $state({ open: load() });
 
   function load() {
     if (small?.matches) return false;

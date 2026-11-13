@@ -215,14 +215,16 @@ export const keysFor = (a: Action, overrides: Record<string, string[]>) => overr
 /** A finger, not a mouse and keyboard: a phone or tablet. */
 const touch = () => typeof matchMedia === "function" && matchMedia("(pointer: coarse)").matches;
 
-/** Tools that need this PC's files, keyboard or mouse: left out when reading from another device. */
-export const PC_ONLY = new Set(["open", "openFolder", "save", "extract", "editPanels", "shortcuts", "magnifier"]);
+/** Tools that need this PC's files or change what's kept about a book: left out when reading from another device. */
+export const PC_ONLY = new Set(["open", "openFolder", "save", "extract", "editPanels"]);
+/** Tools for a keyboard and mouse: left out on a phone or tablet. */
+const POINTER_ONLY = new Set(["shortcuts", "magnifier"]);
 
 export function menuItems(c: Ctl, overrides: Record<string, string[]>): MenuItem[] {
   const items: MenuItem[] = [];
   let group = "";
   for (const a of ACTIONS) {
-    if (a.hidden || (remote && PC_ONLY.has(a.id))) continue;
+    if (a.hidden || (remote && PC_ONLY.has(a.id)) || (touch() && POINTER_ONLY.has(a.id))) continue;
     if (remote && a.id === "fullscreen" && !document.fullscreenEnabled) continue;
     if (group && a.group !== group) items.push("separator");
     group = a.group;
