@@ -3,6 +3,7 @@ mod backup;
 mod chapters;
 mod comicinfo;
 mod cv;
+mod cvextra;
 mod db;
 mod editions;
 mod frames;
@@ -1043,6 +1044,45 @@ async fn cv_search(state: State<'_, Shared>, series_id: i64, query: Option<Strin
     .map_err(err)
 }
 
+/// A Comic Vine series' issues, to show it while you choose (kept, so matching it after is free).
+#[tauri::command]
+async fn cv_volume_issues(state: State<'_, Shared>, volume_id: String) -> CmdResult<Vec<cv::Issue>> {
+    let state = state.inner().clone();
+    tauri::async_runtime::spawn_blocking(move || cv::volume_issues(&state.comicvine, &volume_id)).await.map_err(err)?.map_err(err)
+}
+
+/// What Comic Vine has on a character or creator ("character" or "creator"), when there's a key.
+#[tauri::command]
+async fn cv_about(state: State<'_, Shared>, kind: String, name: String) -> CmdResult<Option<cvextra::About>> {
+    let state = state.inner().clone();
+    tauri::async_runtime::spawn_blocking(move || -> anyhow::Result<Option<cvextra::About>> {
+        if !state.comicvine.has_key() {
+            return Ok(None);
+        }
+        let conn = db::open(&state.db_path)?;
+        cvextra::about(&state.comicvine, &conn, &kind, &name)
+    })
+    .await
+    .map_err(err)?
+    .map_err(err)
+}
+
+/// A book's other covers and the characters who first appear in it, from Comic Vine.
+#[tauri::command]
+async fn cv_book_extras(state: State<'_, Shared>, id: i64) -> CmdResult<cvextra::BookExtras> {
+    let state = state.inner().clone();
+    tauri::async_runtime::spawn_blocking(move || -> anyhow::Result<cvextra::BookExtras> {
+        if !state.comicvine.has_key() || id < 0 {
+            return Ok(Default::default());
+        }
+        let conn = db::open(&state.db_path)?;
+        cvextra::book_extras(&state.comicvine, &conn, id)
+    })
+    .await
+    .map_err(err)?
+    .map_err(err)
+}
+
 /// A Comic Vine series' issues and the issue proposed for each of this series' books.
 #[tauri::command]
 async fn cv_plan(state: State<'_, Shared>, series_id: i64, volume_id: String) -> CmdResult<cv::IssuePlan> {
@@ -1532,6 +1572,8 @@ fn remote_call(app: &AppHandle, cmd: &str, a: &serde_json::Value) -> Result<serd
         "comic_meta" => out(comic_meta(st(), arg(a, "id")?)),
         "casts" => out(casts(st(), arg(a, "ids")?)),
         "cv_status" => out(cv_status(st())),
+        "cv_about" => out(block_on(cv_about(st(), arg(a, "kind")?, arg(a, "name")?))),
+        "cv_book_extras" => out(block_on(cv_book_extras(st(), arg(a, "id")?))),
         "take_open_request" => Ok(serde_json::Value::Null),
         _ => Err("That can only be done on the PC.".into()),
     }
@@ -1743,6 +1785,9 @@ pub fn run() {
             restore_editions,
             cv_set_key,
             cv_search,
+            cv_volume_issues,
+            cv_about,
+            cv_book_extras,
             cv_plan,
             cv_apply,
             cv_apply_book,

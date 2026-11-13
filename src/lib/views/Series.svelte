@@ -5,7 +5,8 @@
   import CvNudge from "$lib/components/CvNudge.svelte";
   import { viewport } from "$lib/components/SidePanel.svelte";
   import { readAsItems, removing, want, wantItem } from "$lib/manage.svelte";
-  import { api, chapterList, listText, plainText, remote, storyTitle, unitWord, type ComicCard, type ComicMeta, type Edition, type EditionKind, type MetaField, type SeriesView } from "$lib/api";
+  import { api, chapterList, listText, plainText, remote, storyTitle, unitWord, type ComicCard, type ComicMeta, type CvBookExtras, type CvVolume, type Edition, type EditionKind, type MetaField, type SeriesView } from "$lib/api";
+  import CoverViewer from "$lib/components/CoverViewer.svelte";
   import { lib, nav, openReader, reader, search, sheets, showMenu, undoable, undoableWith, type MenuItem } from "$lib/state.svelte";
   import { bareEnter, nearest } from "$lib/keynav";
   import { motionMs } from "$lib/look.svelte";
@@ -71,6 +72,27 @@
     return { title: `${m[1]}${m[3] ?? ""}`, by: `by ${m[2]}` };
   });
   const findOnCv = () => data && (sheets.matching = { seriesId: data.id, isManga: data.isManga, name: data.name });
+
+  // A series without details yet: whether Comic Vine has it, looked up quietly a moment after the
+  // page opens (kept a day, so coming back costs nothing). Only a close match is offered, beside
+  // the Comic Vine button, so the offer means there really is something to add.
+  let offer = $state<CvVolume | null>(null);
+  $effect(() => {
+    const id = data?.id;
+    const matched = !!data?.cvVolumeId;
+    offer = null;
+    if (!id || matched || remote) return;
+    const t = setTimeout(async () => {
+      try {
+        if (!(await api.cvStatus()).hasKey) return;
+        const top = (await api.cvSearch(id)).volumes[0];
+        if (top && top.score >= 0.95 && data?.id === id && !data.cvVolumeId) offer = top;
+      } catch {
+        // No offer; the button still searches.
+      }
+    }, 1200);
+    return () => clearTimeout(t);
+  });
   // The name is set as on collection pages: its letters cut from the covers of the format in view,
   // picked at random each visit, over one more cover printed in a single ink of its own color. That one is
   // the first cover whose color will do, preferring one printed already (each series' is, ahead of
@@ -515,6 +537,28 @@
     shut = false;
   });
   const drawer = $derived(!!book && !shut);
+
+  // From Comic Vine, for a book matched to an issue: its other covers, and the characters who
+  // first appear in it. Asked for once the details have been open a moment; the first time for a
+  // book it can take a few seconds (one question per character), and nothing shows until then.
+  let extras = $state<CvBookExtras | null>(null);
+  let viewing = $state<number | null>(null);
+  $effect(() => {
+    const id = drawer ? book?.id : undefined;
+    extras = null;
+    viewing = null;
+    if (!id) return;
+    const t = setTimeout(() => {
+      api
+        .cvBookExtras(id)
+        .then((x) => {
+          if (book?.id === id) extras = x;
+        })
+        .catch(() => {});
+    }, 300);
+    return () => clearTimeout(t);
+  });
+  const COVERS = 9;
   async function pick(c: ComicCard) {
     picked = c.id;
     anchor = c.id;
@@ -642,6 +686,15 @@
           <Icon name="plus" size={18} />
         </button>
         <!-- Always here, so a series can fetch its details again (a new issue, a wrong match). -->
+        {#if offer}
+          <button
+            class="offer pc-only"
+            title="Comic Vine has {offer.name}{offer.startYear ? ` (${offer.startYear}${offer.publisher ? `, ${offer.publisher}` : ''})` : ''}"
+            onclick={findOnCv}
+          >
+            Want to add details?
+          </button>
+        {/if}
         <button class="ico pc-only" title={cvLabel} aria-label={cvLabel} onclick={findOnCv}>
           <Icon name="fetch" size={18} />
         </button>
@@ -794,6 +847,32 @@
                       {/if}
                     </div>
                   {/if}
+                  {#if extras?.firsts.length}
+                    <div class="extra">
+                      <div class="xlabel fine">First appearance of</div>
+                      <div class="faces">
+                        {#each extras.firsts as f (f.name)}
+                          <button class="face" title="Everything with {f.name}" onclick={() => nav.go({ name: "people", kind: "character", value: f.name })}>
+                            {#if f.image}<img src={f.image} alt="" loading="lazy" />{:else}<span class="noface"></span>{/if}
+                            <span>{f.name}</span>
+                          </button>
+                        {/each}
+                      </div>
+                    </div>
+                  {/if}
+                  {#if extras?.covers.length}
+                    <div class="extra">
+                      <div class="xlabel fine">Covers <span>{extras.covers.length}</span></div>
+                      <div class="covers">
+                        {#each extras.covers.slice(0, COVERS) as c, i (c.small)}
+                          <button title="Cover {i + 1}" onclick={() => (viewing = i)}><img src={c.small} alt="" loading="lazy" /></button>
+                        {/each}
+                        {#if extras.covers.length > COVERS}
+                          <button class="link more-covers" onclick={() => (viewing = COVERS)}>+{extras.covers.length - COVERS}</button>
+                        {/if}
+                      </div>
+                    </div>
+                  {/if}
                   <div class="actions">
                     <button class="btn play" onclick={open}><Icon name="play" size={14} />{action}</button>
                     {#if reading && book.numPages}
@@ -814,6 +893,11 @@
       {/each}
     </nav>
   </div>
+{/if}
+
+
+{#if viewing !== null && extras?.covers.length && book && data}
+  <CoverViewer covers={extras.covers} at={viewing} title="{data.name.trim()} {book.label}" onclose={() => (viewing = null)} />
 {/if}
 
 <style>
@@ -876,6 +960,24 @@
     display: flex;
     align-items: center;
     gap: 6px;
+  }
+  .offer {
+    margin-right: -2px;
+    padding: 4px 4px 4px 8px;
+    font-size: 13px;
+    color: var(--text-2);
+    white-space: nowrap;
+    animation: offer-in 0.4s var(--ease);
+  }
+  .offer:hover {
+    color: var(--text);
+    text-decoration: underline;
+    text-underline-offset: 3px;
+  }
+  @keyframes offer-in {
+    from {
+      opacity: 0;
+    }
   }
   .tools .ico.on {
     background: rgb(var(--fg) / 0.09);
@@ -1258,6 +1360,69 @@
     font-style: normal;
     color: var(--text-3);
     margin-left: 4px;
+  }
+  /* From Comic Vine: who first appears here, and the issue's covers. */
+  .extra {
+    margin-top: 18px;
+  }
+  .xlabel {
+    margin-bottom: 8px;
+    color: var(--text-3);
+  }
+  .xlabel span {
+    margin-left: 6px;
+  }
+  .faces {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 16px;
+  }
+  .face {
+    width: 72px;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 6px;
+    color: var(--text-2);
+    font-size: 12px;
+    text-align: center;
+  }
+  .face:hover {
+    color: var(--text);
+  }
+  .face img,
+  .noface {
+    width: 56px;
+    height: 56px;
+    border-radius: 50%;
+    object-fit: cover;
+    object-position: top;
+    box-shadow: 0 0 0 1px var(--line);
+    background: var(--menu);
+  }
+  .covers {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    flex-wrap: wrap;
+  }
+  .covers img {
+    height: 96px;
+    width: auto;
+    /* A wraparound cover is cropped to a cover's width here; the viewer shows it whole. */
+    max-width: 66px;
+    object-fit: cover;
+    border-radius: 2px;
+    display: block;
+    box-shadow: 0 0 0 1px var(--line);
+    transition: transform 0.15s var(--ease);
+  }
+  .covers button:hover img {
+    transform: translateY(-2px);
+  }
+  .more-covers {
+    font-size: 13px;
+    padding: 0 6px;
   }
   .chips {
     margin-top: 12px;

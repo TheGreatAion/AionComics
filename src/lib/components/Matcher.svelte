@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { api, unitWord, type CvIssue, type CvProposal, type CvVolume } from "$lib/api";
+  import { api, paragraphs, shortDate, unitWord, type CvIssue, type CvProposal, type CvVolume } from "$lib/api";
   import { lib, nav, sheets } from "$lib/state.svelte";
   import { untrack } from "svelte";
   import Cover from "./Cover.svelte";
@@ -106,6 +106,68 @@
     row.confidence = id ? "sure" : "none";
   }
 
+  // ---- the picked series, described beside the list ----
+
+  // Each series' issues, asked for once it's been picked for a moment (the same listing matching
+  // uses, so picking it after costs nothing).
+  let looked = $state<Record<string, CvIssue[] | "wait" | "none">>({});
+  $effect(() => {
+    const v = chosen;
+    if (!v || step !== "search" || looked[v.id]) return;
+    const id = v.id;
+    const t = setTimeout(() => {
+      looked[id] = "wait";
+      api.cvVolumeIssues(id).then((l) => (looked[id] = l)).catch(() => (looked[id] = "none"));
+    }, 350);
+    return () => clearTimeout(t);
+  });
+  const shown = $derived(chosen ? looked[chosen.id] : undefined);
+  const chosenIssues = $derived(Array.isArray(shown) ? shown : []);
+
+  // Narrowing what came back, by name, year or publisher, without asking Comic Vine again.
+  let narrow = $state("");
+  const kept = $derived.by(() => {
+    const words = narrow.toLowerCase().split(/\s+/).filter(Boolean);
+    if (!words.length) return volumes;
+    return volumes.filter((v) => {
+      const hay = [v.name, v.startYear, v.publisher, v.language].filter(Boolean).join(" ").toLowerCase();
+      return words.every((w) => hay.includes(w));
+    });
+  });
+  // English editions first; the same series from other countries after them, set apart.
+  const home = $derived(kept.filter((v) => !v.language));
+  const away = $derived(kept.filter((v) => v.language));
+
+  /** "Spanish publication." says no more than the tag: not a summary. */
+  const said = (t: string) => /^\s*[a-z]+\s+(language\s+)?(publication|edition|translation|reprint|version)\.?\s*$/i.test(t);
+  /** A line or two about a series for the list: its one-line summary, else its description's first paragraph. */
+  function summary(v: CvVolume) {
+    if (v.deck?.trim()) return v.deck.trim();
+    const p = paragraphs(v.description, 1)[0];
+    return p && !said(p) ? p : "";
+  }
+  /** Comic Vine's bigger picture of the same cover. */
+  const bigger = (url: string | null) => url?.replace(/\/uploads\/[a-z_]+\//, "/uploads/scale_medium/") ?? null;
+  const mark = (n: string) => (isManga ? `Vol. ${n}` : `#${n}`);
+  /** "1 · Episode One" as a number and a title. */
+  const split = (line: string | null) => {
+    if (!line) return null;
+    const [n, ...rest] = line.split(" · ");
+    return { n: mark(n), title: rest.join(" · ") };
+  };
+  const about = $derived(chosen ? paragraphs(chosen.description, 3).filter((p) => !said(p)) : []);
+  const sale = $derived.by(() => {
+    const dates = chosenIssues.map((i) => i.storeDate ?? i.coverDate).filter((d): d is string => !!d).sort();
+    if (!dates.length) return "";
+    const [a, b] = [dates[0], dates[dates.length - 1]];
+    return a === b ? `On sale ${shortDate(a)}` : `On sale ${shortDate(a)} to ${shortDate(b)}`;
+  });
+  const fromFirst = $derived(chosenIssues.length && !about.length ? paragraphs(chosenIssues[0].description, 1)[0] ?? "" : "");
+
+  // ---- one book: the issue looked at, described beside the list ----
+  let lookAt = $state<string | null>(null);
+  const seen = $derived(byId.get(lookAt ?? rows[0]?.issueId ?? "") ?? null);
+
   const close = () => (sheets.matching = null);
 
   function onkey(e: KeyboardEvent) {
@@ -120,7 +182,7 @@
 
 <!-- svelte-ignore a11y_click_events_have_key_events -->
 <div class="scrim" role="presentation" onclick={(e) => e.target === e.currentTarget && close()}>
-  <div class="sheet" role="dialog" aria-label="Find on Comic Vine">
+  <div class="sheet" class:wide={step === "search" || (step === "review" && single)} role="dialog" aria-label="Find on Comic Vine">
     <header>
       <h2>{step === "review" && chosen ? chosen.name : single ? `Find ${label ?? "this book"} on Comic Vine` : "Find on Comic Vine"}</h2>
       {#if step === "review" && !single}
@@ -137,42 +199,110 @@
         <input bind:value={query} placeholder="Series name" spellcheck="false" />
         <button class="ico" title="Search" aria-label="Search" disabled={!!busy}><Icon name="search" size={18} /></button>
       </form>
-      <div class="results">
-        {#each volumes as v (v.id)}
-          <button class="volume" class:on={chosen?.id === v.id} onclick={() => (chosen = v)} ondblclick={next}>
-            {#if v.image}<img src={v.image} alt="" loading="lazy" />{:else}<span class="noimg"></span>{/if}
-            <span class="info">
-              <span class="vname">{v.name}</span>
-              <span class="meta fine">
-                {[v.startYear, v.publisher, v.count ? `${v.count} ${unit(v.count)}` : null].filter(Boolean).join(" · ")}
-              </span>
-              {#if v.deck}<span class="deck">{v.deck}</span>{/if}
+      {#snippet volume(v: CvVolume)}
+        {@const line = summary(v)}
+        <button class="volume" class:on={chosen?.id === v.id} class:away={!!v.language} onclick={() => (chosen = v)} ondblclick={next}>
+          {#if v.image}<img src={v.image} alt="" loading="lazy" />{:else}<span class="noimg"></span>{/if}
+          <span class="info">
+            <span class="vname">{v.name}</span>
+            <span class="meta fine">
+              {[v.startYear, v.publisher, v.count ? `${v.count} ${unit(v.count)}` : null].filter(Boolean).join(" · ")}
+              {#if v.language}<span class="lang">{v.language}</span>{/if}
             </span>
-          </button>
-        {:else}
-          {#if busy}
-            <div class="wait" title={busy}><span class="spin"><Icon name="rescan" size={22} stroke={1.2} /></span></div>
-          {:else if !error}<p class="empty">Nothing found. Try a shorter name.</p>{/if}
-        {/each}
+            {#if line}<span class="deck">{line}</span>{/if}
+          </span>
+        </button>
+      {/snippet}
+      <div class="split">
+        <div class="results">
+          {#if volumes.length > 6}
+            <input class="narrow" bind:value={narrow} placeholder="Filter by name, year or publisher" spellcheck="false" />
+          {/if}
+          {#each home as v (v.id)}{@render volume(v)}{/each}
+          {#if away.length}
+            <div class="group fine">Other countries · {away.length}</div>
+            {#each away as v (v.id)}{@render volume(v)}{/each}
+          {/if}
+          {#if volumes.length && !kept.length}<p class="empty">None of these match “{narrow}”.</p>{/if}
+          {#if !volumes.length}
+            {#if busy}
+              <div class="wait" title={busy}><span class="spin"><Icon name="rescan" size={22} stroke={1.2} /></span></div>
+            {:else if !error}<p class="empty">Nothing found. Try a shorter name.</p>{/if}
+          {/if}
+        </div>
+        <!-- Everything about the series picked. -->
+        <div class="detail">
+          {#if chosen}
+            {@const first = split(chosen.firstIssue)}
+            {@const last = split(chosen.lastIssue)}
+            {#if chosen.image}<img class="big" src={bigger(chosen.image)} alt="" />{/if}
+            <h3>{chosen.name}</h3>
+            <div class="meta">
+              {[chosen.startYear, chosen.publisher, chosen.count ? `${chosen.count} ${unit(chosen.count)}` : null].filter(Boolean).join(" · ")}
+              {#if chosen.language}<span class="lang">{chosen.language}</span>{/if}
+            </div>
+            {#if first || sale}
+              <div class="runs">
+                {#if first}<div><b>{first.n}</b> {first.title}</div>{/if}
+                {#if last && chosen.lastIssue !== chosen.firstIssue}<div><b>{last.n}</b> {last.title}</div>{/if}
+                {#if sale}<div>{sale}</div>{/if}
+              </div>
+            {/if}
+            {#each about as p, k (k)}<p>{p}</p>{/each}
+            {#if fromFirst}
+              <div class="lbl fine">From {mark(chosenIssues[0].number ?? "1")}</div>
+              <p class="from">{fromFirst}</p>
+            {/if}
+            {#if chosenIssues.length > 1}
+              <div class="lbl fine">First {unit(2)}</div>
+              <div class="strip">
+                {#each chosenIssues.slice(0, 6) as i (i.id)}
+                  {#if i.image}<img src={i.image} alt="" title={i.number ? mark(i.number) : ""} loading="lazy" />{/if}
+                {/each}
+              </div>
+            {/if}
+          {/if}
+        </div>
       </div>
     {:else if step === "review" && single}
       {@const row = rows[0]}
       <!-- The one book, and the issues of the chosen series to say which it is. -->
-      <div class="one">
-        <div class="book">
-          {#if row}<Cover id={row.comicId} width={64} />{/if}
-          <span class="local">{label ?? row?.label}{#if row?.section}<span class="section">{row.section}</span>{/if}</span>
-        </div>
+      <div class="split">
         <div class="issues">
+          <div class="book">
+            {#if row}<Cover id={row.comicId} width={40} />{/if}
+            <span class="local">{label ?? row?.label}{#if row?.section}<span class="section">{row.section}</span>{/if}<span class="fine dim">Your book</span></span>
+          </div>
           {#each issues as i (i.id)}
-            <button class="issue" class:on={row?.issueId === i.id} onclick={() => row && pick(row, row.issueId === i.id ? "" : i.id)}>
+            <button
+              class="issue"
+              class:on={row?.issueId === i.id}
+              onclick={() => {
+                lookAt = i.id;
+                if (row) pick(row, row.issueId === i.id ? "" : i.id);
+              }}
+              onmouseenter={() => (lookAt = i.id)}
+            >
               {#if i.image}<img src={i.image} alt="" loading="lazy" />{:else}<span class="noimg small"></span>{/if}
-              <span class="iname">{issueLabel(i)}</span>
+              <span class="iname">
+                <span>{[i.number ? mark(i.number) : null, i.name].filter(Boolean).join(" ")}</span>
+                {#if i.storeDate || i.coverDate}<span class="fine dim">{i.storeDate ? `On sale ${shortDate(i.storeDate)}` : shortDate(i.coverDate)}</span>{/if}
+              </span>
               {#if row?.issueId === i.id}<Icon name="check" size={14} />{/if}
             </button>
           {:else}
             <p class="empty">This series has no issues on Comic Vine.</p>
           {/each}
+        </div>
+        <div class="detail">
+          {#if seen}
+            {#if seen.image}<img class="big" src={bigger(seen.image)} alt="" />{/if}
+            <h3>{[seen.number ? mark(seen.number) : null, seen.name].filter(Boolean).join(" ")}</h3>
+            <div class="meta">
+              {[seen.storeDate ? `On sale ${shortDate(seen.storeDate)}` : null, seen.coverDate ? `cover date ${new Date(seen.coverDate.slice(0, 10) + "T12:00").toLocaleDateString([], { month: "long", year: "numeric" })}` : null].filter(Boolean).join(" · ")}
+            </div>
+            {#each paragraphs(seen.description, 4) as p, k (k)}<p>{p}</p>{/each}
+          {/if}
         </div>
       </div>
     {:else if step === "review"}
@@ -233,21 +363,6 @@
 </div>
 
 <style>
-  /* One book: it on the left, its series' issues to pick from on the right. */
-  .one {
-    flex: 1;
-    min-height: 0;
-    display: grid;
-    grid-template-columns: 150px 1fr;
-    gap: 24px;
-    padding: 18px 24px;
-  }
-  .one .book {
-    display: flex;
-    flex-direction: column;
-    gap: 10px;
-    font-size: 13px;
-  }
   .issues {
     overflow-y: auto;
     display: flex;
@@ -283,6 +398,141 @@
   .iname {
     flex: 1;
   }
+  /* The list, and what's picked in it described beside it. */
+  .split {
+    flex: 1;
+    min-height: 0;
+    display: grid;
+    grid-template-columns: minmax(0, 440px) minmax(0, 1fr);
+    gap: 30px;
+    margin-top: 16px;
+  }
+  .split .results,
+  .split .issues {
+    margin: 0 -10px 0 -10px;
+    overflow-y: auto;
+  }
+  .narrow {
+    width: calc(100% - 20px);
+    margin: 0 10px 8px;
+    background: none;
+    border: 0;
+    border-bottom: 1px solid var(--line);
+    padding: 6px 0;
+    font: inherit;
+    font-size: 13px;
+    color: var(--text);
+    outline: none;
+    user-select: text;
+  }
+  .detail {
+    overflow-y: auto;
+    padding-right: 8px;
+    min-width: 0;
+  }
+  .detail .big {
+    width: 140px;
+    border-radius: 3px;
+    display: block;
+    box-shadow: 0 0 0 1px var(--line);
+  }
+  .detail h3 {
+    margin: 14px 0 4px;
+    font-size: 20px;
+    font-weight: 600;
+    color: var(--text);
+  }
+  .detail .meta {
+    color: var(--text-2);
+    font-size: 13px;
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    align-items: center;
+  }
+  .runs {
+    margin-top: 10px;
+    color: var(--text-2);
+    font-size: 13px;
+    line-height: 1.6;
+  }
+  .runs b {
+    color: var(--text);
+    font-weight: 500;
+  }
+  .detail p {
+    margin-top: 12px;
+    color: var(--text-2);
+    font-size: 14px;
+    line-height: 1.55;
+    user-select: text;
+  }
+  .detail p.from {
+    margin-top: 4px;
+  }
+  .lbl {
+    margin-top: 16px;
+    color: var(--text-3);
+  }
+  .strip {
+    display: flex;
+    gap: 6px;
+    margin-top: 8px;
+  }
+  .strip img {
+    width: 52px;
+    aspect-ratio: 2 / 3;
+    object-fit: cover;
+    border-radius: 2px;
+    flex: none;
+  }
+  /* An edition in another language: tagged, set apart at the end, and quieter. */
+  .lang {
+    display: inline-block;
+    margin-left: 6px;
+    padding: 0 8px;
+    border: 1px solid rgb(var(--fg) / 0.22);
+    border-radius: 999px;
+    color: var(--text-2);
+    font-size: 12px;
+    line-height: 18px;
+  }
+  .detail .meta .lang {
+    margin-left: 0;
+  }
+  .group {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 16px 10px 6px;
+    color: var(--text-3);
+  }
+  .group::after {
+    content: "";
+    flex: 1;
+    height: 1px;
+    background: var(--line);
+  }
+  .volume.away .vname,
+  .volume.away img {
+    opacity: 0.6;
+  }
+  .split .book {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 4px 10px 12px;
+    margin-bottom: 6px;
+    border-bottom: 1px solid var(--line);
+  }
+  .iname {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+  }
+  .dim {
+    color: var(--text-3);
+  }
   .scrim {
     position: fixed;
     inset: 0;
@@ -297,6 +547,9 @@
     from {
       opacity: 0;
     }
+  }
+  .sheet.wide {
+    width: min(1180px, calc(100vw - 48px));
   }
   .sheet {
     width: min(860px, calc(100vw - 48px));

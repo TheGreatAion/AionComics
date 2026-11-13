@@ -157,6 +157,14 @@ pub struct Volume {
     pub count: i64,
     pub image: Option<String>,
     pub deck: Option<String>,
+    /// The full description, as Comic Vine writes it (HTML).
+    pub description: Option<String>,
+    /// The language of an edition outside English ("Spanish"), or "UK edition" for a British
+    /// reprint, when it can be told (see `cvextra::language`); None otherwise.
+    pub language: Option<String>,
+    /// Its first and last issues: "1 · Episode One: The Black Hand".
+    pub first_issue: Option<String>,
+    pub last_issue: Option<String>,
     /// How well it fits the series (0–1+); results come best first.
     pub score: f64,
 }
@@ -168,8 +176,9 @@ pub struct Issue {
     pub number: Option<String>,
     pub name: Option<String>,
     pub cover_date: Option<String>,
+    /// The day it went on sale (the cover date runs a couple of months ahead).
+    pub store_date: Option<String>,
     pub image: Option<String>,
-    #[serde(skip)]
     pub description: Option<String>,
 }
 
@@ -223,7 +232,21 @@ fn norm_name(n: &str) -> String {
     words.join(" ")
 }
 
+/// How close a Comic Vine series' name (`a`) is to yours (`b`), 0 to 1. Mostly how much of your
+/// name it has (so plain "X-Men" isn't a near miss for "X-Men: The Dark Phoenix Saga"), a little
+/// how much it adds, a word off by one letter still counting ("Johnathan"). A subtitle of yours
+/// on its own counts too, a little less ("The Sworn Sword" out of "The Hedge Knight II - The
+/// Sworn Sword").
 fn name_score(a: &str, b: &str) -> f64 {
+    let whole = closeness(a, b);
+    let parts: Vec<&str> = b.split([':', '-', '–']).map(str::trim).filter(|p| p.split_whitespace().count() >= 2).collect();
+    if parts.len() < 2 {
+        return whole;
+    }
+    parts.iter().map(|p| closeness(a, p) * 0.9).fold(whole, f64::max)
+}
+
+fn closeness(a: &str, b: &str) -> f64 {
     let (a, b) = (norm_name(a), norm_name(b));
     if a.is_empty() || b.is_empty() {
         return 0.0;
@@ -231,11 +254,35 @@ fn name_score(a: &str, b: &str) -> f64 {
     if a == b {
         return 1.0;
     }
-    let ta: std::collections::HashSet<&str> = a.split(' ').collect();
-    let tb: std::collections::HashSet<&str> = b.split(' ').collect();
-    let jaccard = ta.intersection(&tb).count() as f64 / ta.union(&tb).count() as f64;
-    let contains = if a.contains(&b) || b.contains(&a) { 0.8 } else { 0.0 };
-    (jaccard * 0.9).max(contains)
+    let (ta, tb): (Vec<&str>, Vec<&str>) = (a.split(' ').collect(), b.split(' ').collect());
+    let near = |x: &str, y: &str| x == y || (x.len() >= 5 && y.len() >= 5 && one_off(x, y));
+    // Words for a format or edition say little about which series it is.
+    let weight = |w: &str| if FORMAT_WORDS.contains(&w) { 0.3 } else { 1.0 };
+    let share = |from: &[&str], into: &[&str]| {
+        let total: f64 = from.iter().map(|w| weight(w)).sum();
+        let found: f64 = from.iter().filter(|w| into.iter().any(|x| near(x, w))).map(|w| weight(w)).sum();
+        found / total
+    };
+    0.68 * share(&tb, &ta) + 0.27 * share(&ta, &tb)
+}
+
+const FORMAT_WORDS: &[&str] = &[
+    "the", "a", "of", "and", "by", "vol", "volume", "book", "omnibus", "deluxe", "edition", "compendium", "collection", "complete",
+    "tpb", "hc", "hardcover", "paperback", "library", "digital", "colored", "color", "epic",
+];
+
+/// Two words one letter apart: one added, dropped or changed.
+fn one_off(x: &str, y: &str) -> bool {
+    let (x, y): (Vec<char>, Vec<char>) = (x.chars().collect(), y.chars().collect());
+    let (short, long) = if x.len() <= y.len() { (&x, &y) } else { (&y, &x) };
+    match long.len() - short.len() {
+        0 => short.iter().zip(long.iter()).filter(|(a, b)| a != b).count() == 1,
+        1 => {
+            let i = short.iter().zip(long.iter()).take_while(|(a, b)| a == b).count();
+            short[i..] == long[i + 1..]
+        }
+        _ => false,
+    }
 }
 
 /// "012", "12.0" and "12" are the same issue number.
@@ -267,6 +314,9 @@ struct Local {
     books: i64,
     year: Option<i64>,
     publisher: Option<String>,
+    /// Comics only: whether the books here are collected editions (true) or single issues (false),
+    /// when most of them are one or the other.
+    collected: Option<bool>,
 }
 
 fn local_series(conn: &Connection, series_id: i64) -> Result<Local> {
@@ -285,7 +335,27 @@ fn local_series(conn: &Connection, series_id: i64) -> Result<Local> {
             |r| r.get(0),
         )
         .optional()?;
-    Ok(Local { name, books, year, publisher })
+    let kinds: Vec<&str> = series_books(conn, series_id, "AND c.section=''")?.iter().filter(|b| !b.manga).map(|b| b.kind).collect();
+    let trades = kinds.iter().filter(|k| matches!(**k, "volume" | "collection" | "deluxe" | "omnibus")).count();
+    let issues = kinds.iter().filter(|k| **k == "issue").count();
+    let collected = if trades * 3 >= kinds.len() * 2 && trades > 0 {
+        Some(true)
+    } else if issues * 3 >= kinds.len() * 2 && issues > 0 {
+        Some(false)
+    } else {
+        None
+    };
+    Ok(Local { name, books, year, publisher, collected })
+}
+
+/// Words in a Comic Vine series' name, or its first issue's, that say it's collected editions.
+static COLLECTED_SERIES: std::sync::LazyLock<regex::Regex> = std::sync::LazyLock::new(|| {
+    regex::Regex::new(r"(?i)\b(tpb|hc|trade paperback|hardcover|omnibus|compendium|deluxe|collection|library edition|absolute edition|epic collection|vol(ume)?\.? ?\d|book (one|two|three|\d))\b").unwrap()
+});
+
+/// Whether a Comic Vine series looks like collected editions rather than single issues.
+fn looks_collected(v: &Volume) -> bool {
+    COLLECTED_SERIES.is_match(&v.name) || v.first_issue.as_deref().is_some_and(|f| COLLECTED_SERIES.is_match(f) || COLLECTED_NAME.is_match(f.split(" · ").nth(1).unwrap_or("")))
 }
 
 /// The search term to start from: the series folder name without scene tags or a trailing year.
@@ -295,7 +365,7 @@ pub fn default_query(conn: &Connection, series_id: i64) -> Result<String> {
     Ok(re.replace_all(&name, "").trim().to_string())
 }
 
-const VOLUME_FIELDS: &str = "id,name,start_year,publisher,count_of_issues,image,deck";
+const VOLUME_FIELDS: &str = "id,name,start_year,publisher,count_of_issues,image,deck,description,first_issue,last_issue";
 /// How many search hits get their full record fetched.
 const ENRICH: usize = 20;
 
@@ -308,7 +378,20 @@ fn volume(v: &Value) -> Option<Volume> {
         count: v.get("count_of_issues").and_then(|c| c.as_i64()).unwrap_or(0),
         image: image(v),
         deck: s(v, "deck"),
+        language: crate::cvextra::language(v.get("publisher").and_then(|p| s(p, "name")).as_deref(), s(v, "description").as_deref()),
+        description: s(v, "description"),
+        first_issue: v.get("first_issue").and_then(issue_line),
+        last_issue: v.get("last_issue").and_then(issue_line),
         score: 0.0,
+    })
+}
+
+/// A first or last issue as "1 · Episode One: The Black Hand" (just "1" when it has no title).
+fn issue_line(i: &Value) -> Option<String> {
+    let n = s(i, "issue_number")?;
+    Some(match s(i, "name") {
+        Some(t) => format!("{} · {t}", norm_number(&n)),
+        None => norm_number(&n),
     })
 }
 
@@ -335,6 +418,14 @@ fn score(v: &Volume, local: &Local, query: &str) -> f64 {
         if norm_name(lp).contains(&norm_name(p)) || norm_name(p).contains(&norm_name(lp)) {
             score += 0.15;
         }
+    }
+    // Your books are the English editions; one in another language is rarely the one you want.
+    if v.language.is_some() {
+        score -= 0.6;
+    }
+    // Trades for trades, single issues for single issues.
+    if let Some(collected) = local.collected {
+        score += if looks_collected(v) == collected { 0.12 } else { -0.12 };
     }
     score
 }
@@ -396,7 +487,7 @@ fn issues(client: &Client, volume_id: &str, ttl_days: u64) -> Result<Vec<Issue>>
             "issues",
             &[
                 ("filter", format!("volume:{volume_id}")),
-                ("field_list", "id,name,issue_number,cover_date,image,description,deck".into()),
+                ("field_list", "id,name,issue_number,cover_date,store_date,image,description,deck".into()),
                 ("limit", "100".into()),
                 ("offset", offset.to_string()),
                 ("sort", "cover_date:asc".into()),
@@ -415,6 +506,7 @@ fn issues(client: &Client, volume_id: &str, ttl_days: u64) -> Result<Vec<Issue>>
                     number: s(v, "issue_number"),
                     name: s(v, "name"),
                     cover_date: s(v, "cover_date"),
+                    store_date: s(v, "store_date"),
                     image: image(v),
                     description: s(v, "description").or_else(|| s(v, "deck")),
                 })
@@ -434,6 +526,12 @@ fn issues(client: &Client, volume_id: &str, ttl_days: u64) -> Result<Vec<Issue>>
         key(a).partial_cmp(&key(b)).unwrap_or(std::cmp::Ordering::Equal)
     });
     Ok(out)
+}
+
+/// A Comic Vine series' issues, for showing it while you choose: from the listing matching uses
+/// too (kept a week), so looking first costs nothing later.
+pub fn volume_issues(client: &Client, volume_id: &str) -> Result<Vec<Issue>> {
+    issues(client, volume_id, 7)
 }
 
 /// A series' issues on Comic Vine, and a proposed issue for each book. `fresh` asks for the
@@ -1014,7 +1112,7 @@ mod tests {
         });
         let v = volume(&stub).unwrap();
         assert_eq!(v.image, None);
-        let local = Local { name: "Absolute Batman".into(), books: 17, year: Some(2024), publisher: Some("DC Comics".into()) };
+        let local = Local { name: "Absolute Batman".into(), books: 17, year: Some(2024), publisher: Some("DC Comics".into()), collected: None };
         // A missing count costs nothing; the full record's count and publisher then lift it.
         assert!((score(&v, &local, "Absolute Batman") - 1.3).abs() < 1e-9);
         let full = Volume { count: 20, publisher: Some("DC Comics".into()), ..v };
@@ -1051,7 +1149,7 @@ mod tests {
             "issues",
             &[
                 ("filter", "volume:777".into()),
-                ("field_list", "id,name,issue_number,cover_date,image,description,deck".into()),
+                ("field_list", "id,name,issue_number,cover_date,store_date,image,description,deck".into()),
                 ("limit", "100".into()),
                 ("offset", "0".into()),
                 ("sort", "cover_date:asc".into()),
@@ -1102,6 +1200,65 @@ mod tests {
         db::merge_cv(&conn, 2, &m, 0).unwrap();
         let label = |id: i64| conn.query_row("SELECT label FROM comics WHERE id=?1", [id], |r| r.get::<_, String>(0)).unwrap();
         assert_eq!((label(5).as_str(), label(2).as_str()), ("Vol. 1", "#1"));
+    }
+
+    /// How well searching finds the right Comic Vine series, on a copy of a real library
+    /// (`AION_TEST_DB`, with its key; answers kept in `AION_TEST_CACHE`). The right series is known
+    /// from an issue id a book already carries (YACReader's import, a ComicInfo.xml or a match).
+    /// `AION_EVAL_N` series are tried (default 60), from `AION_EVAL_OFFSET` on. Prints where the right
+    /// one ranked, then totals.
+    #[test]
+    #[ignore]
+    fn search_quality() {
+        let conn = db::open(std::path::Path::new(&std::env::var("AION_TEST_DB").unwrap())).unwrap();
+        let key: Option<String> = conn.query_row("SELECT value FROM settings WHERE key='cv_api_key'", [], |r| r.get(0)).optional().unwrap();
+        let client = Client::new(std::path::Path::new(&std::env::var("AION_TEST_CACHE").unwrap()), key);
+        let n: usize = std::env::var("AION_EVAL_N").ok().and_then(|v| v.parse().ok()).unwrap_or(60);
+        // One book with an issue id per series, spread across the library.
+        let picks: Vec<(i64, String, String)> = {
+            let mut st = conn
+                .prepare(
+                    "SELECT c.series_id, s.name, MIN(c.cv_id) FROM comics c JOIN series s ON s.id=c.series_id
+                     WHERE c.cv_id GLOB '[0-9]*' AND c.section='' GROUP BY c.series_id ORDER BY c.series_id",
+                )
+                .unwrap();
+            let all: Vec<(i64, String, String)> = st.query_map([], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?))).unwrap().collect::<rusqlite::Result<_>>().unwrap();
+            let step = (all.len() / n).max(1);
+            // AION_EVAL_OFFSET picks a different spread of series, to check on ones not tuned on.
+            let offset: usize = std::env::var("AION_EVAL_OFFSET").ok().and_then(|v| v.parse().ok()).unwrap_or(0);
+            all.into_iter().skip(offset).step_by(step).take(n).collect()
+        };
+        let (mut first, mut top3, mut top10, mut missed, mut tried) = (0, 0, 0, 0, 0);
+        for (sid, name, issue) in picks {
+            let truth = match client.get(&format!("issue/4000-{issue}"), &[("field_list", "volume".into())], 60, true) {
+                Ok(b) => b.get("results").and_then(|r| r.get("volume")).and_then(|v| s(v, "id")),
+                Err(e) => {
+                    println!("{name}: {e}");
+                    continue;
+                }
+            };
+            let Some(truth) = truth else { continue };
+            let query = default_query(&conn, sid).unwrap();
+            let found = match search(&client, &conn, sid, &query) {
+                Ok(f) => f,
+                Err(e) => {
+                    println!("{name}: {e}");
+                    continue;
+                }
+            };
+            tried += 1;
+            let at = found.iter().position(|v| v.id == truth);
+            match at {
+                Some(0) => first += 1,
+                Some(1..=2) => top3 += 1,
+                Some(3..=9) => top10 += 1,
+                _ => missed += 1,
+            }
+            let top = found.first().map(|v| format!("{} ({}, {}, {})", v.name, v.start_year.as_deref().unwrap_or("?"), v.publisher.as_deref().unwrap_or("?"), v.count)).unwrap_or_default();
+            let right = found.iter().find(|v| v.id == truth).map(|v| format!("{} ({}, {})", v.name, v.start_year.as_deref().unwrap_or("?"), v.count)).unwrap_or_else(|| format!("volume {truth}"));
+            println!("{:>4} | {name} | searched {query:?} | top: {top} | right: {right}", at.map_or("-".into(), |a| (a + 1).to_string()));
+        }
+        println!("{tried} series: first {first}, in top 3 {}, in top 10 {}, not found {missed}", first + top3, first + top3 + top10);
     }
 
     /// What the matcher would now offer for each matched series in a copy of a real library,
@@ -1164,7 +1321,7 @@ mod tests {
             cv_volume_id: None,
             settled: false,
         };
-        let issue = |name: Option<&str>| Issue { id: "1".into(), number: Some("1".into()), name: name.map(Into::into), cover_date: None, image: None, description: None };
+        let issue = |name: Option<&str>| Issue { id: "1".into(), number: Some("1".into()), name: name.map(Into::into), cover_date: None, store_date: None, image: None, description: None };
         let singles = [issue(None), issue(Some("The Paper"))];
         let trades = [issue(Some("Volume 1: The Trench")), issue(Some("Vol. 2")), issue(Some("Book Three"))];
         // Issues and a trade side by side, matched to a series of single issues.
@@ -1243,6 +1400,7 @@ mod tests {
             number: Some(n.into()),
             name: None,
             cover_date: Some(date.into()),
+            store_date: None,
             image: None,
             description: None,
         };
@@ -1261,6 +1419,18 @@ mod tests {
         // Nothing here of the kind it holds: nothing to compare with.
         let trades = [Book { kind: "volume", ..book(9, "1", None) }];
         assert!(new_numbers(&trades, &issues, "2027-01-10").is_empty());
+    }
+
+    #[test]
+    fn names_that_cover_yours() {
+        // The whole name beats a shorter one inside it.
+        assert!(name_score("X-Men: Dark Phoenix Saga Complete Collection", "X-Men The Dark Phoenix Saga") > name_score("X-Men", "X-Men The Dark Phoenix Saga"));
+        // A one-letter slip still matches.
+        assert!(name_score("Fantastic Four By Jonathan Hickman", "Fantastic Four By Johnathan Hickman") > name_score("Fantastic Four", "Fantastic Four By Johnathan Hickman"));
+        // A subtitle on its own.
+        assert!(name_score("The Sworn Sword: The Graphic Novel", "The Hedge Knight II - The Sworn Sword") > name_score("Knight", "The Hedge Knight II - The Sworn Sword"));
+        assert_eq!(name_score("Saga", "Saga"), 1.0);
+        assert!(one_off("johnathan", "jonathan") && one_off("colour", "color") && !one_off("batman", "superman"));
     }
 
     #[test]

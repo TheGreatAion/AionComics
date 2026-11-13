@@ -329,6 +329,13 @@ export interface CvVolume {
   count: number;
   image: string | null;
   deck: string | null;
+  /** The full description (HTML). */
+  description: string | null;
+  /** An edition in another language than English ("Spanish"), or "UK edition", when that can be told. */
+  language: string | null;
+  /** "1 · Episode One: The Black Hand". */
+  firstIssue: string | null;
+  lastIssue: string | null;
   score: number;
 }
 
@@ -337,7 +344,38 @@ export interface CvIssue {
   number: string | null;
   name: string | null;
   coverDate: string | null;
+  /** The day it went on sale. */
+  storeDate: string | null;
   image: string | null;
+  /** Its story (HTML). */
+  description: string | null;
+}
+
+/** What Comic Vine has on a character or creator. */
+export interface CvAbout {
+  name: string;
+  image: string | null;
+  deck: string | null;
+  description: string | null;
+  realName: string | null;
+  aliases: string[];
+  origin: string | null;
+  publisher: string | null;
+  issues: number | null;
+  /** The issue they first appeared in, and your copy of it, if you have it. */
+  first: { label: string; date: string | null; comicId: number | null; seriesId: number | null } | null;
+  creators: string[];
+  country: string | null;
+  hometown: string | null;
+  born: string | null;
+  died: string | null;
+  site: string | null;
+}
+
+/** A book's other covers, and the characters who first appear in it. */
+export interface CvBookExtras {
+  covers: { small: string; large: string }[];
+  firsts: { name: string; image: string | null }[];
 }
 
 export interface CvProposal {
@@ -545,6 +583,9 @@ export const api = {
   cvSetKey: (key: string) => call<void>("cv_set_key", { key }),
   cvSearch: (seriesId: number, query?: string) =>
     call<{ query: string; volumes: CvVolume[] }>("cv_search", { seriesId, query: query ?? null }),
+  cvVolumeIssues: (volumeId: string) => call<CvIssue[]>("cv_volume_issues", { volumeId }),
+  cvAbout: (kind: "character" | "creator", name: string) => call<CvAbout | null>("cv_about", { kind, name }),
+  cvBookExtras: (id: number) => call<CvBookExtras>("cv_book_extras", { id }),
   cvPlan: (seriesId: number, volumeId: string) =>
     call<{ issues: CvIssue[]; proposals: CvProposal[] }>("cv_plan", { seriesId, volumeId }),
   cvApply: (seriesId: number, volumeId: string, pairs: { comicId: number; issueId: string | null }[]) =>
@@ -659,6 +700,21 @@ export function plainText(html: string | null): string {
   const doc = new DOMParser().parseFromString(spaced, "text/html");
   return (doc.body.textContent ?? "").replace(/\s+/g, " ").trim();
 }
+
+/** A Comic Vine story or biography as paragraphs of plain text: headings, pictures, tables and
+ *  lists left out, at most `most` paragraphs. */
+export function paragraphs(html: string | null, most = 6): string[] {
+  if (!html) return [];
+  const doc = new DOMParser().parseFromString(html, "text/html");
+  doc.querySelectorAll("figure, table, img, script, style, h1, h2, h3, h4, h5, h6, ul, ol").forEach((e) => e.remove());
+  const blocks = doc.body.querySelectorAll("p");
+  const texts = (blocks.length ? [...blocks] : [doc.body]).map((p) => (p.textContent ?? "").replace(/\s+/g, " ").replace(/\s+([.,;:!?])/g, "$1").trim());
+  return texts.filter((t) => t.length > 1).slice(0, most);
+}
+
+/** "Mar 14, 2012" from "2012-03-14". */
+export const shortDate = (d: string | null | undefined) =>
+  d ? new Date(d.slice(0, 10) + "T12:00").toLocaleDateString([], { month: "short", day: "numeric", year: "numeric" }) : "";
 
 /** One chapter in a volume's list: "Chapter 301: Memory" is 301 and "Memory". */
 export interface Chapter {
