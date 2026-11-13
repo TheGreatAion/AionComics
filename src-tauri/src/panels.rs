@@ -56,6 +56,13 @@ impl Panel {
 const WORK_SIZE: u32 = 900; // long side of the analysis image
 const GUTTER_DELTA: i16 = 40; // how far from the gutter color still counts as gutter
 const MIN_PANEL_AREA: f32 = 0.012; // drop specks: page numbers, stray captions
+const CLASH: f32 = 0.1; // two panels sharing more of the smaller one than this lie across each other
+const INSET: f32 = 0.9; // ...unless one sits inside the other
+// A page is a jumble, and shown whole, with this many pairs of panels lying across each other, or
+// two pairs doing so this deeply. (One such pair is a slip the page still reads through: an inset
+// found twice, a stray box.)
+const JUMBLE_PAIRS: usize = 3;
+const JUMBLE_DEEP: f32 = 0.3;
 
 // Splitting blobs that are really several panels.
 const SPLIT_DEPTH: u32 = 4; // at most 2^4 panels out of one blob
@@ -1093,11 +1100,76 @@ fn judge(mut pieces: Vec<Piece>, bleed: bool, log: &mut dyn FnMut(String)) -> Re
     Ok((kept, ruled))
 }
 
-/// The panels in reading order, slivers folded into their neighbors (see `fold_slivers`).
-fn ordered(panels: Vec<Panel>, rtl: bool, log: &mut dyn FnMut(String)) -> Vec<Panel> {
+/// Panels found for one reading direction, put in the order of the other. (The direction only
+/// decides the order, never which panels there are.)
+pub fn reorder(panels: Vec<Panel>, rtl: bool) -> Vec<Panel> {
     let mut out = Vec::new();
-    order(fold_slivers(panels, log), rtl, true, 0, &mut out);
+    order(panels, rtl, true, 0, &mut out);
     out
+}
+
+/// The panels in reading order, slivers folded into their neighbors (see `fold_slivers`). None
+/// when they are a jumble (see `JUMBLE_PAIRS`).
+fn ordered(panels: Vec<Panel>, rtl: bool, log: &mut dyn FnMut(String)) -> Vec<Panel> {
+    let panels = fold_slivers(panels, log);
+    let clashes = clashes(&panels);
+    if !clashes.is_empty() {
+        log(format!("overlaps {clashes:.2?}"));
+    }
+    // Stops piled on each other (borderless action pages, mostly) would send the view back and
+    // forth over the same art: such a page reads better whole.
+    if clashes.len() >= JUMBLE_PAIRS || clashes.iter().filter(|&&c| c >= JUMBLE_DEEP).count() >= 2 {
+        log("jumbled: the stops lie across each other, so the page is shown whole".into());
+        return Vec::new();
+    }
+    let mut out = Vec::new();
+    order(panels, rtl, true, 0, &mut out);
+    out
+}
+
+/// How much of the smaller of two panels the other one covers (0 to 1), going by their real
+/// outlines, so slanted neighbors whose boxes overlap count as apart.
+fn shared(a: &Panel, b: &Panel) -> f32 {
+    let (x0, y0) = (a.x.max(b.x), a.y.max(b.y));
+    let (x1, y1) = ((a.x + a.w).min(b.x + b.w), (a.y + a.h).min(b.y + b.h));
+    if x1 <= x0 || y1 <= y0 {
+        return 0.0;
+    }
+    let inside = |p: &Panel, x: f32, y: f32| {
+        let Some(poly) = &p.poly else { return true };
+        let mut hit = false;
+        for k in 0..poly.len() {
+            let (u, v) = (poly[k], poly[(k + 1) % poly.len()]);
+            if (u[1] > y) != (v[1] > y) && x < u[0] + (y - u[1]) / (v[1] - u[1]) * (v[0] - u[0]) {
+                hit = !hit;
+            }
+        }
+        hit
+    };
+    let real = |p: &Panel| match &p.poly {
+        None => p.area(),
+        Some(poly) => (0..poly.len()).map(|k| (poly[k], poly[(k + 1) % poly.len()])).map(|(u, v)| u[0] * v[1] - v[0] * u[1]).sum::<f32>().abs() / 2.0,
+    };
+    const N: usize = 24;
+    let at = |lo: f32, hi: f32, k: usize| lo + (hi - lo) * (k as f32 + 0.5) / N as f32;
+    let both = (0..N * N).map(|k| (at(x0, x1, k % N), at(y0, y1, k / N))).filter(|&(x, y)| inside(a, x, y) && inside(b, x, y)).count();
+    (x1 - x0) * (y1 - y0) * both as f32 / (N * N) as f32 / real(a).min(real(b)).max(1e-6)
+}
+
+/// The pairs of panels lying across each other, as the share of the smaller one that is covered,
+/// biggest first. A panel sitting inside another (an inset) isn't one: that is a layout.
+fn clashes(panels: &[Panel]) -> Vec<f32> {
+    let mut found = Vec::new();
+    for i in 0..panels.len() {
+        for j in i + 1..panels.len() {
+            let part = shared(&panels[i], &panels[j]);
+            if part > CLASH && part < INSET {
+                found.push(part);
+            }
+        }
+    }
+    found.sort_by(|a, b| b.total_cmp(a));
+    found
 }
 
 /// A strip too thin to read as a step of its own, lying against a panel it lines up with end to
@@ -1172,6 +1244,27 @@ mod tests {
                 Luma([20])
             }
         })
+    }
+
+    #[test]
+    fn jumbled_pages_are_shown_whole() {
+        let p = |x: f32, y: f32, w: f32, h: f32| Panel { x, y, w, h, poly: None };
+        let mut quiet = |_: String| {};
+        // One panel over its neighbor's edge: a slip the page still reads through.
+        let fine = vec![p(0.0, 0.0, 0.58, 0.5), p(0.5, 0.05, 0.5, 0.45), p(0.0, 0.5, 0.5, 0.5), p(0.5, 0.5, 0.5, 0.5)];
+        assert_eq!(clashes(&fine).len(), 1);
+        assert_eq!(ordered(fine, false, &mut quiet).len(), 4);
+        // A panel inside another is a layout, not a clash.
+        let inset = vec![p(0.0, 0.0, 1.0, 0.6), p(0.6, 0.1, 0.3, 0.2), p(0.0, 0.6, 1.0, 0.4)];
+        assert!(clashes(&inset).is_empty());
+        assert_eq!(ordered(inset, false, &mut quiet).len(), 3);
+        // Slanted neighbors: their boxes overlap, their real outlines don't.
+        let left = Panel { x: 0.0, y: 0.0, w: 0.6, h: 1.0, poly: Some(vec![[0.0, 0.0], [0.6, 0.0], [0.4, 1.0], [0.0, 1.0]]) };
+        let right = Panel { x: 0.4, y: 0.0, w: 0.6, h: 1.0, poly: Some(vec![[0.6, 0.0], [1.0, 0.0], [1.0, 1.0], [0.4, 1.0]]) };
+        assert!(clashes(&[left, right]).is_empty());
+        // Boxes piled on each other: the page is shown whole.
+        let pile = vec![p(0.0, 0.0, 0.6, 0.6), p(0.3, 0.2, 0.6, 0.6), p(0.1, 0.4, 0.7, 0.5), p(0.0, 0.9, 1.0, 0.1)];
+        assert!(ordered(pile, false, &mut quiet).is_empty());
     }
 
     #[test]
@@ -1497,6 +1590,7 @@ mod real_pages {
             let panels = detect_with(&bytes, rtl, &mut |s| notes.push(s)).unwrap();
             println!("{k:02}: {} p{page}: {} panels in {:?}", path.rsplit('/').next().unwrap(), panels.len(), t.elapsed());
             println!("     = {:?}", panels.iter().map(|p| format!("{:.2},{:.2} {:.2}x{:.2}", p.x, p.y, p.w, p.h)).collect::<Vec<_>>());
+            println!("     key {}", key_line(path, page, rtl, &panels));
             for note in notes {
                 println!("     {note}");
             }
@@ -1531,6 +1625,103 @@ mod real_pages {
         }
         if n % 8 != 0 {
             sheet.save(out.join(format!("sheet-{:02}.png", n / 8 + 1))).unwrap();
+        }
+    }
+
+    /// One page of the answer key (panel-tests/key.jsonl): its panels as found, in reading order.
+    fn key_line(file: &str, page: usize, rtl: bool, panels: &[Panel]) -> String {
+        let r = |v: f32| (v as f64 * 1000.0).round() / 1000.0;
+        let boxes: Vec<_> = panels.iter().map(|p| [r(p.x), r(p.y), r(p.w), r(p.h)]).collect();
+        serde_json::json!({"file": file, "page": page, "rtl": rtl, "panels": boxes}).to_string()
+    }
+
+    /// The finder against the answer key: `cargo test --release --lib score_panels -- --ignored
+    /// --nocapture` (panel-tests/score.sh). A page is right when it has the key's panels in the
+    /// key's order, each box covering its answer closely; where the key only knows how many
+    /// stops a page should have, when it has that many.
+    #[test]
+    #[ignore]
+    fn score_panels() {
+        let file = std::env::var("AION_PANELS_KEY").unwrap_or(concat!(env!("CARGO_MANIFEST_DIR"), "/panel-tests/key.jsonl").into());
+        let key = std::fs::read_to_string(file).unwrap();
+        let out = std::env::temp_dir().join("aion-panels-score");
+        let _ = std::fs::remove_dir_all(&out);
+        std::fs::create_dir_all(&out).unwrap();
+        let archives = Archives::new(&out);
+        let rows: Vec<serde_json::Value> = key.lines().filter(|l| !l.trim().is_empty()).map(|l| serde_json::from_str(l).unwrap()).collect();
+        let (mut right, mut seen, mut by_count) = (0, 0, 0);
+        // AION_CHECK_FLIP=1: also check that panels found for one reading direction and reordered
+        // for the other are the same as panels found for the other (the app keeps them only once).
+        let (flip, mut flipped_wrong) = (std::env::var("AION_CHECK_FLIP").is_ok(), 0);
+        for row in &rows {
+            let (path, page, rtl) = (row["file"].as_str().unwrap(), row["page"].as_u64().unwrap() as usize, row["rtl"].as_bool().unwrap());
+            let id = rows.iter().position(|r| r["file"] == row["file"]).unwrap() as i64;
+            let name = format!("{} p{page}", path.rsplit('/').next().unwrap());
+            let Ok((bytes, _)) = archives.page(id, std::path::Path::new(path), page) else {
+                println!("can't read {name}");
+                continue;
+            };
+            seen += 1;
+            let found = detect(&bytes, rtl).unwrap();
+            if flip {
+                let other = detect(&bytes, !rtl).unwrap();
+                if reorder(other.clone(), rtl) != found || reorder(found.clone(), !rtl) != other {
+                    flipped_wrong += 1;
+                    println!("flip: {name}: reordering gives another order than finding");
+                }
+            }
+            let wrong = match row.get("panels") {
+                Some(answer) => {
+                    let answer: Vec<Panel> = answer.as_array().unwrap().iter().map(|b| {
+                        let v = |i: usize| b[i].as_f64().unwrap() as f32;
+                        Panel { x: v(0), y: v(1), w: v(2), h: v(3), poly: None }
+                    }).collect();
+                    if answer.len() != found.len() {
+                        Some(format!("{} stops, should be {}", found.len(), answer.len()))
+                    } else {
+                        // How much of the two boxes together is shared by both: 1 is the same box.
+                        let alike = |a: &Panel, b: &Panel| a.overlap(b) / (a.area() + b.area() - a.overlap(b));
+                        let off = found.iter().zip(&answer).position(|(a, b)| alike(a, b) < 0.6);
+                        // The right boxes in another order, or a box in the wrong place?
+                        off.map(|i| match answer.iter().any(|b| alike(&found[i], b) >= 0.6) {
+                            true => format!("stop {} is out of order", i + 1),
+                            false => format!("stop {} is off its panel", i + 1),
+                        })
+                    }
+                }
+                None => {
+                    by_count += 1;
+                    let count = row["count"].as_u64().unwrap() as usize;
+                    (found.len() != count).then(|| format!("{} stops, should be {count}", found.len()))
+                }
+            };
+            match wrong {
+                Some(why) => println!("wrong: {name}: {why}{}", row["note"].as_str().map(|n| format!(" ({n})")).unwrap_or_default()),
+                None => right += 1,
+            }
+        }
+        println!("{right} of {seen} pages right ({by_count} of them checked by number of stops only)");
+        if flip {
+            println!("{flipped_wrong} of {seen} pages come out differently when reordered for the other reading direction");
+        }
+    }
+
+    /// The panels you fixed by hand in the app, as answer key lines to add to
+    /// panel-tests/key.jsonl: `cargo test --lib hand_fixes -- --ignored --nocapture`
+    /// (panel-tests/fixes.sh). Reads a copy of the app's database; nothing real is written.
+    #[test]
+    #[ignore]
+    fn hand_fixes() {
+        let real = std::path::Path::new(&std::env::var("APPDATA").unwrap()).join("com.aion.comics").join("library.db");
+        let root = std::env::var("AION_TEST_ROOT").unwrap_or("H:/Comics".into()).replace('\\', "/");
+        let conn = rusqlite::Connection::open_with_flags(&real, rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY).unwrap();
+        let mut st = conn
+            .prepare("SELECT c.rel_path, u.page, s.is_manga, u.data FROM user_panels u JOIN comics c ON c.id = u.comic_id JOIN series s ON s.id = c.series_id ORDER BY c.rel_path, u.page")
+            .unwrap();
+        let rows = st.query_map([], |r| Ok((r.get::<_, String>(0)?, r.get::<_, i64>(1)? as usize, r.get::<_, bool>(2)?, r.get::<_, String>(3)?))).unwrap();
+        for (path, page, manga, data) in rows.map(Result::unwrap) {
+            let panels: Vec<Panel> = serde_json::from_str(&data).unwrap();
+            println!("{}", key_line(&format!("{}/{}", root.trim_end_matches('/'), path.replace('\\', "/")), page, manga, &panels));
         }
     }
 

@@ -21,7 +21,7 @@ mod removal;
 mod yacsync;
 
 /// Bump when panel detection changes so cached results are recomputed.
-const PANELS_VERSION: i64 = 13;
+const PANELS_VERSION: i64 = 14;
 
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -58,6 +58,9 @@ pub struct AppState {
     warming: Mutex<Option<(i64, Arc<AtomicBool>)>>,
     /// The library check (see health.rs).
     health: health::Check,
+    /// Panels found in books opened from outside the library, by book and page, for this session
+    /// (nothing of such a book is kept longer), so going back to a page doesn't find them again.
+    outside_panels: Mutex<std::collections::HashMap<(i64, i64), Vec<panels::Panel>>>,
 }
 
 type Shared = Arc<AppState>;
@@ -1283,21 +1286,37 @@ async fn page_panels(state: State<'_, Shared>, id: i64, page: i64, rtl: bool) ->
         if page == 0 {
             return Ok(vec![]);
         }
+        // The panels of a page are the same whichever way it is read; only their order differs.
+        // So they are found and kept once, as read left to right, and put in order for the other.
+        let turned = |found: Vec<panels::Panel>| if rtl { panels::reorder(found, true) } else { found };
         if id < 0 {
+            if let Some(found) = state.outside_panels.lock().unwrap().get(&(id, page)) {
+                return Ok(turned(found.clone()));
+            }
             let (path, _) = state.comic_path(id)?;
             let (bytes, _) = state.archives.page(id, &path, page as usize)?;
-            return panels::detect(&bytes, rtl);
+            let found = panels::detect(&bytes, false)?;
+            let mut kept = state.outside_panels.lock().unwrap();
+            if kept.len() >= 4000 {
+                kept.clear();
+            }
+            kept.insert((id, page), found.clone());
+            return Ok(turned(found));
         }
-        let cached = db::cached_panels(&state.conn.lock().unwrap(), id, page, rtl, PANELS_VERSION)?;
+        let cached = db::cached_panels(&state.conn.lock().unwrap(), id, page, false, PANELS_VERSION)?;
         if let Some(json) = cached {
-            return Ok(serde_json::from_str(&json)?);
+            return Ok(turned(serde_json::from_str(&json)?));
         }
         let (path, _) = state.comic_path(id)?;
         let (bytes, _) = state.archives.page(id, &path, page as usize)?;
-        let found = panels::detect(&bytes, rtl)?;
+        let found = panels::detect(&bytes, false)?;
         let json = serde_json::to_string(&found)?;
-        db::store_panels(&state.conn.lock().unwrap(), id, page, rtl, PANELS_VERSION, &json)?;
-        Ok(found)
+        // Not kept (the database busy with a long scan, say) only means they are found again next
+        // time: no reason to show the page without its panels now.
+        if let Err(e) = db::store_panels(&state.conn.lock().unwrap(), id, page, false, PANELS_VERSION, &json) {
+            eprintln!("panels of book {id} page {page} not kept: {e}");
+        }
+        Ok(turned(found))
     })
     .await
     .map_err(err)?
@@ -1654,8 +1673,13 @@ pub fn run() {
                 warming: Mutex::new(None),
                 reading: Mutex::new(None),
                 health: Default::default(),
+                outside_panels: Mutex::new(std::collections::HashMap::new()),
             });
             app.manage(state.clone());
+            if let Err(e) = db::drop_unused_panels(&state.conn.lock().unwrap()) {
+                eprintln!("couldn't drop unused panels: {e}");
+            }
+            warm::panels_when_idle(&state);
             if let Some(w) = app.get_webview_window("main") {
                 window::restore(&w, &data_dir);
             }

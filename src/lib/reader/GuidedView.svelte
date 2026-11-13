@@ -18,6 +18,8 @@
   // A new page slides this far in from the way you're reading, fading in, as the last one goes.
   const TURN_MS = 300;
   const TURN_PX = 56;
+  // Nothing lit: an outline closed down to a point.
+  const HELD = outline({ x: 0.5, y: 0.5, w: 0, h: 0 }, 0, 0);
   // A phone or tablet: the page stays one picture the camera only moves and scales, which a phone
   // does smoothly on its graphics chip. Laying the page out again at each stop (sharper on the PC)
   // makes a phone redraw the whole page as each glide starts and ends, and it stutters.
@@ -111,7 +113,9 @@
     const fitScale = Math.min(vw / nw, vh / nh) * 0.98;
     const s0 = c.steps && c.step >= 0 ? c.steps[c.step] : null;
     if (!s0 || !L.pages[s0.page]) {
-      return { s: fitScale, tx: (vw - nw * fitScale) / 2, ty: (vh - nh * fitScale) / 2, clip: dimClip(outline(null, 0, 0)), parts: 1 };
+      // Whole, and lit; or dimmed all over for the moment a page waits for its panels (see `Ctl.holding`).
+      const clip = dimClip(c.holding ? HELD : outline(null, 0, 0));
+      return { s: fitScale, tx: (vw - nw * fitScale) / 2, ty: (vh - nh * fitScale) / 2, clip, parts: 1 };
     }
     const p = inSpread(s0.page, s0.panel, L);
     const pad = 0.008 * Math.max(nw, nh);
@@ -220,7 +224,8 @@
     img = first;
     const f = requestAnimationFrame(() =>
       requestAnimationFrame(() => {
-        settledKey = k;
+        // Not while a page waits dimmed for its panels: they then come in placed, not glided to.
+        if (!c.holding) settledKey = k;
         if (!announced && first) {
           announced = true;
           onready(first);

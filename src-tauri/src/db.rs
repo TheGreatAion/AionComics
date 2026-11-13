@@ -60,10 +60,11 @@ pub const RECENT_SECS: i64 = 30 * 86_400;
 
 pub fn open(path: &Path) -> Result<Connection> {
     let conn = Connection::open(path)?;
+    // First of all: everything after this waits for a busy database instead of failing at once.
+    conn.busy_timeout(std::time::Duration::from_secs(10))?;
     conn.pragma_update(None, "journal_mode", "WAL")?;
     conn.pragma_update(None, "synchronous", "NORMAL")?;
     conn.pragma_update(None, "foreign_keys", "ON")?;
-    conn.busy_timeout(std::time::Duration::from_secs(10))?;
     conn.execute_batch(SCHEMA)?;
     migrate(&conn)?;
     Ok(conn)
@@ -1578,6 +1579,26 @@ pub fn store_panels(conn: &Connection, id: i64, page: i64, rtl: bool, version: i
         params![id, page, rtl, version, data],
     )?;
     Ok(())
+}
+
+/// Panels used to be kept once for each reading direction. Now they are kept once (as read left
+/// to right) and only put in order for the other, so the second copies are dropped.
+pub fn drop_unused_panels(conn: &Connection) -> Result<()> {
+    conn.execute("DELETE FROM panels WHERE rtl=1", [])?;
+    Ok(())
+}
+
+/// Unfinished books being read in Guided View (a spot is kept in them, or panels were worked out
+/// for them before), the latest read first: each book and the page it was left on.
+pub fn guided_unfinished(conn: &Connection, limit: i64) -> Result<Vec<(i64, i64)>> {
+    let mut st = conn.prepare(
+        "SELECT c.id, c.current_page FROM comics c
+         WHERE c.read=0 AND c.current_page>0 AND c.last_read_at IS NOT NULL
+           AND (EXISTS(SELECT 1 FROM guided_spots g WHERE g.comic_id=c.id) OR EXISTS(SELECT 1 FROM panels p WHERE p.comic_id=c.id))
+         ORDER BY c.last_read_at DESC LIMIT ?1",
+    )?;
+    let v = st.query_map([limit], |r| Ok((r.get(0)?, r.get(1)?)))?.collect::<rusqlite::Result<Vec<_>>>()?;
+    Ok(v)
 }
 
 // ---------- bookmarks ----------
