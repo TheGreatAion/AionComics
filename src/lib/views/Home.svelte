@@ -265,7 +265,7 @@
     try {
       seen = localStorage.getItem("aion.pileHint") === "1";
     } catch {}
-    if (seen) return;
+    if (seen || !motionMs(1, 1)) return;
     const id = untrack(() => hero.id);
     const h = untrack(() => fit.h);
     const t = setTimeout(() => {
@@ -278,7 +278,7 @@
           { transform: `translate(${-h * 0.12}px, ${h * 0.03}px)`, offset: 0.4 },
           { transform: "none" },
         ],
-        { duration: 1300, easing: "cubic-bezier(0.4, 0, 0.2, 1)", composite: "add" },
+        { duration: motionMs(1300, 1600), easing: "cubic-bezier(0.4, 0, 0.2, 1)", composite: "add" },
       );
     }, 1000);
     return () => clearTimeout(t);

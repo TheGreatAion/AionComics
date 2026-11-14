@@ -27,6 +27,7 @@
   import WantToRead from "$lib/views/WantToRead.svelte";
   import Welcome from "$lib/views/Welcome.svelte";
   import UpdateSheet from "$lib/components/UpdateSheet.svelte";
+  import { motionMs } from "$lib/look.svelte";
   import { startUpdates, updates } from "$lib/updates.svelte";
 
   const route = $derived(nav.current);
@@ -134,10 +135,11 @@
     const open = side.open && !!lib.hasRoot && !lib.welcoming && !viewport.narrow;
     document.documentElement.style.setProperty("--side-now", open ? "var(--side)" : "0px");
     const main = document.querySelector("main");
-    if (shown !== null && shown !== open && main) {
+    // As long as the panel's own slide (--slow), so the two arrive together; not at all with animations off.
+    if (shown !== null && shown !== open && main && motionMs(1, 1)) {
       const width = parseFloat(getComputedStyle(document.documentElement).getPropertyValue("--side")) || 0;
       main.animate([{ transform: `translateX(${open ? -width : width}px)` }, { transform: "none" }], {
-        duration: 450,
+        duration: motionMs(450, 650),
         easing: "cubic-bezier(0.2, 0.7, 0, 1)",
       });
     }

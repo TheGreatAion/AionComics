@@ -79,6 +79,9 @@
     position: relative;
     display: block;
     transition: transform var(--slow) var(--ease);
+    /* Each cover kept as its own picture on the graphics card: scrolling a page of them then only
+       moves pictures already drawn, instead of drawing the covers again as they come into view. */
+    will-change: transform;
   }
   /* The books behind the first: plain paper backs, stepping up and to the right. */
   .sheet {

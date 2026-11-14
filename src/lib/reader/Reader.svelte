@@ -6,6 +6,7 @@
   import { viewport } from "$lib/components/SidePanel.svelte";
   import Wash from "$lib/components/Wash.svelte";
   import Stars from "$lib/components/Stars.svelte";
+  import { motionMs } from "$lib/look.svelte";
   import { CLOSE_EASE, closeMs, fadeMs, fly, flightMs, visible } from "$lib/flight";
   import { lib, menu, reader, showMenu } from "$lib/state.svelte";
   import { ACTIONS, chapterName, keysFor, menuItems } from "./actions";
@@ -206,6 +207,26 @@
 
   // The stars a click on the end card would give, while the pointer's on them.
   let starPreview = $state<number | null>(null);
+  // Each new rating thumps the stamp down again, in place, its filled stars popping with it.
+  let stampEl = $state<HTMLDivElement>();
+  let stamped: number | null | undefined;
+  $effect(() => {
+    const r = c.rating;
+    const el = stampEl;
+    if (!el) return void (stamped = undefined);
+    if (stamped === undefined || stamped === r || !motionMs(1, 1)) return void (stamped = r);
+    stamped = r;
+    const ms = motionMs(260, 380);
+    el.animate(
+      [
+        { transform: "scale(1.16) rotate(-2deg)" },
+        { transform: "scale(0.97) rotate(0.4deg)", offset: 0.55 },
+        { transform: "none" },
+      ],
+      { duration: ms, easing: "cubic-bezier(0.2, 0.7, 0, 1)" },
+    );
+    el.querySelectorAll(".star.on svg").forEach((s) => s.animate([{ transform: "scale(1.35)" }, { transform: "none" }], { duration: ms, easing: "cubic-bezier(0.2, 0.7, 0, 1)" }));
+  });
   // The end card says how the read went, once the last page's save is in.
   let read = $state<BookStats | null>(null);
   $effect(() => {
@@ -513,13 +534,11 @@
               <div class="caption">The end</div>
               <img class="framed" src={coverUrl(c.info.comic.id)} alt="" />
               {#if !c.info.external}
-                <!-- Stamped down again with each rating. -->
-                {#key c.rating}
-                  <div class="stamp">
-                    <Stars value={c.rating} size={26} gap={6} onrate={(n) => c.rate(n)} bind:preview={starPreview} label="Rate {c.info.comic.label || 'this book'}" />
-                    <span class="word">{shown ? STAR_WORDS[shown - 1] : "Rate it"}</span>
-                  </div>
-                {/key}
+                <!-- Stamped down again with each rating (see stampEl). -->
+                <div class="stamp" bind:this={stampEl}>
+                  <Stars value={c.rating} size={26} gap={6} onrate={(n) => c.rate(n)} bind:preview={starPreview} label="Rate {c.info.comic.label || 'this book'}" />
+                  <span class="word">{shown ? STAR_WORDS[shown - 1] : "Rate it"}</span>
+                </div>
                 <p class="rate-hint fine">Rate with the stars or <kbd>1</kbd>–<kbd>5</kbd></p>
               {/if}
             </div>
@@ -1056,11 +1075,9 @@
     box-shadow: 0 18px 40px rgba(0, 0, 0, 0.45);
   }
   /* A caption box stamped across the cover's foot. */
-  .stamp :global(.star.on svg) {
-    animation: star-pop var(--normal) var(--ease);
-  }
   .stamp {
-    animation: thump var(--normal) var(--ease);
+    /* Lands with the end card. */
+    animation: thump var(--slow) var(--ease);
     position: relative;
     z-index: 1;
     margin-top: -34px;

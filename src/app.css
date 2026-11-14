@@ -352,11 +352,6 @@ li {
     transform: scale(0.97) rotate(0.4deg);
   }
 }
-@keyframes star-pop {
-  from {
-    transform: scale(1.35);
-  }
-}
 /* A caption box landing on its panel a beat after it. */
 @keyframes caption-in {
   from {

@@ -42,13 +42,19 @@
   let sort = $state<Sort>((localStorage.getItem("aion.collectionSort") as Sort | null) ?? "name");
   let showing = $state<Show | null>(stored === "unread" || stored === "reading" || stored === "liked" ? stored : null);
 
+  // A big library is put on screen a screenful first, the rest a moment later: laying out every
+  // cover at once held the page still as it opened. Coming back to a spot further down, all at once.
+  const FIRST = 40;
+  let whole = $state(false);
   $effect(() => {
     void lib.version;
     const cid = id;
     api.collection(cid).then((d) => {
       if (cid !== id) return;
+      if (nav.stack[nav.stack.length - 1].scroll) whole = true;
       data = d;
       nav.restore();
+      if (!whole) requestAnimationFrame(() => requestAnimationFrame(() => (whole = true)));
     });
   });
   $effect(() => {
@@ -72,6 +78,7 @@
     if (sort === "rating") return [...list].sort((a, b) => (b.stars ?? 0) - (a.stars ?? 0));
     return list;
   });
+  const drawn = $derived(whole ? shown : shown.slice(0, FIRST));
   const total = $derived(data?.series.reduce((n, s) => n + s.count, 0) ?? 0);
 
   function status(s: SeriesSummary) {
@@ -248,7 +255,7 @@
   {:else if shown.length}
     <div class="caption section">{section}</div>
     <div class="grid">
-      {#each shown as s (s.id)}
+      {#each drawn as s (s.id)}
         <SeriesTile
           coverId={s.coverId}
           ratio={s.coverRatio}
@@ -404,9 +411,10 @@
   .grid {
     padding: 36px var(--pad) 0;
   }
-  /* Covers arrive in reading order when the page opens, the first dozen a little apart. */
-  .grid > :global(*) {
-    animation: cover-in var(--slow) var(--ease) 0.3s both;
+  /* Covers arrive in reading order when the page opens, the first dozen a little apart. Only the
+     first screenful moves: animating every cover of a big library at once made opening it stutter. */
+  .grid > :global(:nth-child(-n + 16)) {
+    animation: cover-in var(--slow) var(--ease) 0.06s both;
   }
   .grid > :global(:nth-child(1)) {
     animation-delay: 0ms;

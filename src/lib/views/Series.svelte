@@ -885,7 +885,7 @@
               {#if titled}<span class="name">{storyTitle(c) ?? ""}</span>{/if}
             </button>
             {#if j === end && book}
-              <section class="drawer" style:--notch="{notch(s.comics)}px" in:slide={{ duration: motionMs(160, 260) }}>
+              <section class="drawer" style:--notch="{notch(s.comics)}px" in:slide={{ duration: motionMs(200, 320) }} out:slide={{ duration: motionMs(160, 260) }}>
                 <button class="ico close" title="Close (Esc)" aria-label="Close the details" onclick={() => (shut = true)}><Icon name="close" size={16} /></button>
                 <div class="about" class:dim={!f}>
                   <!-- A book with its own title (from Comic Vine or its ComicInfo.xml) is headed by it, its number above. -->
