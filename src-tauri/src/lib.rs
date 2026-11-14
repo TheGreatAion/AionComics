@@ -1030,6 +1030,22 @@ fn cv_open_site() -> CmdResult<()> {
     Ok(())
 }
 
+/// Whether this copy was put in by the installer (it can update itself) or is the portable exe
+/// run from wherever it was saved (it can only point you to the download).
+#[tauri::command]
+fn installed() -> bool {
+    std::env::current_exe().ok().and_then(|p| p.parent().map(|d| d.join("uninstall.exe").exists())).unwrap_or(false)
+}
+
+/// A release's page on GitHub, in your browser: for the portable copy, to download a new version.
+#[tauri::command]
+fn open_release(version: String) -> CmdResult<()> {
+    let tag: String = version.chars().filter(|c| c.is_ascii_alphanumeric() || *c == '.').collect();
+    let url = format!("https://github.com/TheGreatAion/AionComics/releases/tag/v{tag}");
+    std::process::Command::new("explorer").arg(url).spawn().map_err(err)?;
+    Ok(())
+}
+
 /// Save a Comic Vine API key after checking Comic Vine accepts it. An empty key removes it.
 #[tauri::command]
 async fn cv_set_key(state: State<'_, Shared>, key: String) -> CmdResult<()> {
@@ -1654,6 +1670,8 @@ pub fn run() {
     }
     builder
         .plugin(tauri_plugin_dialog::init())
+        .plugin(tauri_plugin_updater::Builder::new().build())
+        .plugin(tauri_plugin_process::init())
         .on_window_event(|w, event| match event {
             tauri::WindowEvent::Moved(_) | tauri::WindowEvent::Resized(_) => window::note(w),
             // Closing, and whenever you leave it, in case the PC goes off with the window still open.
@@ -1841,6 +1859,8 @@ pub fn run() {
             set_editions,
             restore_editions,
             cv_set_key,
+            installed,
+            open_release,
             rate_book,
             rate_series,
             suggestions,

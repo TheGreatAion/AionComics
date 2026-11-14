@@ -2,6 +2,7 @@
   import { remote } from "$lib/api";
   import { lib, nav, search } from "$lib/state.svelte";
   import Icon from "./Icon.svelte";
+  import { shortVersion, updates } from "$lib/updates.svelte";
   import { viewport, side, toggleSide } from "./SidePanel.svelte";
   import WindowControls from "./WindowControls.svelte";
 
@@ -49,6 +50,12 @@
         <Icon name="bookmark" size={16} />
       </button>
     {/if}
+    <!-- A new version: downloaded and waiting (or, for the portable copy, out). -->
+    {#if !remote && updates.next && updates.phase !== "downloading"}
+      <button class="ready" title="AionComics {shortVersion(updates.next.version)} is ready: see what's new" onclick={() => (updates.sheet = "next")}>
+        <Icon name="arrived" size={15} />{shortVersion(updates.next.version)} is {updates.portable ? "out" : "ready"}
+      </button>
+    {/if}
     <button class="ico" title="Search (Ctrl K)" aria-label="Search" onclick={() => (search.open = true)}>
       <Icon name="search" size={17} />
     </button>
@@ -56,19 +63,50 @@
       <Icon name="stats" size={17} />
     </button>
     {#if !remote}<button
-      class="ico"
+      class="ico gear"
       class:on={route.name === "settings"}
-      title="Settings"
-      aria-label="Settings"
+      title={updates.next ? `Settings · AionComics ${shortVersion(updates.next.version)} is ${updates.portable ? "out" : "ready"}` : "Settings"}
+      aria-label={updates.next ? "Settings, an update is ready" : "Settings"}
       onclick={() => nav.root({ name: "settings" })}
     >
       <Icon name="options" size={17} />
+      {#if updates.next}<span class="badge"></span>{/if}
     </button>{/if}
   </div>
   {#if !remote}<div class="win"><WindowControls /></div>{/if}
 </header>
 
 <style>
+  .ready {
+    display: inline-flex;
+    align-items: center;
+    gap: 7px;
+    height: 30px;
+    padding: 0 12px 0 9px;
+    margin-right: 4px;
+    border-radius: 999px;
+    background: rgb(var(--fg) / 0.08);
+    color: var(--text);
+    font-size: 13px;
+    white-space: nowrap;
+  }
+  .ready:hover {
+    background: rgb(var(--fg) / 0.13);
+  }
+  .gear {
+    position: relative;
+  }
+  /* An update is waiting: a dot in caption-box paper, ringed off from the gear. */
+  .badge {
+    position: absolute;
+    top: 4px;
+    right: 4px;
+    width: 9px;
+    height: 9px;
+    border-radius: 50%;
+    background: #e6dfd1;
+    box-shadow: 0 0 0 2px var(--bg);
+  }
   header {
     position: fixed;
     inset: 0 0 auto 0;

@@ -26,6 +26,8 @@
   import Settings from "$lib/views/Settings.svelte";
   import WantToRead from "$lib/views/WantToRead.svelte";
   import Welcome from "$lib/views/Welcome.svelte";
+  import UpdateSheet from "$lib/components/UpdateSheet.svelte";
+  import { startUpdates, updates } from "$lib/updates.svelte";
 
   const route = $derived(nav.current);
   let refreshTimer: ReturnType<typeof setTimeout> | undefined;
@@ -41,6 +43,7 @@
       addEventListener("error", (e) => report(e.error ?? e.message));
       addEventListener("unhandledrejection", (e) => report(e.reason));
     }
+    startUpdates().catch(() => {});
     api.settings().then((s) => {
       lib.hasRoot = !!s.libraryRoot;
       lib.scanning = s.scanning;
@@ -236,6 +239,7 @@
 {#if !remote}<DropZone />{/if}
 <RemoveBox />
 <UndoBar />
+{#if updates.sheet}<UpdateSheet />{/if}
 
 <style>
   /* First run has no top bar, but the window still needs a place to drag from and its buttons. */

@@ -11,6 +11,7 @@
   import { prefs, savePrefs, type Prefs } from "$lib/reader/prefs.svelte";
   import { lib, nav } from "$lib/state.svelte";
   import { setTheme, theme, type ThemeChoice } from "$lib/theme.svelte";
+  import { install, look as lookForUpdate, setAuto, shortVersion, updates } from "$lib/updates.svelte";
 
   let s = $state<Settings | null>(null);
   let cv = $state<CvStatus | null>(null);
@@ -99,6 +100,8 @@
   $effect(() => {
     api.storage().then((v) => (storage = v));
     getVersion().then((v) => (version = v));
+    // Here from the gear's dot: straight to the update.
+    if (updates.next) setTimeout(() => sections.updates?.scrollIntoView({ block: "start" }), 50);
   });
 
   // ---------- sections and the jump bar ----------
@@ -108,6 +111,7 @@
     { id: "guided", icon: "guided", name: "Guided View" },
     { id: "keys", icon: "keyboard", name: "Keyboard" },
     { id: "library", icon: "folder", name: "Library" },
+    { id: "updates", icon: "arrived", name: "Updates" },
     { id: "details", icon: "fetch", name: "Details" },
     { id: "remote", icon: "phone", name: "Devices" },
     { id: "storage", icon: "storage", name: "Storage" },
@@ -585,6 +589,52 @@
 
       <div class="cols">
         <div>
+          <section bind:this={sections.updates}>
+            <div class="caption">Updates</div>
+            <div class="row">
+              <div class="lbl">
+                Version {updates.current || version}
+                <small class="fine">
+                  {#if updates.phase === "checking"}
+                    Looking for a new version…
+                  {:else if updates.phase === "downloading" && updates.next}
+                    Downloading {shortVersion(updates.next.version)} · {Math.round(updates.progress * 100)}%
+                  {:else if updates.phase === "error"}
+                    {updates.error || "Couldn't look for a new version."}
+                  {:else if updates.next}
+                    {shortVersion(updates.next.version)} is {updates.portable ? "out" : "ready"} ·
+                    <button class="link inline" onclick={() => (updates.sheet = "next")}>What's new</button>
+                  {:else if updates.phase === "none"}
+                    You have the newest version ·
+                    <button class="link inline" onclick={() => (updates.sheet = "after")}>What's new in it</button>
+                  {:else}
+                    <button class="link inline" onclick={() => (updates.sheet = "after")}>What's new in this version</button>
+                  {/if}
+                </small>
+              </div>
+              <div class="ctl">
+                {#if updates.next && updates.portable}
+                  <button class="btn icon-btn" onclick={install}><Icon name="arrived" size={15} />Download</button>
+                {:else if updates.next && updates.phase !== "downloading"}
+                  <button class="btn icon-btn" onclick={install}><Icon name="rescan" size={15} />Restart and update</button>
+                {:else if !updates.next}
+                  <button class="link" disabled={updates.phase === "checking"} onclick={() => lookForUpdate()}>Check now</button>
+                {/if}
+              </div>
+            </div>
+            <div class="row">
+              <div class="lbl">
+                Get updates by themselves
+                <small>
+                  {updates.portable
+                    ? "This copy runs without installing: it tells you when a new version is out, and you download it"
+                    : "New versions download in the background. They install when you restart from here or the top bar"}
+                </small>
+              </div>
+              {@render toggle(updates.auto, () => setAuto(!updates.auto), "Get updates by themselves")}
+            </div>
+          </section>
+
           <section bind:this={sections.details}>
             <div class="caption">Details</div>
             <form class="row" onsubmit={(e) => (e.preventDefault(), cvKey.trim() && saveKey(cvKey))}>
@@ -892,6 +942,17 @@
   }
   .lbl small.fine {
     font-size: 12px;
+  }
+  .icon-btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 9px;
+  }
+  .link.inline {
+    font-size: 12px;
+    color: var(--text-2);
+    text-decoration: underline;
+    text-underline-offset: 3px;
   }
   .path {
     font-size: 14px;

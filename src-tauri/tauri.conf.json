@@ -28,9 +28,17 @@
       "csp": null
     }
   },
+  "plugins": {
+    "updater": {
+      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDQ2NDBEQjQzODlCNUEzMjgKUldRb283V0pROXRBUm5jM3p6a3hwVEtuVUlyNnJNd09uUzZqTktBV3pMODRUcDk1MXl4VUNtQmsK",
+      "endpoints": ["https://github.com/TheGreatAion/AionComics/releases/latest/download/latest.json"],
+      "windows": { "installMode": "passive" }
+    }
+  },
   "bundle": {
     "active": true,
     "targets": ["nsis"],
+    "createUpdaterArtifacts": true,
     "fileAssociations": [
       { "ext": ["cbz", "cbr", "cb7"], "name": "Comic book", "description": "Comic book archive", "role": "Viewer" }
     ],
