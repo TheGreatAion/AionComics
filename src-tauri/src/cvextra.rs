@@ -157,7 +157,8 @@ pub fn language(publisher: Option<&str>, description: Option<&str>) -> Option<St
         );
     }
     let p = publisher?.to_lowercase();
-    if let Some((_, lang)) = ORIGINALS.iter().find(|(name, _)| p == *name) {
+    let plain = romaji(&p);
+    if let Some((_, lang)) = ORIGINALS.iter().find(|(name, _)| plain == *name) {
         return Some(lang.to_string());
     }
     PUBLISHERS
@@ -165,6 +166,20 @@ pub fn language(publisher: Option<&str>, description: Option<&str>) -> Option<St
         .find(|(name, _)| p == *name || p.starts_with(&format!("{name} ")))
         .or_else(|| PLACES.iter().find(|(word, _)| p.split(|c: char| !c.is_alphanumeric()).any(|w| w == *word)))
         .map(|(_, lang)| lang.to_string())
+}
+
+/// Long vowels written out plainly: "shônen gahôsha" and "shōnen gahōsha" as "shonen gahosha".
+fn romaji(s: &str) -> String {
+    s.chars()
+        .map(|c| match c {
+            'â' | 'ā' => 'a',
+            'î' | 'ī' => 'i',
+            'û' | 'ū' => 'u',
+            'ê' | 'ē' => 'e',
+            'ô' | 'ō' => 'o',
+            c => c,
+        })
+        .collect()
 }
 
 fn capitalize(w: &str) -> String {
@@ -438,6 +453,8 @@ mod tests {
         // The Japanese original, not its English edition.
         assert_eq!(language(Some("Shueisha"), None).as_deref(), Some("Japanese"));
         assert_eq!(language(Some("Kodansha"), None).as_deref(), Some("Japanese"));
+        assert_eq!(language(Some("Shônen Gahôsha"), None).as_deref(), Some("Japanese"));
+        assert_eq!(language(Some("Shōnen Gahōsha"), None).as_deref(), Some("Japanese"));
         assert_eq!(language(Some("Kodansha Comics"), None), None);
         assert_eq!(language(Some("VIZ"), None), None);
         assert_eq!(language(Some("Marvel UK/Panini UK"), None).as_deref(), Some("UK edition"));
