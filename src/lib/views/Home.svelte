@@ -396,6 +396,29 @@
       </section>
     {/if}
 
+    {#if lib.collections.length}
+      <!-- The library as a tier of panels, each collection's name and counts in a caption box. -->
+      <section class="library" aria-label="Library">
+        <div class="cols">
+          {#each lib.collections as c (c.id)}
+            <div class="slot" role="group" oncontextmenu={(e) => libraryMenu(e, c, false)}>
+              <button class="col" data-nav title={c.name} onclick={() => nav.root({ name: "collection", id: c.id })}>
+                <div class="caption">
+                  <span class="named">{c.name}</span><span class="fine">{c.seriesCount.toLocaleString()} series · {c.comicCount.toLocaleString()}</span>
+                </div>
+                <div class="fan" style:height="{fanH}px">
+                  {#each c.covers as id (id)}<Cover {id} width={Math.round(fanH * 0.65)} pages={null} />{/each}
+                </div>
+              </button>
+              <button class="ico add pc-only" title="Add a series to {c.name}" aria-label="Add a series to {c.name}" onclick={(e) => addMenu(e, { collection: c.id, title: c.name })}>
+                <Icon name="plus" size={16} />
+              </button>
+            </div>
+          {/each}
+        </div>
+      </section>
+    {/if}
+
     {#if shelves.length}
       <!-- Series waiting on your shelves, by the people behind books you rated highly. Each says why. -->
       <section class="library shelves" aria-label="From your shelves">
@@ -426,29 +449,6 @@
                   <Icon name="close" size={15} />
                 </button>
               </div>
-            </div>
-          {/each}
-        </div>
-      </section>
-    {/if}
-
-    {#if lib.collections.length}
-      <!-- The library as a tier of panels, each collection's name and counts in a caption box. -->
-      <section class="library" aria-label="Library">
-        <div class="cols">
-          {#each lib.collections as c (c.id)}
-            <div class="slot" role="group" oncontextmenu={(e) => libraryMenu(e, c, false)}>
-              <button class="col" data-nav title={c.name} onclick={() => nav.root({ name: "collection", id: c.id })}>
-                <div class="caption">
-                  <span class="named">{c.name}</span><span class="fine">{c.seriesCount.toLocaleString()} series · {c.comicCount.toLocaleString()}</span>
-                </div>
-                <div class="fan" style:height="{fanH}px">
-                  {#each c.covers as id (id)}<Cover {id} width={Math.round(fanH * 0.65)} pages={null} />{/each}
-                </div>
-              </button>
-              <button class="ico add pc-only" title="Add a series to {c.name}" aria-label="Add a series to {c.name}" onclick={(e) => addMenu(e, { collection: c.id, title: c.name })}>
-                <Icon name="plus" size={16} />
-              </button>
             </div>
           {/each}
         </div>
@@ -791,6 +791,9 @@
   .col:hover .fan :global(.cover:nth-child(3)) {
     transform: translateX(-4%) rotate(10deg) scale(0.88);
     filter: brightness(0.8);
+  }
+  .shelves {
+    padding-top: 14px;
   }
   .shelf-h {
     display: flex;
