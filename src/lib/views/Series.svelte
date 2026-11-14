@@ -2,7 +2,7 @@
   import { tick, untrack } from "svelte";
   import { slide } from "svelte/transition";
   import { addMenu } from "$lib/add.svelte";
-  import CvNudge from "$lib/components/CvNudge.svelte";
+  import CvKeyBox from "$lib/components/CvKeyBox.svelte";
   import { viewport } from "$lib/components/SidePanel.svelte";
   import { readAsItems, removing, want, wantItem } from "$lib/manage.svelte";
   import { api, chapterList, listText, plainText, remote, storyTitle, unitWord, type ComicCard, type ComicMeta, type CvBookExtras, type CvVolume, type Edition, type EditionKind, type MetaField, type SeriesView } from "$lib/api";
@@ -75,16 +75,22 @@
 
   // A series without details yet: whether Comic Vine has it, looked up quietly a moment after the
   // page opens (kept a day, so coming back costs nothing). Only a close match is offered, beside
-  // the Comic Vine button, so the offer means there really is something to add.
+  // the Comic Vine button, so the offer means there really is something to add. With no key to
+  // look with, "Add details?" opens a box that takes one, for the whole library.
   let offer = $state<CvVolume | null>(null);
+  let noKey = $state(false);
+  let keyBox = $state(false);
+  let keyAdded = $state(0);
   $effect(() => {
     const id = data?.id;
     const matched = !!data?.cvVolumeId;
+    void keyAdded;
     offer = null;
     if (!id || matched || remote) return;
     const t = setTimeout(async () => {
       try {
-        if (!(await api.cvStatus()).hasKey) return;
+        noKey = !(await api.cvStatus()).hasKey;
+        if (noKey) return;
         const top = (await api.cvSearch(id)).volumes[0];
         if (top && top.score >= 0.95 && data?.id === id && !data.cvVolumeId) offer = top;
       } catch {
@@ -686,7 +692,18 @@
           <Icon name="plus" size={18} />
         </button>
         <!-- Always here, so a series can fetch its details again (a new issue, a wrong match). -->
-        {#if offer}
+        <span class="cvspot">
+        {#if noKey && !data.cvVolumeId}
+          <button
+            class="offer cvkey-toggle pc-only"
+            class:open={keyBox}
+            title="Comic Vine can fill in this series' details"
+            aria-expanded={keyBox}
+            onclick={() => (keyBox = !keyBox)}
+          >
+            Add details?
+          </button>
+        {:else if offer}
           <button
             class="offer pc-only"
             title="Comic Vine has {offer.name}{offer.startYear ? ` (${offer.startYear}${offer.publisher ? `, ${offer.publisher}` : ''})` : ''}"
@@ -698,11 +715,26 @@
         <button class="ico pc-only" title={cvLabel} aria-label={cvLabel} onclick={findOnCv}>
           <Icon name="fetch" size={18} />
         </button>
+        {#if keyBox}
+          <CvKeyBox
+            name={data.name}
+            cover={inView[0]?.id ?? all[0]?.id}
+            onclose={() => {
+              keyBox = false;
+              keyAdded++;
+            }}
+            onfind={() => {
+              keyBox = false;
+              keyAdded++;
+              findOnCv();
+            }}
+          />
+        {/if}
+        </span>
         <button class="ico pc-only" title="More" aria-label="More" onclick={seriesMenu} oncontextmenu={seriesMenu}><Icon name="more" size={18} /></button>
       </div>
     </header>
 
-    {#if !data.cvVolumeId && !remote}<CvNudge onsaved={findOnCv} />{/if}
 
     {#if data.backfill}
       {@const b = data.backfill}
@@ -969,7 +1001,14 @@
     white-space: nowrap;
     animation: offer-in 0.4s var(--ease);
   }
-  .offer:hover {
+  .cvspot {
+    position: relative;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+  }
+  .offer:hover,
+  .offer.open {
     color: var(--text);
     text-decoration: underline;
     text-underline-offset: 3px;

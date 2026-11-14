@@ -49,6 +49,7 @@
     arrived: "M12 4v10M7.5 9.5l4.5 4.5 4.5-4.5M4 15v5h16v-5",
     play: "M7 4.5v15l12-7.5z",
     arrowRight: "M5 12h14M13 6l6 6-6 6",
+    external: "M14 4h6v6M20 4l-9 9M18 14v5a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V7a1 1 0 0 1 1-1h5",
     arrowLeft: "M19 12H5M11 6l-6 6 6 6",
     chevronLeft: "M15 6l-6 6 6 6",
     // A line climbing to an arrow: how your reading is going.
