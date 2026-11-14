@@ -167,12 +167,7 @@
     place-items: center;
     background: rgba(6, 6, 6, 0.72);
     backdrop-filter: blur(18px);
-    animation: fade 0.2s var(--ease);
-  }
-  @keyframes fade {
-    from {
-      opacity: 0;
-    }
+    animation: fade var(--normal) var(--ease);
   }
   .sheet {
     width: min(820px, calc(100vw - 48px));
@@ -183,6 +178,8 @@
     background: var(--raised);
     box-shadow: 0 0 0 1px var(--line), 0 30px 80px rgba(0, 0, 0, 0.7);
     user-select: text;
+    /* Set down like a panel: a small drop into place (see app.css). */
+    animation: drop-in var(--slow) var(--ease) both;
   }
   header {
     position: relative;
@@ -268,7 +265,7 @@
     color: var(--text);
     outline: none;
     resize: vertical;
-    transition: border-color 0.15s;
+    transition: border-color var(--quick);
   }
   input:focus,
   textarea:focus {

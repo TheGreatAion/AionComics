@@ -113,11 +113,6 @@
     backdrop-filter: blur(24px);
     animation: fade 0.25s var(--ease);
   }
-  @keyframes fade {
-    from {
-      opacity: 0;
-    }
-  }
   header {
     display: flex;
     align-items: baseline;

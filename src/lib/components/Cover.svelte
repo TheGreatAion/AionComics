@@ -92,7 +92,7 @@
     height: 100%;
     object-fit: cover;
     opacity: 0;
-    transition: opacity 0.5s;
+    transition: opacity var(--slow);
   }
   img.loaded {
     opacity: 1;

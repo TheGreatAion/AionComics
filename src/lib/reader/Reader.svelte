@@ -513,10 +513,13 @@
               <div class="caption">The end</div>
               <img class="framed" src={coverUrl(c.info.comic.id)} alt="" />
               {#if !c.info.external}
-                <div class="stamp">
-                  <Stars value={c.rating} size={26} gap={6} onrate={(n) => c.rate(n)} bind:preview={starPreview} label="Rate {c.info.comic.label || 'this book'}" />
-                  <span class="word">{shown ? STAR_WORDS[shown - 1] : "Rate it"}</span>
-                </div>
+                <!-- Stamped down again with each rating. -->
+                {#key c.rating}
+                  <div class="stamp">
+                    <Stars value={c.rating} size={26} gap={6} onrate={(n) => c.rate(n)} bind:preview={starPreview} label="Rate {c.info.comic.label || 'this book'}" />
+                    <span class="word">{shown ? STAR_WORDS[shown - 1] : "Rate it"}</span>
+                  </div>
+                {/key}
                 <p class="rate-hint fine">Rate with the stars or <kbd>1</kbd>–<kbd>5</kbd></p>
               {/if}
             </div>
@@ -717,7 +720,7 @@
     width: min(620px, calc(100vw - 64px));
   }
   .trouble h2 {
-    font: 400 44px/0.95 var(--display);
+    font: 400 var(--t-mid)/0.95 var(--display);
     letter-spacing: 0.01em;
     overflow-wrap: anywhere;
   }
@@ -1053,7 +1056,11 @@
     box-shadow: 0 18px 40px rgba(0, 0, 0, 0.45);
   }
   /* A caption box stamped across the cover's foot. */
+  .stamp :global(.star.on svg) {
+    animation: star-pop var(--normal) var(--ease);
+  }
   .stamp {
+    animation: thump var(--normal) var(--ease);
     position: relative;
     z-index: 1;
     margin-top: -34px;
@@ -1070,7 +1077,7 @@
   .word {
     min-width: 7.2em;
     padding-top: 3px;
-    font: 400 22px/1 var(--display);
+    font: 400 var(--t-cap)/1 var(--display);
     letter-spacing: 0.05em;
     text-transform: uppercase;
   }
@@ -1116,7 +1123,7 @@
     margin-top: 16px;
     font-family: var(--display);
     font-weight: 400;
-    font-size: 30px;
+    font-size: var(--t-sec);
     line-height: 0.95;
     letter-spacing: 0.03em;
   }

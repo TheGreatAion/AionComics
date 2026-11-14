@@ -261,16 +261,14 @@
   }
   main {
     min-height: 100vh;
-    animation: fade var(--page-fade) var(--ease);
+  }
+  /* A new screen fades in as what's on it arrives (most wait for their data), not before. Opacity
+     only: a moving page would throw off covers flying onto it. */
+  main > :global(*) {
+    animation: fade var(--page-fade) var(--ease) both;
   }
   /* Room for the side panel (see app.css); the page glides over when it slides (see above). */
   main {
     padding-left: var(--side-now);
-  }
-  /* Opacity only: a moving page would throw off covers flying onto it. */
-  @keyframes fade {
-    from {
-      opacity: 0;
-    }
   }
 </style>

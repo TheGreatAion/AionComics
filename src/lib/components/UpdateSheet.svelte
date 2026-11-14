@@ -62,7 +62,7 @@
       {:else if updates.phase === "downloading"}
         <div class="bar">
           <span>Downloading</span>
-          <span class="track"><i style:width="{Math.round(updates.progress * 100)}%"></i></span>
+          <span class="track"><i style:transform="scaleX({updates.progress})"></i></span>
           <span>{Math.round(updates.progress * 100)}%</span>
         </div>
         <button class="link" onclick={close}>Hide</button>
@@ -91,12 +91,7 @@
     place-items: center;
     background: rgba(6, 6, 6, 0.72);
     backdrop-filter: blur(18px);
-    animation: fade 0.2s var(--ease);
-  }
-  @keyframes fade {
-    from {
-      opacity: 0;
-    }
+    animation: fade var(--normal) var(--ease);
   }
   /* A comic panel: inked frame, its caption box on the corner. */
   .sheet {
@@ -108,11 +103,15 @@
     background: var(--raised);
     border: 4px solid var(--ink);
     box-shadow: 0 30px 80px rgba(0, 0, 0, 0.7);
+    /* Set down like a panel: a small drop into place (see app.css). */
+    animation: drop-in var(--slow) var(--ease) both;
   }
   .sheet > .caption {
     position: absolute;
     top: -4px;
     left: -4px;
+    /* Lands on the panel a beat after it. */
+    animation: caption-in var(--normal) var(--ease) 0.14s both;
   }
   .x {
     position: absolute;
@@ -125,7 +124,7 @@
   }
   h2 {
     margin: 0;
-    font: 400 64px/0.9 var(--display);
+    font: 400 var(--t-big)/0.9 var(--display);
     letter-spacing: 0.02em;
     text-transform: uppercase;
   }
@@ -222,8 +221,9 @@
   }
   .track i {
     position: absolute;
-    inset: 0 auto 0 0;
+    inset: 0;
     background: var(--text);
-    transition: width 0.2s linear;
+    transform-origin: left;
+    transition: transform var(--normal) linear;
   }
 </style>

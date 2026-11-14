@@ -12,8 +12,11 @@ function load<T extends string>(key: string, allowed: readonly T[], fallback: T)
   }
 }
 
+// Until you choose, Windows' own "Animation effects" setting decides: off there, off here.
+const calm = typeof matchMedia === "function" && matchMedia("(prefers-reduced-motion: reduce)").matches;
+
 export const look = $state({
-  motion: load("aion.motion", ["full", "quick", "off"] as const, "quick"),
+  motion: load("aion.motion", ["full", "quick", "off"] as const, calm ? "off" : "quick"),
   backdrop: load("aion.backdrop", ["on", "off"] as const, "on") === "on",
 });
 

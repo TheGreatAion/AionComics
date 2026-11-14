@@ -414,7 +414,7 @@
     gap: 8px;
     color: var(--text-3);
     border-bottom: 1px solid var(--line);
-    transition: border-color 0.2s;
+    transition: border-color var(--normal);
   }
   .filter:focus-within {
     border-color: var(--text-2);

@@ -36,7 +36,7 @@
     border: 3px solid var(--ink);
   }
   .text {
-    font: 400 21px/1 var(--display);
+    font: 400 var(--t-cap)/1 var(--display);
     letter-spacing: 0.04em;
     text-transform: uppercase;
     padding-top: 3px;
@@ -53,7 +53,7 @@
     background: #141414;
     color: #e6dfd1;
     font-weight: 500;
-    transition: background 0.15s;
+    transition: background var(--quick);
   }
   .take:hover {
     background: #000;

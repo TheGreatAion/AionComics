@@ -120,7 +120,7 @@
   h1 {
     font-family: var(--display);
     font-weight: 400;
-    font-size: clamp(64px, 8vw, 116px);
+    font-size: clamp(64px, 8vw, var(--t-hero));
     line-height: 0.88;
     letter-spacing: 0.005em;
   }
@@ -192,7 +192,7 @@
     border-radius: 10px;
     text-align: left;
     box-shadow: inset 0 0 0 1px var(--line);
-    transition: background 0.15s;
+    transition: background var(--quick);
   }
   .ways button:hover {
     background: rgb(var(--fg) / 0.07);

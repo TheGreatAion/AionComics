@@ -67,7 +67,7 @@
     padding: 2px;
     margin: -2px;
     border-radius: 3px;
-    transition: transform 0.15s var(--ease);
+    transition: transform var(--quick) var(--ease);
   }
   button.star:hover {
     transform: scale(1.12);

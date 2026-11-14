@@ -113,7 +113,7 @@
     box-shadow:
       0 0 0 1px var(--line),
       0 18px 44px rgba(0, 0, 0, 0.6);
-    animation: open 0.18s var(--ease);
+    animation: open var(--quick) var(--ease);
   }
   .menu.sub {
     z-index: 201;

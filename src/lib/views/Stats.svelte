@@ -3,6 +3,7 @@
   import { lib, nav, openReader } from "$lib/state.svelte";
   import Cover from "$lib/components/Cover.svelte";
   import Stars from "$lib/components/Stars.svelte";
+  import { countUp } from "$lib/countUp";
 
   // What your reading adds up to: recorded from the first sitting on, never guessed before that.
   let data = $state<ReadingStats | null>(null);
@@ -49,14 +50,14 @@
             {@const p = data[key]}
             <div class="tile">
               <div class="label">{label}</div>
-              <div class="big">{p.pages.toLocaleString()}</div>
+              <div class="big" use:countUp={p.pages}>{p.pages.toLocaleString()}</div>
               <div class="unit">pages</div>
               <div class="fine dim">{duration(p.seconds)}{#if finishedLine(p)}&ensp;·&ensp;{finishedLine(p)}{/if}</div>
             </div>
           {/each}
           <div class="tile">
             <div class="label">Streak</div>
-            <div class="big">{data.streak}</div>
+            <div class="big" use:countUp={data.streak}>{data.streak}</div>
             <div class="unit">{data.streak === 1 ? "day" : "days"} in a row</div>
             <div class="fine dim">best {data.bestStreak}</div>
           </div>
@@ -157,7 +158,7 @@
   h1 {
     font-family: var(--display);
     font-weight: 400;
-    font-size: clamp(64px, 8vw, 116px);
+    font-size: clamp(64px, 8vw, var(--t-hero));
     line-height: 0.88;
     letter-spacing: 0.005em;
   }
@@ -173,9 +174,11 @@
   section {
     margin-top: 56px;
   }
+  /* Section titles: the title font, as on Home. */
   h2 {
-    font-weight: 600;
-    font-size: 15px;
+    font: 400 var(--t-sec)/1 var(--display);
+    letter-spacing: 0.03em;
+    text-transform: uppercase;
     margin-bottom: 18px;
   }
   .dim {
@@ -267,7 +270,7 @@
   .pick :global(.cover) {
     margin-bottom: 8px;
     box-shadow: 0 16px 34px -16px rgba(0, 0, 0, 0.95);
-    transition: transform 0.45s var(--ease);
+    transition: transform var(--slow) var(--ease);
   }
   .pick:hover :global(.cover) {
     transform: translateY(-5px);

@@ -167,6 +167,7 @@
     max-width: 880px;
   }
   .deck {
+    max-width: 68ch;
     margin-top: 18px;
     font-size: 16px;
     line-height: 1.5;
@@ -195,8 +196,9 @@
     color: var(--text-3);
   }
   .bio {
+    max-width: 68ch;
     margin-top: 14px;
-    font-size: 14px;
+    font-size: 15px;
     line-height: 1.6;
     color: var(--text-2);
     user-select: text;
@@ -227,7 +229,7 @@
     margin-top: 10px;
     font-family: var(--display);
     font-weight: 400;
-    font-size: clamp(64px, 8vw, 120px);
+    font-size: clamp(64px, 8vw, var(--t-hero));
     line-height: 0.88;
     letter-spacing: 0.005em;
     overflow-wrap: anywhere;
@@ -252,7 +254,7 @@
   }
   .name {
     font-family: var(--display);
-    font-size: 30px;
+    font-size: var(--t-sec);
     line-height: 1;
     letter-spacing: 0.01em;
     color: var(--text);
@@ -280,8 +282,8 @@
   .pick :global(.cover) {
     box-shadow: 0 16px 34px -16px rgba(0, 0, 0, 0.95);
     transition:
-      transform 0.45s var(--ease),
-      opacity 0.25s;
+      transform var(--slow) var(--ease),
+      opacity var(--normal);
   }
   .pick.done :global(.cover) {
     opacity: 0.6;

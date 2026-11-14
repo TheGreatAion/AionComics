@@ -324,7 +324,7 @@
     {#if note.startsWith("Copying")}<span class="spin"><Icon name="rescan" size={14} /></span>{/if}
     {note}
     {#if progress && progress.totalBytes}
-      <i class="bar"><i style:width="{(progress.bytes / progress.totalBytes) * 100}%"></i></i>
+      <i class="bar"><i style:transform="scaleX({progress.bytes / progress.totalBytes})"></i></i>
     {/if}
   </div>
 {/if}
@@ -340,7 +340,7 @@
     background: rgba(6, 6, 6, 0.78);
     backdrop-filter: blur(14px);
     pointer-events: none;
-    animation: fade 0.15s var(--ease);
+    animation: fade var(--quick) var(--ease);
   }
   /* Waiting on an answer: over everything, and it takes the clicks. */
   .drop.asking {
@@ -394,11 +394,6 @@
   .choices .btn:disabled {
     opacity: 0.4;
     pointer-events: none;
-  }
-  @keyframes fade {
-    from {
-      opacity: 0;
-    }
   }
   .card {
     min-width: 360px;
@@ -465,10 +460,12 @@
     background: var(--track);
     overflow: hidden;
   }
+  /* Grows by scaling, not by width: smoother, and nothing around it is laid out again. */
   .note .bar i {
     position: absolute;
-    inset: 0 auto 0 0;
+    inset: 0;
     background: var(--text-2);
-    transition: width 0.15s linear;
+    transform-origin: left;
+    transition: transform var(--quick) linear;
   }
 </style>

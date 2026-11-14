@@ -50,13 +50,8 @@
     gap: 18px;
     background: rgba(8, 8, 8, 0.92);
     backdrop-filter: blur(14px);
-    animation: fade 0.2s var(--ease);
+    animation: fade var(--normal) var(--ease);
     color: #e8e8e8;
-  }
-  @keyframes fade {
-    from {
-      opacity: 0;
-    }
   }
   .close {
     position: absolute;
@@ -94,7 +89,7 @@
   .strip button {
     flex: none;
     opacity: 0.55;
-    transition: opacity 0.15s;
+    transition: opacity var(--quick);
   }
   .strip button:hover,
   .strip button.on {

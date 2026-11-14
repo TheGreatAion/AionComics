@@ -65,7 +65,7 @@
     <div class="bar">
       {#if status.running}
         <div class="progress" role="progressbar" aria-valuemin={0} aria-valuemax={status.total} aria-valuenow={status.done}>
-          <div class="fill" style:width="{pct}%"></div>
+          <div class="fill" style:transform="scaleX({pct / 100})"></div>
         </div>
         <span class="fine">{status.done.toLocaleString()} of {status.total.toLocaleString()} books</span>
         <button class="btn" onclick={stop}>Stop</button>
@@ -113,7 +113,7 @@
   h1 {
     font-family: var(--display);
     font-weight: 400;
-    font-size: 52px;
+    font-size: var(--t-big);
     line-height: 0.9;
   }
   .lede {
@@ -146,7 +146,8 @@
   .fill {
     height: 100%;
     background: var(--text);
-    transition: width 0.4s var(--ease);
+    transform-origin: left;
+    transition: transform var(--slow) var(--ease);
   }
   section {
     margin-top: 34px;
@@ -154,8 +155,9 @@
     border-top: 1px solid var(--line);
   }
   h2 {
-    font-size: 15px;
-    font-weight: 600;
+    font: 400 var(--t-sec)/1 var(--display);
+    letter-spacing: 0.03em;
+    text-transform: uppercase;
   }
   .count {
     margin-left: 6px;

@@ -294,7 +294,7 @@
     backdrop-filter: blur(28px);
     box-shadow: inset -1px 0 0 rgb(var(--fg) / 0.04);
     transform: translateX(-100%);
-    transition: transform 0.45s var(--ease);
+    transition: transform var(--slow) var(--ease);
   }
   aside.open {
     transform: none;
@@ -322,7 +322,7 @@
     padding-bottom: 6px;
     border-bottom: 1px solid var(--line);
     color: var(--text-3);
-    transition: border-color 0.2s;
+    transition: border-color var(--normal);
   }
   .find:focus-within {
     border-color: var(--text-2);
@@ -369,8 +369,8 @@
     color: var(--text-2);
     position: relative;
     transition:
-      color 0.15s,
-      background 0.15s;
+      color var(--quick),
+      background var(--quick);
   }
   .row:hover {
     color: var(--text);
@@ -419,8 +419,8 @@
     color: var(--text-3);
     opacity: 0;
     transition:
-      opacity 0.2s,
-      transform 0.25s var(--ease);
+      opacity var(--normal),
+      transform var(--normal) var(--ease);
   }
   /* The fold arrow shows when it matters: pointed at, or folded away. */
   .head:hover .chev,
@@ -429,7 +429,7 @@
   }
   .chev {
     display: flex;
-    transition: transform 0.25s var(--ease);
+    transition: transform var(--normal) var(--ease);
   }
   .chev.open {
     transform: rotate(90deg);
@@ -468,7 +468,7 @@
     border-radius: 50%;
     color: var(--text-3);
     opacity: 0;
-    transition: opacity 0.15s;
+    transition: opacity var(--quick);
   }
   .book:hover .play {
     opacity: 1;
@@ -487,9 +487,9 @@
   }
   .coll .name {
     font-family: var(--display);
-    font-size: 21px;
+    font-size: var(--t-cap);
     line-height: 1.15;
-    letter-spacing: 0.01em;
+    letter-spacing: 0.04em;
   }
   .want .icon {
     flex: none;

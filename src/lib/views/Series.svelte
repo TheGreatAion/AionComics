@@ -1061,7 +1061,7 @@
     font-size: 13px;
     color: var(--text-2);
     white-space: nowrap;
-    animation: offer-in 0.4s var(--ease);
+    animation: offer-in var(--slow) var(--ease);
   }
   .cvspot {
     position: relative;
@@ -1119,8 +1119,8 @@
     color: var(--text-2);
     font-size: 13px;
     transition:
-      background 0.15s,
-      color 0.15s;
+      background var(--quick),
+      color var(--quick);
   }
   .tab:hover {
     color: var(--text);
@@ -1134,8 +1134,8 @@
   .tabs.landing .tab {
     transition:
       transform 0.13s var(--ease),
-      background 0.15s,
-      color 0.15s;
+      background var(--quick),
+      color var(--quick);
   }
   .tab.held {
     position: relative;
@@ -1201,13 +1201,13 @@
   .art {
     position: relative;
     display: block;
-    transition: transform 0.4s var(--ease);
+    transition: transform var(--slow) var(--ease);
   }
   .art :global(.cover) {
     box-shadow: 0 18px 40px -18px rgba(0, 0, 0, 0.9);
     transition:
-      box-shadow 0.25s,
-      filter 0.25s;
+      box-shadow var(--normal),
+      filter var(--normal);
   }
   .card.done .art :global(.cover) {
     filter: brightness(0.86);
@@ -1357,7 +1357,7 @@
   .about {
     min-width: 0;
     max-width: 80ch;
-    transition: opacity 0.25s;
+    transition: opacity var(--normal);
   }
   .about.dim {
     opacity: 0.6;
@@ -1365,7 +1365,7 @@
   .label {
     font-family: var(--display);
     font-weight: 400;
-    font-size: 52px;
+    font-size: var(--t-big);
     line-height: 0.9;
     letter-spacing: 0.005em;
     /* A file name with no spaces would otherwise run off the page. */
@@ -1384,7 +1384,7 @@
     margin-top: 8px;
     font-family: var(--display);
     font-weight: 400;
-    font-size: 52px;
+    font-size: var(--t-big);
     line-height: 0.92;
     letter-spacing: 0.005em;
     color: var(--text);
@@ -1409,10 +1409,11 @@
     color: var(--text-2);
   }
   .syn {
+    max-width: 68ch;
     margin-top: 16px;
     color: var(--text-2);
     font-size: 15px;
-    line-height: 1.65;
+    line-height: 1.6;
     display: -webkit-box;
     -webkit-line-clamp: 3;
     line-clamp: 3;
@@ -1472,7 +1473,7 @@
   .person {
     color: inherit;
     font: inherit;
-    transition: color 0.15s;
+    transition: color var(--quick);
   }
   .person:hover {
     color: var(--strong);
@@ -1539,7 +1540,7 @@
     border-radius: 2px;
     display: block;
     box-shadow: 0 0 0 1px var(--line);
-    transition: transform 0.15s var(--ease);
+    transition: transform var(--quick) var(--ease);
   }
   .covers button:hover img {
     transform: translateY(-2px);

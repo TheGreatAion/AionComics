@@ -131,7 +131,7 @@
       0 18px 44px rgba(0, 0, 0, 0.6);
     text-align: left;
     white-space: normal;
-    animation: open 0.18s var(--ease);
+    animation: open var(--quick) var(--ease);
   }
   @keyframes open {
     from {

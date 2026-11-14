@@ -37,12 +37,20 @@
   --text-3: rgb(255 255 255 / 0.68);
   color: var(--text);
 }
-/* How long a new screen takes to fade in, as chosen under Settings › Look › Animations. */
+/* Motion: three speeds and two curves (arriving, leaving) for everything outside the reader.
+   Settings › Look › Animations makes them longer (Full), keeps them short (Quick) or stops them (Off). */
 :root {
-  --page-fade: 0.15s;
+  --quick: 0.15s;
+  --normal: 0.25s;
+  --slow: 0.45s;
+  --ease-out: cubic-bezier(0.5, 0, 0.75, 0);
+  /* How long a new screen takes to fade in. */
+  --page-fade: var(--normal);
 }
 :root[data-motion="full"] {
-  --page-fade: 0.45s;
+  --quick: 0.22s;
+  --normal: 0.38s;
+  --slow: 0.65s;
 }
 /* Animations off: everything lands at once (a spinning icon still says something is working). */
 :root[data-motion="off"] *:not(.spin),
@@ -76,6 +84,13 @@
   /* Big titles only: series, books, collections. Tall capitals with a comic-logo heritage. */
   --display: "Bebas Neue", "Geist Variable", system-ui, sans-serif;
   --ease: cubic-bezier(0.2, 0.7, 0, 1);
+  /* Title sizes, in the title font: one scale for the whole app. */
+  --t-cap: 22px;
+  --t-sec: 28px;
+  --t-mid: 40px;
+  --t-big: 56px;
+  --t-huge: 76px;
+  --t-hero: 112px;
   --pad: 56px;
   /* The side panel's width, and how much of it is taking room now (0 when it's hidden). */
   --side: 248px;
@@ -177,7 +192,7 @@ img {
   border-radius: 999px;
   transition:
     transform 0.3s var(--ease),
-    background 0.2s;
+    background var(--normal);
 }
 .btn:hover {
   background: var(--strong);
@@ -187,7 +202,7 @@ img {
 /* Quiet text actions. */
 .link {
   color: var(--text-2);
-  transition: color 0.2s;
+  transition: color var(--normal);
 }
 .link:hover,
 .link.on {
@@ -215,7 +230,7 @@ img {
   color: #141414;
   border: 3px solid var(--ink);
   padding: 8px 14px 5px;
-  font: 400 23px/1 var(--display);
+  font: 400 var(--t-cap)/1 var(--display);
   letter-spacing: 0.05em;
   text-transform: uppercase;
   white-space: nowrap;
@@ -252,8 +267,8 @@ img {
   border-radius: 6px;
   color: var(--text-2);
   transition:
-    background 0.15s,
-    color 0.15s;
+    background var(--quick),
+    color var(--quick);
 }
 .ico:hover:not(:disabled) {
   background: rgb(var(--fg) / 0.07);
@@ -294,5 +309,58 @@ html.remote .pc-only {
   .grid {
     grid-template-columns: repeat(auto-fill, minmax(104px, 1fr));
     gap: 36px 14px;
+  }
+}
+
+/* Line breaks: titles split evenly across their lines, paragraphs without a lone last word. */
+h1,
+h2,
+h3 {
+  text-wrap: balance;
+}
+p,
+li {
+  text-wrap: pretty;
+}
+
+/* Shared movements (a component's own keyframes would each be a copy of these). */
+@keyframes fade {
+  from {
+    opacity: 0;
+  }
+}
+/* A sheet set down like a panel: a small drop into place. */
+@keyframes drop-in {
+  from {
+    opacity: 0;
+    transform: translateY(-16px) scale(0.985);
+  }
+}
+/* Covers arriving on a page just opened. */
+@keyframes cover-in {
+  from {
+    opacity: 0;
+    transform: translateY(14px);
+  }
+}
+/* A rating stamped down like a rubber stamp, and its stars with it. */
+@keyframes thump {
+  0% {
+    transform: scale(1.16) rotate(-2deg);
+  }
+  55% {
+    transform: scale(0.97) rotate(0.4deg);
+  }
+}
+@keyframes star-pop {
+  from {
+    transform: scale(1.35);
+  }
+}
+/* A caption box landing on its panel a beat after it. */
+@keyframes caption-in {
+  from {
+    opacity: 0;
+    transform: translateX(-14px);
   }
 }

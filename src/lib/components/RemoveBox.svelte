@@ -123,7 +123,7 @@
     border-radius: 10px;
     text-align: left;
     box-shadow: inset 0 0 0 1px var(--line);
-    transition: background 0.15s;
+    transition: background var(--quick);
   }
   .way :global(svg) {
     flex: none;

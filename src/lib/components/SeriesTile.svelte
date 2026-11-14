@@ -78,7 +78,7 @@
   .art {
     position: relative;
     display: block;
-    transition: transform 0.5s var(--ease);
+    transition: transform var(--slow) var(--ease);
   }
   /* The books behind the first: plain paper backs, stepping up and to the right. */
   .sheet {
@@ -88,7 +88,7 @@
     background: var(--edge);
     box-shadow: 0 0 0 1px rgb(var(--fg) / 0.06);
     transform: translate(5px, -5px);
-    transition: transform 0.5s var(--ease);
+    transition: transform var(--slow) var(--ease);
   }
   .sheet.far {
     background: var(--edge-far);
@@ -101,7 +101,7 @@
     transform: translate(14px, -14px);
   }
   .art :global(.cover) {
-    transition: box-shadow 0.5s var(--ease);
+    transition: box-shadow var(--slow) var(--ease);
   }
   .tile:hover .art {
     transform: translateY(-4px);
@@ -146,7 +146,7 @@
     font-size: 13px;
     line-height: 1.35;
     color: var(--cap);
-    transition: color 0.2s;
+    transition: color var(--normal);
   }
   .tile:hover .name {
     color: var(--text);

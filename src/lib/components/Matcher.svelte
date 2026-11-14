@@ -541,12 +541,7 @@
     place-items: center;
     background: rgba(6, 6, 6, 0.72);
     backdrop-filter: blur(18px);
-    animation: fade 0.2s var(--ease);
-  }
-  @keyframes fade {
-    from {
-      opacity: 0;
-    }
+    animation: fade var(--normal) var(--ease);
   }
   .sheet.wide {
     width: min(1180px, calc(100vw - 48px));
@@ -560,6 +555,8 @@
     border-radius: 12px;
     background: var(--raised);
     box-shadow: 0 0 0 1px var(--line), 0 30px 80px rgba(0, 0, 0, 0.7);
+    /* Set down like a panel: a small drop into place (see app.css). */
+    animation: drop-in var(--slow) var(--ease) both;
   }
   header {
     display: flex;
@@ -628,7 +625,7 @@
     padding: 10px;
     border-radius: 8px;
     text-align: left;
-    transition: background 0.15s;
+    transition: background var(--quick);
   }
   .volume:hover {
     background: var(--raised);

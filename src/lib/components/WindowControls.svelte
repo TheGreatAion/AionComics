@@ -34,8 +34,8 @@
     place-items: center;
     color: var(--text-2);
     transition:
-      background 0.15s,
-      color 0.15s;
+      background var(--quick),
+      color var(--quick);
   }
   button:hover {
     background: rgb(var(--fg) / 0.08);

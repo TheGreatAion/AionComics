@@ -804,7 +804,7 @@
   }
   .shelf-h h2 {
     margin: 0;
-    font: 400 28px/1 var(--display);
+    font: 400 var(--t-sec)/1 var(--display);
     letter-spacing: 0.02em;
     text-transform: uppercase;
   }

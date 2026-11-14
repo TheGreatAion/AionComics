@@ -846,7 +846,7 @@
   }
   h1 {
     margin-top: 26px;
-    font: 400 112px/0.82 var(--display);
+    font: 400 var(--t-hero)/0.82 var(--display);
     letter-spacing: 0.01em;
   }
   .jump {
@@ -864,8 +864,8 @@
     font-size: 12px;
     border-radius: 4px;
     transition:
-      color 0.15s,
-      background 0.15s;
+      color var(--quick),
+      background var(--quick);
   }
   .jump button:hover {
     color: var(--text);
@@ -982,8 +982,8 @@
     color: var(--text-2);
     font-size: 13px;
     transition:
-      color 0.15s,
-      background 0.15s;
+      color var(--quick),
+      background var(--quick);
   }
   .seg button + button {
     border-left: 1px solid var(--line);
@@ -1003,7 +1003,7 @@
     border-radius: 11px;
     background: rgb(var(--fg) / 0.14);
     position: relative;
-    transition: background 0.2s;
+    transition: background var(--normal);
   }
   .tog i {
     position: absolute;
@@ -1014,8 +1014,8 @@
     border-radius: 50%;
     background: var(--text-2);
     transition:
-      left 0.2s var(--ease),
-      background 0.2s;
+      left var(--normal) var(--ease),
+      background var(--normal);
   }
   .tog.on {
     background: var(--text);
@@ -1079,7 +1079,7 @@
     border-radius: 4px;
     overflow: hidden;
     box-shadow: 0 0 0 1px rgb(var(--fg) / 0.15);
-    transition: box-shadow 0.15s;
+    transition: box-shadow var(--quick);
   }
   .pic.small .frame {
     width: 84px;
@@ -1213,7 +1213,7 @@
     border: 1px solid var(--line);
     border-bottom-width: 3px;
     border-radius: 4px;
-    transition: border-color 0.15s;
+    transition: border-color var(--quick);
   }
   kbd.wait {
     min-width: 44px;
@@ -1279,7 +1279,7 @@
     gap: 12px;
   }
   .used b {
-    font: 400 34px/1 var(--display);
+    font: 400 var(--t-mid)/1 var(--display);
     letter-spacing: 0.02em;
   }
   .used span {
@@ -1315,7 +1315,7 @@
     border-radius: 4px;
     color: var(--text);
     font-size: 13px;
-    transition: background 0.15s;
+    transition: background var(--quick);
   }
   .clear:hover:not(:disabled) {
     background: rgb(var(--fg) / 0.07);
@@ -1362,8 +1362,8 @@
     text-underline-offset: 3px;
     cursor: pointer;
     transition:
-      color 0.2s,
-      text-decoration-color 0.2s;
+      color var(--normal),
+      text-decoration-color var(--normal);
   }
   .url:hover {
     color: var(--text);

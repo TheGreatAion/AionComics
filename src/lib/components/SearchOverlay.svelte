@@ -310,12 +310,7 @@
     padding: 36px var(--pad) 0;
     background: var(--bg);
     color: var(--text);
-    animation: fade 0.2s var(--ease);
-  }
-  @keyframes fade {
-    from {
-      opacity: 0;
-    }
+    animation: fade var(--normal) var(--ease);
   }
 
   header {
@@ -334,7 +329,7 @@
     padding: 0;
     outline: none;
     color: var(--text);
-    font: 400 56px/0.95 var(--display);
+    font: 400 var(--t-big)/0.95 var(--display);
     letter-spacing: 0.01em;
     text-transform: uppercase;
     user-select: text;
@@ -371,11 +366,12 @@
   [data-hit] {
     scroll-margin: 10px 0 48px;
   }
+  /* Group labels: small spaced capitals (the title font is too thin this small). */
   h2 {
     margin: 0 0 10px;
-    color: var(--text-2);
-    font: 400 17px/1 var(--display);
-    letter-spacing: 0.05em;
+    color: var(--text-3);
+    font: 500 12px/1.2 var(--font);
+    letter-spacing: 0.08em;
     text-transform: uppercase;
   }
 
@@ -395,7 +391,7 @@
     align-items: flex-start;
   }
   .big {
-    font: 400 40px/0.95 var(--display);
+    font: 400 var(--t-mid)/0.95 var(--display);
     margin-bottom: 4px;
   }
   .bar {
@@ -438,7 +434,7 @@
   }
   .hit :global(.cover),
   .top :global(.cover) {
-    transition: transform 0.2s var(--ease);
+    transition: transform var(--normal) var(--ease);
   }
   .hit:hover :global(.cover),
   .top:hover :global(.cover) {

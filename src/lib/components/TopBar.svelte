@@ -119,9 +119,9 @@
     padding: 0 calc(var(--pad) + 120px) 0 var(--pad);
     border-bottom: 1px solid transparent;
     transition:
-      background 0.4s,
-      border-color 0.4s,
-      left 0.45s var(--ease);
+      background var(--slow),
+      border-color var(--slow),
+      left var(--slow) var(--ease);
   }
   /* Beside the open side panel, gliding with it. */
   header.beside {

@@ -386,7 +386,7 @@
     gap: 8px;
     color: var(--text-3);
     border-bottom: 1px solid var(--line);
-    transition: border-color 0.2s;
+    transition: border-color var(--normal);
   }
   .filter:focus-within {
     border-color: var(--text-2);
@@ -403,6 +403,46 @@
 
   .grid {
     padding: 36px var(--pad) 0;
+  }
+  /* Covers arrive in reading order when the page opens, the first dozen a little apart. */
+  .grid > :global(*) {
+    animation: cover-in var(--slow) var(--ease) 0.3s both;
+  }
+  .grid > :global(:nth-child(1)) {
+    animation-delay: 0ms;
+  }
+  .grid > :global(:nth-child(2)) {
+    animation-delay: 25ms;
+  }
+  .grid > :global(:nth-child(3)) {
+    animation-delay: 50ms;
+  }
+  .grid > :global(:nth-child(4)) {
+    animation-delay: 75ms;
+  }
+  .grid > :global(:nth-child(5)) {
+    animation-delay: 100ms;
+  }
+  .grid > :global(:nth-child(6)) {
+    animation-delay: 125ms;
+  }
+  .grid > :global(:nth-child(7)) {
+    animation-delay: 150ms;
+  }
+  .grid > :global(:nth-child(8)) {
+    animation-delay: 175ms;
+  }
+  .grid > :global(:nth-child(9)) {
+    animation-delay: 200ms;
+  }
+  .grid > :global(:nth-child(10)) {
+    animation-delay: 225ms;
+  }
+  .grid > :global(:nth-child(11)) {
+    animation-delay: 250ms;
+  }
+  .grid > :global(:nth-child(12)) {
+    animation-delay: 275ms;
   }
   .page {
     position: relative;

@@ -68,7 +68,7 @@
     text-align: center;
   }
   h1 {
-    font: 400 56px/1 var(--display);
+    font: 400 var(--t-big)/1 var(--display);
     letter-spacing: 0.03em;
   }
   p {

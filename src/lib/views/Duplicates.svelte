@@ -66,7 +66,7 @@
   h1 {
     font-family: var(--display);
     font-weight: 400;
-    font-size: 52px;
+    font-size: var(--t-big);
     line-height: 0.9;
   }
   .sum {
