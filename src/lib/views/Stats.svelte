@@ -2,6 +2,7 @@
   import { api, duration, type ReadingPeriod, type ReadingStats } from "$lib/api";
   import { lib, nav, openReader } from "$lib/state.svelte";
   import Cover from "$lib/components/Cover.svelte";
+  import Stars from "$lib/components/Stars.svelte";
 
   // What your reading adds up to: recorded from the first sitting on, never guessed before that.
   let data = $state<ReadingStats | null>(null);
@@ -87,6 +88,24 @@
               </button>
             {/each}
           </div>
+        </section>
+      {/if}
+
+      <!-- Who you rate highest: from three or more rated books each. -->
+      {#if data.favorites.length}
+        <section>
+          <h2>Favorite creators</h2>
+          <ol class="favs">
+            {#each data.favorites as p (p.name)}
+              <li>
+                <button onclick={() => nav.go({ name: "people", kind: "creator", value: p.name })}>
+                  <span class="who">{p.name}</span>
+                  <span class="avg"><Stars value={p.average} size={13} gap={2} label="Your average" />{p.average.toFixed(1)}</span>
+                  <span class="fine dim">{p.rated} rated</span>
+                </button>
+              </li>
+            {/each}
+          </ol>
         </section>
       {/if}
 
@@ -304,5 +323,16 @@
   li .fine {
     text-align: right;
     font-size: 12px;
+  }
+  .favs li button {
+    grid-template-columns: minmax(0, 1fr) auto 72px;
+    gap: 24px;
+  }
+  .avg {
+    display: inline-flex;
+    align-items: center;
+    gap: 10px;
+    font-size: 13px;
+    color: var(--text-2);
   }
 </style>

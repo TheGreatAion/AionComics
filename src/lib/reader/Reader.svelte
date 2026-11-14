@@ -1,10 +1,11 @@
 <script lang="ts">
   import { tick, untrack } from "svelte";
-  import { api, coverUrl, duration, remote, storyTitle, type BookStats, type BookTrouble, type ComicCard, type GuidedSpot, type Panel } from "$lib/api";
+  import { STAR_WORDS, api, coverUrl, duration, remote, storyTitle, type BookStats, type BookTrouble, type ComicCard, type GuidedSpot, type Panel } from "$lib/api";
   import Icon, { type IconName } from "$lib/components/Icon.svelte";
   import WindowControls from "$lib/components/WindowControls.svelte";
   import { viewport } from "$lib/components/SidePanel.svelte";
   import Wash from "$lib/components/Wash.svelte";
+  import Stars from "$lib/components/Stars.svelte";
   import { CLOSE_EASE, closeMs, fadeMs, fly, flightMs, visible } from "$lib/flight";
   import { lib, menu, reader, showMenu } from "$lib/state.svelte";
   import { ACTIONS, chapterName, keysFor, menuItems } from "./actions";
@@ -203,6 +204,8 @@
     spotTimer = setTimeout(flushSpot, 400);
   });
 
+  // The stars a click on the end card would give, while the pointer's on them.
+  let starPreview = $state<number | null>(null);
   // The end card says how the read went, once the last page's save is in.
   let read = $state<BookStats | null>(null);
   $effect(() => {
@@ -493,6 +496,7 @@
 
     {#if c.endCard}
       {@const nextTitle = c.info.next ? storyTitle(c.info.next) : null}
+      {@const shown = starPreview ?? c.rating}
       <div class="end" role="dialog">
         <!-- In the next book's color: it's what's waiting. -->
         <Wash color={(c.info.next ?? c.info.comic).coverColor} height="100%" strength={0.3} />
@@ -500,35 +504,55 @@
           <p class="done">You finished {[c.info.comic.seriesName.trim(), c.info.comic.label].filter(Boolean).join(" ")}.</p>
           {#if readLine.length}
             <p class="read fine">{#each readLine as part, i}{#if i}<span class="dot">·</span>{/if}<span>{part}</span>{/each}</p>
-          {/if}
-          {#if c.info.next}
-            <button class="next" onclick={() => onopen(c.info!.next!.id)}>
-              <img src={coverUrl(c.info.next.id)} alt="" />
-              <span class="nl">{c.info.next.label}</span>
-              {#if nextTitle}<span class="nt">{nextTitle}</span>{/if}
-            </button>
-            <div class="end-actions">
-              <button class="btn icon-btn" onclick={() => onopen(c.info!.next!.id)}><Icon name="play" size={14} />{c.info.next.label}</button>
-              <button class="ico" title="Back to library" aria-label="Back to library" onclick={close}><Icon name="back" size={18} /></button>
-            </div>
-          {:else if waiting}
-            {@const w = waiting}
-            <p class="pile-note">Next from your pile</p>
-            <button class="next" onclick={() => onopen(w.id)}>
-              <img src={coverUrl(w.id)} alt="" />
-              <span class="nl">{w.seriesName.trim()}</span>
-              <span class="nt">{w.label}{#if w.numPages}&ensp;·&ensp;page {w.currentPage + 1} of {w.numPages}{/if}</span>
-            </button>
-            <div class="end-actions">
-              <button class="btn icon-btn" onclick={() => onopen(w.id)}><Icon name="play" size={14} />Resume</button>
-              <button class="ico" title="Back to library" aria-label="Back to library" onclick={close}><Icon name="back" size={18} /></button>
-            </div>
           {:else}
-            <div class="end-actions">
-              <button class="btn icon-btn" onclick={close}><Icon name="back" size={15} />Library</button>
-              <button class="link" onclick={() => (c.endCard = false)}>Stay</button>
-            </div>
+            <p class="read fine">&nbsp;</p>
           {/if}
+          <div class="end-body">
+            <!-- The book you finished, framed, and your rating of it stamped across its foot. -->
+            <div class="finished">
+              <div class="caption">The end</div>
+              <img class="framed" src={coverUrl(c.info.comic.id)} alt="" />
+              {#if !c.info.external}
+                <div class="stamp">
+                  <Stars value={c.rating} size={26} gap={6} onrate={(n) => c.rate(n)} bind:preview={starPreview} label="Rate {c.info.comic.label || 'this book'}" />
+                  <span class="word">{shown ? STAR_WORDS[shown - 1] : "Rate it"}</span>
+                </div>
+                <p class="rate-hint fine">Rate with the stars or <kbd>1</kbd>–<kbd>5</kbd></p>
+              {/if}
+            </div>
+            <div class="after">
+              {#if c.info.next}
+                <span class="up fine">Up next</span>
+                <button class="next" onclick={() => onopen(c.info!.next!.id)}>
+                  <img src={coverUrl(c.info.next.id)} alt="" />
+                  <span class="nl">{c.info.next.label}</span>
+                  {#if nextTitle}<span class="nt">{nextTitle}</span>{/if}
+                </button>
+                <div class="end-actions">
+                  <button class="btn icon-btn" onclick={() => onopen(c.info!.next!.id)}><Icon name="play" size={14} />Read</button>
+                  <button class="ico" title="Back to library" aria-label="Back to library" onclick={close}><Icon name="back" size={18} /></button>
+                </div>
+              {:else if waiting}
+                {@const w = waiting}
+                <span class="up fine">Next from your pile</span>
+                <button class="next" onclick={() => onopen(w.id)}>
+                  <img src={coverUrl(w.id)} alt="" />
+                  <span class="nl">{w.seriesName.trim()}</span>
+                  <span class="nt">{w.label}{#if w.numPages}&ensp;·&ensp;page {w.currentPage + 1} of {w.numPages}{/if}</span>
+                </button>
+                <div class="end-actions">
+                  <button class="btn icon-btn" onclick={() => onopen(w.id)}><Icon name="play" size={14} />Resume</button>
+                  <button class="ico" title="Back to library" aria-label="Back to library" onclick={close}><Icon name="back" size={18} /></button>
+                </div>
+              {:else}
+                <span class="up fine">That's the last one here</span>
+                <div class="end-actions">
+                  <button class="btn icon-btn" onclick={close}><Icon name="back" size={15} />Library</button>
+                  <button class="link" onclick={() => (c.endCard = false)}>Stay</button>
+                </div>
+              {/if}
+            </div>
+          </div>
         </div>
       </div>
     {/if}
@@ -988,11 +1012,11 @@
   }
   .done {
     color: var(--text-2);
-    margin-bottom: 40px;
+    margin: 0;
   }
   /* How the read went: "226 pages · 3 sittings · 2 h 10 min · over 4 days". */
   .read {
-    margin: -26px 0 36px;
+    margin: 10px 0 34px;
     color: var(--text);
     display: flex;
     gap: 10px;
@@ -1000,18 +1024,86 @@
   .read .dot {
     color: var(--text-3);
   }
-  .pile-note {
-    margin-bottom: 18px;
-    color: var(--text-3);
-    font-size: 13px;
+  /* The book you finished on the left, what's next on the right. */
+  .end-body {
+    display: grid;
+    grid-template-columns: auto auto;
+    align-items: center;
+    gap: 64px;
+    text-align: left;
   }
-  .next {
+  .finished {
     display: flex;
     flex-direction: column;
     align-items: center;
   }
+  .finished > .caption {
+    position: relative;
+    z-index: 1;
+    align-self: flex-start;
+    margin-bottom: -3px;
+  }
+  .framed {
+    display: block;
+    /* Short windows keep the whole card on screen. */
+    width: min(300px, calc((100vh - 330px) * 2 / 3));
+    aspect-ratio: 2 / 3;
+    object-fit: cover;
+    border: 3px solid var(--ink);
+    box-shadow: 0 18px 40px rgba(0, 0, 0, 0.45);
+  }
+  /* A caption box stamped across the cover's foot. */
+  .stamp {
+    position: relative;
+    z-index: 1;
+    margin-top: -34px;
+    display: flex;
+    align-items: center;
+    gap: 14px;
+    padding: 10px 18px 8px;
+    background: #e6dfd1;
+    color: #141414;
+    border: 3px solid var(--ink);
+    --star-on: #141414;
+    --star-off: rgba(20, 20, 20, 0.3);
+  }
+  .word {
+    min-width: 7.2em;
+    padding-top: 3px;
+    font: 400 22px/1 var(--display);
+    letter-spacing: 0.05em;
+    text-transform: uppercase;
+  }
+  .rate-hint {
+    margin: 16px 0 0;
+    color: var(--text-3);
+  }
+  .rate-hint kbd {
+    padding: 0 5px;
+    border-radius: 3px;
+    box-shadow: inset 0 0 0 1px var(--line);
+    font-family: var(--mono);
+    font-size: 12px;
+    color: var(--text-2);
+  }
+  .after {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+    width: 220px;
+  }
+  .up {
+    margin-bottom: 12px;
+    color: var(--text-3);
+  }
+  .next {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+    text-align: left;
+  }
   .next img {
-    width: 180px;
+    width: 160px;
     aspect-ratio: 2 / 3;
     object-fit: cover;
     border-radius: 2px;
@@ -1021,22 +1113,23 @@
     transform: translateY(-4px);
   }
   .nl {
-    margin-top: 20px;
+    margin-top: 16px;
     font-family: var(--display);
     font-weight: 400;
-    font-size: 40px;
+    font-size: 30px;
     line-height: 0.95;
-    letter-spacing: 0.01em;
+    letter-spacing: 0.03em;
   }
   .nt {
     margin-top: 4px;
     color: var(--text-2);
+    font-size: 13px;
   }
   .end-actions {
     display: flex;
     align-items: center;
     gap: 20px;
-    margin-top: 36px;
+    margin-top: 22px;
   }
   .icon-btn {
     display: inline-flex;
@@ -1046,6 +1139,25 @@
   /* A phone: the toolbar takes the screen's width, keeping the tools and the page number; the
      book's name and the clock make way. */
   @media (max-width: 700px) {
+    .end-body {
+      grid-template-columns: 1fr;
+      justify-items: center;
+      gap: 28px;
+    }
+    .framed {
+      width: min(200px, calc((100vh - 420px) * 2 / 3));
+    }
+    .after {
+      align-items: center;
+    }
+    .after .next {
+      flex-direction: row;
+      gap: 14px;
+      align-items: center;
+    }
+    .after .next img {
+      width: 64px;
+    }
     .tab {
       max-width: calc(100% - 12px);
     }

@@ -125,6 +125,8 @@ pub struct Stats {
     pub creators: Vec<Ranked>,
     pub characters: Vec<Ranked>,
     pub finished: Vec<ComicCard>,
+    /// The writers and artists you rate highest (see ratings.rs).
+    pub favorites: Vec<crate::ratings::Favorite>,
 }
 
 // Calendar days in the reader's time zone, from Howard Hinnant's civil-date algorithms.
@@ -280,6 +282,7 @@ pub fn stats(conn: &Connection, now: i64, tz_secs: i64) -> Result<Stats> {
         creators: top(creators),
         characters: top(characters),
         finished,
+        favorites: crate::ratings::favorite_creators(conn)?,
     })
 }
 

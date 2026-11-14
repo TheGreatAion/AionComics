@@ -2,7 +2,7 @@
 
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { open, save } from "@tauri-apps/plugin-dialog";
-import { COMIC_FILES, api, remote, pageUrl, previewUrl, screenUrl, thumbUrl, type GuidedSpot, type Panel, type ReaderInfo } from "$lib/api";
+import { COMIC_FILES, STAR_WORDS, api, remote, pageUrl, previewUrl, screenUrl, thumbUrl, type GuidedSpot, type Panel, type ReaderInfo } from "$lib/api";
 import { keepView, prefs, viewFor, type Fit, type View } from "./prefs.svelte";
 
 export type Overlay = null | "flow" | "bookmarks" | "shortcuts" | "options" | "extract" | "editor";
@@ -77,6 +77,8 @@ export class Ctl {
   /** At the end of a series, the book the end card offers from your pile (set by the reader). */
   fromPile: number | null = null;
   note = $state("");
+  /** Your stars for this book, 1 to 5. */
+  rating = $state<number | null>(null);
   /** The scrolling element of the current view, for Space to scroll before turning. */
   stage: HTMLElement | null = null;
   private noteTimer: ReturnType<typeof setTimeout> | undefined;
@@ -138,6 +140,7 @@ export class Ctl {
     this.warm = [];
     this.info = info;
     this.bookmarks = info.bookmarks;
+    this.rating = info.comic.rating ?? null;
     this.view = viewFor(info.rtl, info.webtoon);
     this.shifted = !info.external && shiftedBooks().includes(info.comic.id);
     this.step = -1;
@@ -541,6 +544,22 @@ export class Ctl {
       this.bookmarks = on ? [...this.bookmarks, page].sort((a, b) => a - b) : this.bookmarks.filter((b) => b !== page);
       this.say(on ? `Bookmarked page ${page + 1}` : `Removed the bookmark on page ${page + 1}`);
     } catch (e) {
+      this.say(String(e));
+    }
+  }
+
+  /** Give this book `stars`; the same again takes the rating away. */
+  async rate(stars: number) {
+    if (!this.info || this.info.external) return;
+    const was = this.rating;
+    const to = was === stars ? null : stars;
+    this.rating = to;
+    try {
+      await api.rateBook(this.id, to);
+      // On the end card the stars say it; while reading, a word does.
+      if (!this.endCard) this.say(to ? `${"★".repeat(to)}${"☆".repeat(5 - to)}  ${STAR_WORDS[to - 1]}` : "Rating taken away");
+    } catch (e) {
+      this.rating = was;
       this.say(String(e));
     }
   }

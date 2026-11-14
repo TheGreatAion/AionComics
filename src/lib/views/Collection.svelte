@@ -12,19 +12,21 @@
   import { look } from "$lib/look.svelte";
   import Icon, { type IconName } from "$lib/components/Icon.svelte";
 
-  type Sort = "name" | "read" | "added";
+  type Sort = "name" | "read" | "added" | "rating";
   // Each sort is a symbol; its name is the tooltip.
   const SORTS: { key: Sort; title: string; icon: IconName | null }[] = [
     { key: "name", title: "A to Z", icon: null },
     { key: "read", title: "Recently read", icon: "clock" },
     { key: "added", title: "Recently added", icon: "arrived" },
+    { key: "rating", title: "Your best rated", icon: "star" },
   ];
 
   // Which series to show, besides all of them. Pressing the one that's on goes back to all.
-  type Show = "unread" | "reading";
+  type Show = "unread" | "reading" | "liked";
   const SHOWS: { key: Show; title: string; icon: IconName }[] = [
     { key: "unread", title: "Only ones with books still unread", icon: "unread" },
     { key: "reading", title: "Only ones you've started and not finished", icon: "reading" },
+    { key: "liked", title: "Only ones you rated 4 stars and up", icon: "starPlus" },
   ];
   const stored = (() => {
     try {
@@ -38,7 +40,7 @@
   let data = $state<CollectionView | null>(null);
   let filter = $state("");
   let sort = $state<Sort>((localStorage.getItem("aion.collectionSort") as Sort | null) ?? "name");
-  let showing = $state<Show | null>(stored === "unread" || stored === "reading" ? stored : null);
+  let showing = $state<Show | null>(stored === "unread" || stored === "reading" || stored === "liked" ? stored : null);
 
   $effect(() => {
     void lib.version;
@@ -63,9 +65,11 @@
     const q = filter.trim().toLowerCase();
     const list = (data?.series ?? [])
       .filter((s) => s.name.toLowerCase().includes(q))
-      .filter((s) => (showing === "unread" ? unfinished(s) : showing === "reading" ? started(s) : true));
+      .filter((s) => (showing === "unread" ? unfinished(s) : showing === "reading" ? started(s) : showing === "liked" ? (s.stars ?? 0) >= 4 : true));
     if (sort === "read") return [...list].sort((a, b) => (b.lastReadAt ?? 0) - (a.lastReadAt ?? 0));
     if (sort === "added") return [...list].sort((a, b) => (b.lastAddedAt ?? 0) - (a.lastAddedAt ?? 0));
+    // Rated first, best first; the rest after, A to Z.
+    if (sort === "rating") return [...list].sort((a, b) => (b.stars ?? 0) - (a.stars ?? 0));
     return list;
   });
   const total = $derived(data?.series.reduce((n, s) => n + s.count, 0) ?? 0);
@@ -124,9 +128,9 @@
   // The grid's caption box: what's shown, in what order.
   const section = $derived.by(() => {
     if (filter.trim()) return `Matching “${filter.trim()}”`;
-    const order = { name: "A to Z", read: "recently read", added: "recently added" }[sort];
-    if (showing) return `${showing === "unread" ? "Still unread" : "Started"}, ${order}`;
-    return { name: "Every series, A to Z", read: "Recently read", added: "Recently added" }[sort];
+    const order = { name: "A to Z", read: "recently read", added: "recently added", rating: "best rated first" }[sort];
+    if (showing) return `${{ unread: "Still unread", reading: "Started", liked: "Rated 4 stars and up" }[showing]}, ${order}`;
+    return { name: "Every series, A to Z", read: "Recently read", added: "Recently added", rating: "Your best rated" }[sort];
   });
 
   // With only one or two series there's room to tell each one properly instead of a grid.
@@ -252,6 +256,7 @@
           read={s.readCount}
           name={s.name}
           detail={status(s)}
+          stars={s.stars}
           ribbon={s.wanted}
           onclick={(e) => open(e, s)}
           oncontextmenu={(e) => seriesMenu(e, s, false)}

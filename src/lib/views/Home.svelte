@@ -2,8 +2,8 @@
   import { tick, untrack } from "svelte";
   import { fade, fly } from "svelte/transition";
   import { addMenu, adding } from "$lib/add.svelte";
-  import { libraryMenu } from "$lib/manage.svelte";
-  import { ago, api, listText, pageUrl, printUrl, progressOf, storyTitle, unitWord, type ComicCard, type Home } from "$lib/api";
+  import { libraryMenu, want } from "$lib/manage.svelte";
+  import { ago, api, listText, pageUrl, printUrl, progressOf, storyTitle, unitWord, type ComicCard, type Home, type Suggestion } from "$lib/api";
   import { lib, nav, openReader, reader, search, sheets, showMenu, undoable } from "$lib/state.svelte";
   import { bareEnter } from "$lib/keynav";
   import { hue } from "$lib/color";
@@ -14,6 +14,8 @@
   import { look, motionMs } from "$lib/look.svelte";
 
   let data = $state<Home | null>(null);
+  // From your shelves: series you haven't started, by the people behind books you rated highly.
+  let shelves = $state<Suggestion[]>([]);
 
   $effect(() => {
     void lib.version;
@@ -21,7 +23,12 @@
       data = d;
       nav.restore();
     });
+    api.suggestions().then((v) => (shelves = v)).catch(() => (shelves = []));
   });
+  async function notInterested(s: Suggestion) {
+    shelves = shelves.filter((x) => x.seriesId !== s.seriesId);
+    await api.skipSuggestion(s.seriesId);
+  }
 
   // Everything you're in the middle of, each book its cover and the page you're on, piled up.
   // The book on top is the one the hero describes; flipping changes only what's on top.
@@ -389,6 +396,42 @@
       </section>
     {/if}
 
+    {#if shelves.length}
+      <!-- Series waiting on your shelves, by the people behind books you rated highly. Each says why. -->
+      <section class="library shelves" aria-label="From your shelves">
+        <div class="shelf-h">
+          <h2>From your shelves</h2>
+          <span class="fine">Not started yet, by the people behind books you rated highly</span>
+        </div>
+        <div class="cols">
+          {#each shelves as s (s.seriesId)}
+            <div class="slot" role="group">
+              <button class="col" data-nav title={s.name} onclick={() => nav.go({ name: "series", id: s.seriesId })}>
+                <div class="caption">
+                  <span class="named">{s.name}</span><span class="fine">{s.books} {unitWord(s.isManga, s.books)}</span>
+                </div>
+                <div class="fan" style:height="{fanH}px">
+                  {#each s.covers as id (id)}<Cover {id} width={Math.round(fanH * 0.65)} pages={null} />{/each}
+                </div>
+                <div class="why">
+                  <svg width="12" height="12" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3.6l2.55 5.2 5.75.84-4.16 4.05.98 5.72L12 16.7l-5.12 2.7.98-5.72L3.7 9.64l5.75-.84z" /></svg>
+                  <span>{s.who} · you loved {s.because}</span>
+                </div>
+              </button>
+              <div class="shelf-tools">
+                <button class="ico" title="Want to read" aria-label="Put {s.name} on Want to read" onclick={() => want({ series: s.seriesId }, true, s.name)}>
+                  <Icon name="plus" size={16} />
+                </button>
+                <button class="ico" title="Not interested" aria-label="Not interested in {s.name}" onclick={() => notInterested(s)}>
+                  <Icon name="close" size={15} />
+                </button>
+              </div>
+            </div>
+          {/each}
+        </div>
+      </section>
+    {/if}
+
     {#if lib.collections.length}
       <!-- The library as a tier of panels, each collection's name and counts in a caption box. -->
       <section class="library" aria-label="Library">
@@ -748,6 +791,70 @@
   .col:hover .fan :global(.cover:nth-child(3)) {
     transform: translateX(-4%) rotate(10deg) scale(0.88);
     filter: brightness(0.8);
+  }
+  .shelf-h {
+    display: flex;
+    align-items: baseline;
+    flex-wrap: wrap;
+    gap: 6px 14px;
+    margin: 6px 0 18px;
+  }
+  .shelf-h h2 {
+    margin: 0;
+    font: 400 28px/1 var(--display);
+    letter-spacing: 0.02em;
+    text-transform: uppercase;
+  }
+  .shelf-h .fine {
+    color: var(--text-3);
+  }
+  .shelves .col {
+    padding-bottom: 62px;
+  }
+  /* Why it's here, along the panel's foot. */
+  .why {
+    position: absolute;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    z-index: 2;
+    display: flex;
+    align-items: center;
+    gap: 7px;
+    padding: 9px 76px 9px 14px;
+    background: var(--bg);
+    box-shadow: 0 -1px 0 var(--line);
+    color: var(--text-2);
+    font-size: 12px;
+    text-align: left;
+  }
+  .why {
+    min-height: 50px;
+    line-height: 1.35;
+  }
+  .why span {
+    display: -webkit-box;
+    -webkit-line-clamp: 2;
+    line-clamp: 2;
+    -webkit-box-orient: vertical;
+    overflow: hidden;
+  }
+  .why svg {
+    flex: none;
+    fill: currentColor;
+  }
+  /* Want to read and Not interested, at the end of the panel's foot. */
+  .shelf-tools {
+    position: absolute;
+    right: 6px;
+    bottom: 4px;
+    z-index: 3;
+    display: flex;
+    gap: 0;
+  }
+  .shelf-tools .ico {
+    width: 30px;
+    height: 30px;
   }
   .empty {
     padding: 160px var(--pad) 0;

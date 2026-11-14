@@ -221,6 +221,7 @@ fn migrate(conn: &Connection) -> Result<()> {
             [],
         )?;
     }
+    crate::ratings::migrate(conn)?;
     Ok(())
 }
 
@@ -272,10 +273,13 @@ pub struct ComicCard {
     /// On the series page: what an annual or special follows in the story, "#12".
     #[serde(skip_serializing_if = "Option::is_none")]
     pub after: Option<String>,
+    /// Your stars for it, 1 to 5.
+    pub rating: Option<i64>,
 }
 
 const CARD_COLS: &str = "c.id, c.label, c.title, c.year, s.id, s.name, c.current_page, c.num_pages, c.read,
-  COALESCE(COALESCE(s.reading, col.reading)='manga', col.is_manga), c.cover_ratio, c.last_read_at, c.cover_color";
+  COALESCE(COALESCE(s.reading, col.reading)='manga', col.is_manga), c.cover_ratio, c.last_read_at, c.cover_color,
+  (SELECT r.stars FROM ratings r WHERE r.comic_id=c.id)";
 const CARD_JOIN: &str = "JOIN series s ON s.id=c.series_id JOIN collections col ON col.id=s.collection_id";
 
 fn card(r: &Row) -> rusqlite::Result<ComicCard> {
@@ -296,6 +300,7 @@ fn card(r: &Row) -> rusqlite::Result<ComicCard> {
         edition: None,
         collects: None,
         after: None,
+        rating: r.get(13)?,
     })
 }
 
@@ -494,6 +499,9 @@ pub struct SeriesSummary {
     pub reading: Option<String>,
     /// On your Want to read list (and not started since).
     pub wanted: bool,
+    /// Your stars for it: your own rating of the series, else the average of its books you rated
+    /// (once two are, or its only book is).
+    pub stars: Option<f64>,
 }
 
 /// A series on Want to read stays there until you start it (read a page of any of its books after
@@ -519,7 +527,10 @@ const SERIES_SELECT: &str = concat!(
        s.reading,
        EXISTS (SELECT 1 FROM want_series w WHERE w.series_id=s.id AND ",
     series_wanted!(),
-    ")
+    "),
+       COALESCE((SELECT sr.stars FROM series_ratings sr WHERE sr.series_id=s.id),
+         (SELECT CASE WHEN COUNT(*) >= MIN(2, (SELECT COUNT(*) FROM comics c4 WHERE c4.series_id=s.id)) THEN AVG(r.stars) END
+            FROM ratings r JOIN comics c4 ON c4.id=r.comic_id WHERE c4.series_id=s.id))
      FROM series s JOIN collections col ON col.id=s.collection_id LEFT JOIN comics c ON c.series_id=s.id"
 );
 
@@ -539,6 +550,7 @@ fn series_summary(r: &Row) -> rusqlite::Result<SeriesSummary> {
         printed: false,
         reading: r.get(11)?,
         wanted: r.get(12)?,
+        stars: r.get(13)?,
     })
 }
 
@@ -655,6 +667,8 @@ pub struct SeriesView {
     pub wanted_books: Vec<i64>,
     /// Issues (or manga volumes) out on Comic Vine past the last one here: "19", "20".
     pub new_issues: Vec<String>,
+    /// Your rating of the series, and the average of its books you rated.
+    pub stars: crate::ratings::SeriesStars,
 }
 
 /// A book that may be the same as another, with where its file is.
@@ -814,9 +828,9 @@ pub fn people_view(conn: &Connection, kind: &str, name: &str) -> Result<PeopleVi
     let mut rows = st.query([name.trim()])?;
     while let Some(r) = rows.next()? {
         let c = card(r)?;
-        let collection: String = r.get(13)?;
+        let collection: String = r.get(14)?;
         for (i, role) in roles.iter_mut().enumerate() {
-            if r.get::<_, bool>(14 + i)? {
+            if r.get::<_, bool>(15 + i)? {
                 role.1 += 1;
             }
         }
@@ -909,6 +923,7 @@ pub fn series_view(conn: &Connection, id: i64) -> Result<SeriesView> {
             .query_map([id], |r| r.get(0))?
             .collect::<rusqlite::Result<_>>()?,
         new_issues: new_issues(conn, id)?,
+        stars: crate::ratings::series_stars(conn, id)?,
     })
 }
 

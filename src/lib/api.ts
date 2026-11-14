@@ -79,6 +79,8 @@ export interface ComicCard {
   collects?: string;
   /** On the series page: what an annual or special follows in the story ("#12"). */
   after?: string;
+  /** Your stars for it, 1 to 5. */
+  rating: number | null;
 }
 
 export type EditionKind = "volume" | "issue" | "chapter" | "collection" | "deluxe" | "omnibus" | "annual" | "special";
@@ -196,6 +198,8 @@ export interface SeriesSummary {
   reading: "comic" | "manga" | "webtoon" | null;
   /** On your Want to read list (and not started since). */
   wanted: boolean;
+  /** Your stars for it: your own rating of the series, else the average of its books you rated. */
+  stars: number | null;
 }
 
 export interface CollectionView {
@@ -233,7 +237,36 @@ export interface SeriesView {
   wantedBooks: number[];
   /** Issues (or manga volumes) out on Comic Vine past the last one here: "19", "20". */
   newIssues: string[];
+  stars: SeriesStars;
 }
+
+/** A series' rating: your own, and the average of its books you rated (once two are). */
+export interface SeriesStars {
+  own: number | null;
+  average: number | null;
+  rated: number;
+}
+
+/** A writer or artist you rate highly, from at least three rated books. */
+export interface Favorite {
+  name: string;
+  average: number;
+  rated: number;
+}
+
+/** A series on your shelves you haven't started, by someone behind a book you rated highly. */
+export interface Suggestion {
+  seriesId: number;
+  name: string;
+  books: number;
+  isManga: boolean;
+  covers: number[];
+  who: string;
+  because: string;
+}
+
+/** What each number of stars means. */
+export const STAR_WORDS = ["Not for me", "It was okay", "Good", "Really good", "Loved it"];
 
 /** Books that look like copies of one another, and why. Nothing is ever deleted for you. */
 export interface DupGroup {
@@ -280,6 +313,7 @@ export interface ReadingStats {
   creators: Ranked[];
   characters: Ranked[];
   finished: ComicCard[];
+  favorites: Favorite[];
 }
 
 /** "2 h 14 min", "35 min", "under a minute". */
@@ -565,6 +599,10 @@ export const api = {
   healthRecheck: (id: number) => call<HealthKind | null>("health_recheck", { id }),
   ignoreDuplicate: (key: string) => call<void>("ignore_duplicate", { key }),
   readingStats: () => call<ReadingStats>("reading_stats", { tzMinutes: -new Date().getTimezoneOffset() }),
+  rateBook: (id: number, stars: number | null) => call<void>("rate_book", { id, stars }),
+  rateSeries: (id: number, stars: number | null) => call<SeriesStars>("rate_series", { id, stars }),
+  suggestions: () => call<Suggestion[]>("suggestions", { tzMinutes: -new Date().getTimezoneOffset() }),
+  skipSuggestion: (id: number) => call<void>("skip_suggestion", { id }),
   openComic: (id: number) => call<ReaderInfo>("open_comic", { id, screen: screenHeight }),
   pagePanels: (id: number, page: number, rtl: boolean) => call<Panel[]>("page_panels", { id, page, rtl }),
   /** Guided View: work out the book's panels in the background, from page `from` on. */

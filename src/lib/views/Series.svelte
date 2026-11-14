@@ -3,9 +3,10 @@
   import { slide } from "svelte/transition";
   import { addMenu } from "$lib/add.svelte";
   import CvKeyBox from "$lib/components/CvKeyBox.svelte";
+  import Stars from "$lib/components/Stars.svelte";
   import { viewport } from "$lib/components/SidePanel.svelte";
   import { readAsItems, removing, want, wantItem } from "$lib/manage.svelte";
-  import { api, chapterList, listText, plainText, remote, storyTitle, unitWord, type ComicCard, type ComicMeta, type CvBookExtras, type CvVolume, type Edition, type EditionKind, type MetaField, type SeriesView } from "$lib/api";
+  import { STAR_WORDS, api, chapterList, listText, plainText, remote, storyTitle, unitWord, type ComicCard, type ComicMeta, type CvBookExtras, type CvVolume, type Edition, type EditionKind, type MetaField, type SeriesView } from "$lib/api";
   import CoverViewer from "$lib/components/CoverViewer.svelte";
   import { lib, nav, openReader, reader, search, sheets, showMenu, undoable, undoableWith, type MenuItem } from "$lib/state.svelte";
   import { bareEnter, nearest } from "$lib/keynav";
@@ -71,6 +72,54 @@
     if (made.trim() && !words.some((w) => made.includes(w.toLowerCase()))) return { title: name, by: "" };
     return { title: `${m[1]}${m[3] ?? ""}`, by: `by ${m[2]}` };
   });
+  // Ratings: the series' own, or the average of its books you rated; each book's under its cover
+  // and in its details. Changed here at once, then saved.
+  let seriesPreview = $state<number | null>(null);
+  let bookPreview = $state<number | null>(null);
+  function restar() {
+    if (!data) return;
+    const rated = new Map<number, number>();
+    const ids = new Set<number>();
+    for (const s of data.sections)
+      for (const x of s.comics) {
+        ids.add(x.id);
+        if (x.rating) rated.set(x.id, x.rating);
+      }
+    const sum = [...rated.values()].reduce((a, b) => a + b, 0);
+    const enough = rated.size > 0 && rated.size >= Math.min(2, ids.size);
+    data.stars = { ...data.stars, average: enough ? sum / rated.size : null, rated: rated.size };
+  }
+  async function rateBook(c: ComicCard, n: number) {
+    if (!data) return;
+    const was = c.rating;
+    const to = was === n ? null : n;
+    // The same book is listed in the series and again under its format.
+    const put = (v: number | null) => {
+      for (const s of [...data!.sections, ...data!.editions.flatMap((e) => e.sections)]) for (const x of s.comics) if (x.id === c.id) x.rating = v;
+      restar();
+    };
+    put(to);
+    try {
+      await api.rateBook(c.id, to);
+    } catch {
+      put(was);
+    }
+  }
+  async function rateSeries(n: number) {
+    if (!data) return;
+    const id = data.id;
+    const stars = await api.rateSeries(id, data.stars.own === n ? null : n);
+    if (data?.id === id) data.stars = stars;
+  }
+  const seriesStarsTitle = $derived(
+    !data
+      ? ""
+      : data.stars.own
+        ? `Your rating of the series: ${STAR_WORDS[data.stars.own - 1]}`
+        : data.stars.average != null
+          ? `The average of the ${data.stars.rated} books you rated. Click to rate the series itself.`
+          : "Rate the series",
+  );
   const findOnCv = () => data && (sheets.matching = { seriesId: data.id, isManga: data.isManga, name: data.name });
 
   // A series without details yet: whether Comic Vine has it, looked up quietly a moment after the
@@ -666,6 +715,14 @@
       <div class="names">
         <button class="crumb link" onclick={() => nav.go({ name: "collection", id: data!.collectionId })}>{data.collectionName}</button>
         {#if by}<span class="by">· {by}</span>{/if}
+        <span class="series-stars" title={seriesStarsTitle}>
+          <Stars value={data.stars.own ?? data.stars.average} size={14} gap={2} onrate={rateSeries} bind:preview={seriesPreview} label="Rate {data.name}" />
+          {#if seriesPreview}
+            <span class="fine">{STAR_WORDS[seriesPreview - 1]}</span>
+          {:else if data.stars.own == null && data.stars.average != null}
+            <span class="fine">{data.stars.average.toFixed(1)}</span>
+          {/if}
+        </span>
       </div>
       <div class="tools">
         <!-- On your Want to read list, or not: filled in when it is. -->
@@ -823,7 +880,7 @@
                   <span class="line"><i style:width="{((c.currentPage + 1) / c.numPages) * 100}%"></i></span>
                 {/if}
               </span>
-              <span class="cap fine">{c.label}{#if c.collects}<span class="holds">{c.collects}</span>{:else if c.after}<span class="holds" title="Comes after {c.after} in the story">after {c.after}</span>{/if}</span>
+              <span class="cap fine">{c.label}{#if c.collects}<span class="holds">{c.collects}</span>{:else if c.after}<span class="holds" title="Comes after {c.after} in the story">after {c.after}</span>{/if}{#if c.rating}<span class="rated"><Stars value={c.rating} size={11} gap={1} /></span>{/if}</span>
               <!-- Where any book in a section has a title, each keeps two lines for one, so covers stay in line. -->
               {#if titled}<span class="name">{storyTitle(c) ?? ""}</span>{/if}
             </button>
@@ -905,6 +962,11 @@
                       </div>
                     </div>
                   {/if}
+                  <div class="rate-row">
+                    <span class="fine rlabel">Your rating</span>
+                    <Stars value={book.rating} size={20} gap={6} onrate={(n) => rateBook(book!, n)} bind:preview={bookPreview} label="Rate {book.label}" />
+                    <span class="fine rword">{bookPreview ? STAR_WORDS[bookPreview - 1] : book.rating ? STAR_WORDS[book.rating - 1] : ""}</span>
+                  </div>
                   <div class="actions">
                     <button class="btn play" onclick={open}><Icon name="play" size={14} />{action}</button>
                     {#if reading && book.numPages}
@@ -1237,6 +1299,29 @@
   /* What a collection holds: "#13–18". */
   .holds {
     font-size: 12px;
+    color: var(--text-3);
+  }
+  .rated {
+    align-self: center;
+    line-height: 0;
+    --star-on: var(--text-2);
+  }
+  .series-stars {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    margin-left: 12px;
+    vertical-align: -2px;
+    color: var(--text-2);
+  }
+  .rate-row {
+    display: flex;
+    align-items: center;
+    gap: 16px;
+    margin-top: 18px;
+  }
+  .rlabel,
+  .rword {
     color: var(--text-3);
   }
 

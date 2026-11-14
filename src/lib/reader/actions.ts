@@ -232,6 +232,10 @@ export const ACTIONS: Action[] = [
   { id: "shortcuts", label: "Keyboard shortcuts", group: "app", keys: ["?", "F1"], run: (c) => c.toggle("shortcuts") },
   { id: "options", label: "Options", group: "app", keys: ["c"], run: (c) => c.toggle("options") },
   { id: "close", label: "Back to library", group: "close", keys: ["Escape"], run: (c) => c.hooks.close() },
+  // Rate the book you're reading: 1 to 5 stars, the same number again to take it away.
+  ...[1, 2, 3, 4, 5].map(
+    (n): Action => ({ id: `rate${n}`, label: `Rate ${n} ${n === 1 ? "star" : "stars"}`, group: "books", keys: [String(n)], run: (c) => c.rate(n), enabled: library, hidden: true }),
+  ),
 ];
 
 /** Keys in effect for an action: the user's override, or the default. */

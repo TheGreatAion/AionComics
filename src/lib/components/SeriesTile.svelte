@@ -12,6 +12,7 @@
     name,
     detail,
     tag,
+    stars = null,
     ribbon = false,
     onclick,
     oncontextmenu,
@@ -26,6 +27,8 @@
     detail: string;
     /** A small paper label before the detail ("Book"). */
     tag?: string;
+    /** Your stars for it, shown after the detail. */
+    stars?: number | null;
     ribbon?: boolean;
     onclick: (e: MouseEvent) => void;
     oncontextmenu?: (e: MouseEvent) => void;
@@ -48,11 +51,23 @@
   </span>
   <span class="cap">
     <span class="name">{name}</span>
-    <span class="detail">{#if tag}<span class="tag">{tag}</span>{/if}{detail}</span>
+    <span class="detail">{#if tag}<span class="tag">{tag}</span>{/if}{detail}{#if stars}<span class="stars" title="Your rating">{#if detail}<span class="sep">·</span>{/if}<svg width="11" height="11" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3.6l2.55 5.2 5.75.84-4.16 4.05.98 5.72L12 16.7l-5.12 2.7.98-5.72L3.7 9.64l5.75-.84z" /></svg>{Number.isInteger(stars) ? stars : stars.toFixed(1)}</span>{/if}</span>
   </span>
 </button>
 
 <style>
+  .stars {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+  }
+  .stars svg {
+    fill: currentColor;
+  }
+  .sep {
+    margin: 0 6px;
+    color: var(--text-3);
+  }
   .tile {
     display: block;
     text-align: left;

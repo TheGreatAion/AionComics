@@ -16,6 +16,7 @@ mod stats;
 mod warm;
 mod window;
 mod pdf;
+mod ratings;
 mod remote;
 mod removal;
 mod yacsync;
@@ -841,6 +842,33 @@ fn set_wanted(state: State<Shared>, series: Option<i64>, book: Option<i64>, on: 
     db::set_wanted(&state.conn.lock().unwrap(), series, book, on, scan::now()).map_err(err)
 }
 
+/// Rate a book 1 to 5 stars, or with None take its rating away.
+#[tauri::command]
+fn rate_book(state: State<Shared>, id: i64, stars: Option<i64>) -> CmdResult<()> {
+    ratings::set_book(&state.conn.lock().unwrap(), id, stars, scan::now()).map_err(err)
+}
+
+/// Rate a series as a whole, or with None go back to the average of its books.
+#[tauri::command]
+fn rate_series(state: State<Shared>, id: i64, stars: Option<i64>) -> CmdResult<ratings::SeriesStars> {
+    let conn = state.conn.lock().unwrap();
+    ratings::set_series(&conn, id, stars, scan::now()).map_err(err)?;
+    ratings::series_stars(&conn, id).map_err(err)
+}
+
+/// Series you haven't started, by the people behind books you rated highly (see ratings.rs).
+#[tauri::command(async)]
+fn suggestions(state: State<Shared>, tz_minutes: i64) -> CmdResult<Vec<ratings::Suggestion>> {
+    let day = (scan::now() + tz_minutes * 60).div_euclid(86_400);
+    ratings::suggestions(&state.conn.lock().unwrap(), day, 4).map_err(err)
+}
+
+/// "Not interested" in a suggested series.
+#[tauri::command]
+fn skip_suggestion(state: State<Shared>, id: i64) -> CmdResult<()> {
+    ratings::skip(&state.conn.lock().unwrap(), id, scan::now()).map_err(err)
+}
+
 /// Start checking every book in the library (see health.rs).
 #[tauri::command]
 fn health_start(state: State<Shared>) -> CmdResult<()> {
@@ -1173,6 +1201,7 @@ fn external_card(path: &Path, id: i64, pages: usize) -> db::ComicCard {
         edition: None,
         collects: None,
         after: None,
+        rating: None,
     }
 }
 
@@ -1580,6 +1609,10 @@ fn remote_call(app: &AppHandle, cmd: &str, a: &serde_json::Value) -> Result<serd
         "want_list" => out(want_list(st())),
         "set_wanted" => out(set_wanted(st(), arg(a, "series")?, arg(a, "book")?, arg(a, "on")?)),
         "book_stats" => out(book_stats(st(), arg(a, "id")?)),
+        "rate_book" => out(rate_book(st(), arg(a, "id")?, arg(a, "stars")?)),
+        "rate_series" => out(rate_series(st(), arg(a, "id")?, arg(a, "stars")?)),
+        "suggestions" => out(suggestions(st(), arg(a, "tzMinutes")?)),
+        "skip_suggestion" => out(skip_suggestion(st(), arg(a, "id")?)),
         "reading_stats" => out(reading_stats(st(), arg(a, "tzMinutes")?)),
         "open_comic" => out(block_on(open_comic(st(), arg(a, "id")?, arg(a, "screen")?))),
         "book_trouble" => out(book_trouble(st(), arg(a, "id")?)),
@@ -1808,6 +1841,10 @@ pub fn run() {
             set_editions,
             restore_editions,
             cv_set_key,
+            rate_book,
+            rate_series,
+            suggestions,
+            skip_suggestion,
             cv_search,
             cv_volume_issues,
             cv_about,
