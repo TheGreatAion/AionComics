@@ -788,7 +788,7 @@
               </div>
             </div>
             <div class="row">
-              <div class="lbl">Keep pages of books you haven't opened<small>They come back when you open the book</small></div>
+              <div class="lbl">Keep books ready to open for<small>A book not opened in that long has its saved pages cleared. Opening it brings them back</small></div>
               {@render choice(
                 [
                   { key: 7, label: "7 days" },
