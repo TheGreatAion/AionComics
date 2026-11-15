@@ -686,7 +686,9 @@ export interface RemoteStatus {
 // Custom protocol: Windows' WebView2 exposes it as http://aion.localhost. On another device, the
 // same pictures come from AionComics' web server.
 const base = remote ? "/img" : navigator.userAgent.includes("Windows") ? "http://aion.localhost" : "aion://localhost";
-export const coverUrl = (id: number) => `${base}/cover/${id}`;
+// "?v=2": covers once came through broken (see `cover` in lib.rs) and the window keeps a cover for a
+// year, so the address changed for it to ask again.
+export const coverUrl = (id: number) => `${base}/cover/${id}?v=2`;
 export const pageUrl = (id: number, n: number) => `${base}/page/${id}/${n}`;
 export const thumbUrl = (id: number, n: number) => `${base}/thumb/${id}/${n}`;
 export const printUrl = (id: number) => `${base}/print/${id}`;

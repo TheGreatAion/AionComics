@@ -1466,11 +1466,14 @@ fn cover(state: &AppState, id: i64) -> anyhow::Result<Vec<u8>> {
         return Ok(b);
     }
     let (path, file) = state.comic_path(id)?;
-    // Reuse YACReader's cover cache when it has one.
+    // Reuse YACReader's cover cache when it has one, if what's there is really a picture: some of
+    // its files are scrambled, and passed on they showed as a broken picture. Otherwise we make our own.
     if let (Some(hash), Some(root)) = (file.yac_hash.as_ref(), state.root()) {
         let yac = root.join(".yacreaderlibrary").join("covers").join(format!("{hash}.jpg"));
         if let Ok(b) = std::fs::read(yac) {
-            return Ok(b);
+            if is_picture(&b) {
+                return Ok(b);
+            }
         }
     }
     let (thumb, ratio) = archive::make_thumbnail(&state.archives.first_page(id, &path)?)?;
@@ -1482,6 +1485,23 @@ fn cover(state: &AppState, id: i64) -> anyhow::Result<Vec<u8>> {
         let _ = db::set_cover_color(&conn, id, &c);
     }
     Ok(thumb)
+}
+
+/// Whether bytes start the way a JPEG, PNG or WebP picture does.
+fn is_picture(b: &[u8]) -> bool {
+    b.starts_with(&[0xFF, 0xD8, 0xFF]) || b.starts_with(&[0x89, b'P', b'N', b'G']) || (b.len() > 12 && &b[..4] == b"RIFF" && &b[8..12] == b"WEBP")
+}
+
+#[cfg(test)]
+mod picture_tests {
+    #[test]
+    fn scrambled_covers_are_not_pictures() {
+        assert!(super::is_picture(&[0xFF, 0xD8, 0xFF, 0xE0, 0, 0x10]));
+        assert!(super::is_picture(&[0x89, b'P', b'N', b'G', 0x0D, 0x0A]));
+        assert!(super::is_picture(b"RIFF\x10\x00\x00\x00WEBPVP8 "));
+        assert!(!super::is_picture(&[0x86, 0x27, 0x54, 0x8A, 0x14, 0x2F]));
+        assert!(!super::is_picture(&[]));
+    }
 }
 
 /// Where a cover's print is kept (see `archive::make_print`).

@@ -27,6 +27,22 @@
     maxLines?: number;
   } = $props();
 
+  // A cover that doesn't load (one being made for the first time can take a moment) is asked for
+  // again a few times; one that never does leaves its letter outlined, never a broken picture.
+  const TRIES = 3;
+  let tries = $state<Record<number, number>>({});
+  let waiting = $state<Record<number, boolean>>({});
+  function missed(cover: number) {
+    const n = (tries[cover] ?? 0) + 1;
+    waiting[cover] = true;
+    if (n > TRIES) return void (tries[cover] = n);
+    setTimeout(() => {
+      tries[cover] = n;
+      waiting[cover] = false;
+    }, 1500 * n);
+  }
+  const src = (cover: number) => coverUrl(cover) + (tries[cover] ? `&try=${tries[cover]}` : "");
+
   const GAP = 64;
   const uid = $props.id();
   let width = $state(0);
@@ -148,11 +164,13 @@
           {/each}
         {/if}
         {#each layout.letters as l, i (i)}
-          {#if l.cover !== null}
+          {#if l.cover !== null && (tries[l.cover] ?? 0) <= TRIES}
             <!-- The letter in a dark tone first, so it shows before its cover has loaded. -->
             <text class="under" x={l.x} y={l.base} font-size={layout.fs}>{l.ch}</text>
             <image
-              href={coverUrl(l.cover)}
+              href={src(l.cover)}
+              class:waiting={waiting[l.cover]}
+              onerror={() => missed(l.cover!)}
               x={l.crop.x}
               y={l.crop.y}
               width={l.crop.w}
@@ -200,6 +218,9 @@
   }
   .under {
     fill: var(--raised);
+  }
+  image.waiting {
+    visibility: hidden;
   }
   .print {
     fill: var(--print);
