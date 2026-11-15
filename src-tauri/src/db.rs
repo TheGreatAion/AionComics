@@ -556,6 +556,23 @@ fn series_summary(r: &Row) -> rusqlite::Result<SeriesSummary> {
 
 /// The covers pages will ask for a print of, for making those ahead of time. `printable` is the same
 /// test as the pages' (Series.svelte, Collection.svelte): some color, and never teal.
+/// Books whose covers are best made ahead. `first`: the ones pages show first, each series' first
+/// book (library pages, their titles, Home's panels) after what's on Home. Otherwise every other book.
+pub fn covers_wanted(conn: &Connection, first: bool) -> Result<Vec<i64>> {
+    let sql = if first {
+        "SELECT id FROM (
+           SELECT id, 0 AS k, -COALESCE(last_read_at, 0) AS o FROM comics WHERE read=0 AND current_page>0
+           UNION ALL
+           SELECT (SELECT c2.id FROM comics c2 WHERE c2.series_id=s.id ORDER BY c2.section!='', c2.sort_key LIMIT 1), 1, s.id FROM series s
+         ) WHERE id IS NOT NULL GROUP BY id ORDER BY MIN(k), MIN(o)"
+    } else {
+        "SELECT id FROM comics ORDER BY series_id, section!='', sort_key"
+    };
+    let mut st = conn.prepare(sql)?;
+    let ids = st.query_map([], |r| r.get(0))?.collect::<rusqlite::Result<_>>()?;
+    Ok(ids)
+}
+
 pub fn prints_wanted(conn: &Connection) -> Result<Vec<i64>> {
     // What you're partway through shows on Home whatever its color, so it comes first.
     let mut wanted: Vec<i64> = conn

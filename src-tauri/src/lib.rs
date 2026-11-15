@@ -26,7 +26,7 @@ const PANELS_VERSION: i64 = 14;
 
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, Condvar, Mutex};
 
 use rusqlite::Connection;
 use serde::{Deserialize, Serialize};
@@ -211,6 +211,23 @@ fn watch_library(state: &Shared) {
 
 /// Make the prints (see `print`) that pages will ask for and don't have one yet, a cover at a time,
 /// giving way to reading and to a rescan.
+/// Make the covers of these books that haven't been made yet, one at a time: paused while you're
+/// reading, stopped by a scan (which starts this again when it's done).
+fn make_covers(state: &Shared, ids: Vec<i64>) {
+    for id in ids {
+        if state.thumbs_dir.join(format!("{id}.jpg")).exists() {
+            continue;
+        }
+        while now_ms() - state.last_page.load(Ordering::SeqCst) < 5000 {
+            std::thread::sleep(std::time::Duration::from_secs(1));
+        }
+        if state.scanning.load(Ordering::SeqCst) {
+            return;
+        }
+        let _ = cover(state, id);
+    }
+}
+
 fn make_prints(state: &Shared, conn: &Connection) {
     let Ok(covers) = db::prints_wanted(conn) else { return };
     for id in covers {
@@ -289,6 +306,10 @@ fn start_scan(app: &AppHandle, state: &Shared) {
                         let _ = state.archives.listing(card.id, &path);
                     }
                 }
+                // The covers pages show first, made now so those pages don't wait on them.
+                if let Ok(ids) = db::covers_wanted(&c, true) {
+                    make_covers(&state, ids);
+                }
                 // Covers' colors, from the covers already made (new covers get theirs as they're made).
                 if let Ok(n) = scan::cover_colors(&mut c, &state.thumbs_dir) {
                     if n > 0 {
@@ -298,6 +319,10 @@ fn start_scan(app: &AppHandle, state: &Shared) {
                 // A cover printed for behind each series' name and its collection's, and for each
                 // book on Home, so those pages never wait on one.
                 make_prints(&state, &c);
+                // Then every other book's cover, for series pages.
+                if let Ok(ids) = db::covers_wanted(&c, false) {
+                    make_covers(&state, ids);
+                }
                 // Then the details stored inside the files themselves.
                 if Options::load(&c).read_file_details {
                     read_comic_info(&app, &state, c, &root);
@@ -1449,6 +1474,33 @@ fn respond(status: StatusCode, mime: &str, body: Vec<u8>, cache: bool) -> Respon
     b.body(body).unwrap()
 }
 
+/// How many covers are made from their books at once.
+const COVERS_AT_ONCE: usize = 3;
+static COVER_SLOTS: (Mutex<usize>, Condvar) = (Mutex::new(0), Condvar::new());
+
+/// A turn at making a cover, given back when dropped.
+struct CoverSlot;
+
+impl CoverSlot {
+    fn take() -> CoverSlot {
+        let (busy, freed) = &COVER_SLOTS;
+        let mut n = busy.lock().unwrap();
+        while *n >= COVERS_AT_ONCE {
+            n = freed.wait(n).unwrap();
+        }
+        *n += 1;
+        CoverSlot
+    }
+}
+
+impl Drop for CoverSlot {
+    fn drop(&mut self) {
+        let (busy, freed) = &COVER_SLOTS;
+        *busy.lock().unwrap() -= 1;
+        freed.notify_one();
+    }
+}
+
 fn cover(state: &AppState, id: i64) -> anyhow::Result<Vec<u8>> {
     if id < 0 {
         // Outside books get fresh ids each session, so their covers aren't cached.
@@ -1459,7 +1511,13 @@ fn cover(state: &AppState, id: i64) -> anyhow::Result<Vec<u8>> {
     if let Ok(b) = std::fs::read(&cached) {
         return Ok(b);
     }
-    // Always made here, from the book itself.
+    // Always made here, from the book itself: a few at a time, the rest waiting their turn, since
+    // a page asking for dozens at once had them all fighting over the drive and every one arrived late.
+    let _slot = CoverSlot::take();
+    // Made by another request while this one waited.
+    if let Ok(b) = std::fs::read(&cached) {
+        return Ok(b);
+    }
     let (path, _) = state.comic_path(id)?;
     let (thumb, ratio) = archive::make_thumbnail(&state.archives.first_page(id, &path)?)?;
     let _ = std::fs::write(&cached, &thumb);
