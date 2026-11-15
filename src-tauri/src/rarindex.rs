@@ -23,6 +23,8 @@ pub struct Entry {
     pub stored: Option<(u64, u64)>,
     /// Unpackable by itself: not solid, encrypted or split across volumes.
     pub alone: bool,
+    /// Its name in the archive, with forward slashes.
+    pub name: String,
 }
 
 /// What `entries` reads.
@@ -38,18 +40,30 @@ const RAR5: &[u8] = b"Rar!\x1a\x07\x01\x00";
 
 /// The files (not folders) in a RAR, in archive order. Err for an encrypted or unreadable one.
 pub fn entries(path: &Path) -> Result<Index> {
+    read(path, usize::MAX)
+}
+
+fn read(path: &Path, pictures: usize) -> Result<Index> {
     let mut f = BufReader::new(File::open(path)?);
     let mut sig = [0u8; 8];
     f.read_exact(&mut sig)?;
     if &sig[..7] == RAR4 {
         f.seek(SeekFrom::Start(7))?;
-        rar4(&mut f)
+        rar4(&mut f, pictures)
     } else if sig == RAR5 {
-        rar5(&mut f)
+        rar5(&mut f, pictures)
     } else {
         bail!("not a RAR archive")
     }
 }
+
+/// A name from a header's bytes: a RAR 4 Unicode name keeps its plain form before a zero byte.
+fn name_of(bytes: &[u8]) -> String {
+    let plain = bytes.split(|b| *b == 0).next().unwrap_or(&[]);
+    String::from_utf8_lossy(plain).replace('\\', "/")
+}
+
+
 
 fn u16le(b: &[u8]) -> u64 {
     u16::from_le_bytes([b[0], b[1]]) as u64
@@ -58,9 +72,9 @@ fn u32le(b: &[u8]) -> u64 {
     u32::from_le_bytes([b[0], b[1], b[2], b[3]]) as u64
 }
 
-fn rar4(f: &mut BufReader<File>) -> Result<Index> {
-    let (mut files, mut head) = (Vec::new(), 0);
-    loop {
+fn rar4(f: &mut BufReader<File>, pictures: usize) -> Result<Index> {
+    let (mut files, mut head, mut seen) = (Vec::new(), 0, 0);
+    while seen < pictures {
         let start = f.stream_position()?;
         let mut lead = [0u8; 7];
         if f.read_exact(&mut lead).is_err() {
@@ -89,11 +103,15 @@ fn rar4(f: &mut BufReader<File>) -> Result<Index> {
                 }
                 data = packed;
                 let folder = flags & 0x00e0 == 0x00e0;
+                let name_len = u16le(&rest[19..21]) as usize;
+                let name_at = if flags & 0x0100 != 0 { 33 } else { 25 };
+                let name = name_of(rest.get(name_at..name_at + name_len).unwrap_or(&[]));
                 // Split across volumes (0x01, 0x02), encrypted (0x04) or solid (0x10): not by itself.
                 let alone = flags & 0x0017 == 0;
                 let stored = (alone && method == 0x30).then_some((start + size, packed));
                 if !folder {
-                    files.push(Entry { unpacked, block: (start, size + packed), stored, alone });
+                    seen += usize::from(crate::archive::is_image(&name));
+                    files.push(Entry { unpacked, block: (start, size + packed), stored, alone, name });
                 }
             }
             0x7b => break, // end of archive
@@ -136,9 +154,9 @@ fn encrypted(area: &[u8]) -> bool {
     false
 }
 
-fn rar5(f: &mut BufReader<File>) -> Result<Index> {
-    let (mut files, mut head) = (Vec::new(), 0);
-    loop {
+fn rar5(f: &mut BufReader<File>, pictures: usize) -> Result<Index> {
+    let (mut files, mut head, mut seen) = (Vec::new(), 0, 0);
+    while seen < pictures {
         let start = f.stream_position()?;
         // CRC32, then the header's size as a vint (at most 3 bytes for a header under 2 MB).
         let mut lead = [0u8; 7];
@@ -171,6 +189,9 @@ fn rar5(f: &mut BufReader<File>) -> Result<Index> {
                     at += 4; // CRC32
                 }
                 let compression = take(&h, &mut at)?;
+                let _host = take(&h, &mut at)?;
+                let name_len = take(&h, &mut at)? as usize;
+                let name = name_of(h.get(at..at + name_len).unwrap_or(&[]));
                 let method = (compression >> 7) & 7;
                 let solid = compression & 0x40 != 0;
                 // Split across volumes: header flags 0x08 (continues from) and 0x10 (continues in).
@@ -179,7 +200,8 @@ fn rar5(f: &mut BufReader<File>) -> Result<Index> {
                 let alone = !solid && !split && !locked;
                 let stored = (alone && method == 0).then_some((data_at, data));
                 if file_flags & 1 == 0 {
-                    files.push(Entry { unpacked, block: (start, data_at + data - start), stored, alone });
+                    seen += usize::from(crate::archive::is_image(&name));
+                    files.push(Entry { unpacked, block: (start, data_at + data - start), stored, alone, name });
                 }
             }
             5 => break, // end of archive
@@ -238,6 +260,46 @@ mod tests {
             let got = unpack_alone(&p, ix.head, e.block, &tmp).map(|b| b.len());
             println!("  {e:?}: {got:?} in {:?}", t.elapsed());
         }
+    }
+
+    /// CBRs under AION_TEST_ROOT (AION_RAR_N of them): the cover picked from one read of the headers
+    /// (see `Archives::cover_page`) is the page a full listing starts with, and how much quicker it is.
+    #[test]
+    #[ignore]
+    fn quick_covers() {
+        let root = std::path::PathBuf::from(std::env::var("AION_TEST_ROOT").unwrap());
+        let most: usize = std::env::var("AION_RAR_N").ok().and_then(|n| n.parse().ok()).unwrap_or(60);
+        let (mut same, mut differ, mut skipped) = (0, 0, 0);
+        let (mut quick, mut full) = (std::time::Duration::ZERO, std::time::Duration::ZERO);
+        for e in walkdir::WalkDir::new(root).into_iter().filter_map(|e| e.ok()) {
+            let p = e.path();
+            if !p.extension().is_some_and(|x| x.eq_ignore_ascii_case("cbr")) || crate::archive::detect(p).ok() != Some(crate::archive::Kind::Rar) {
+                continue;
+            }
+            let t = std::time::Instant::now();
+            let picked = entries(p)
+                .ok()
+                .and_then(|ix| ix.files.into_iter().filter(|e| crate::archive::is_image(&e.name)).min_by(|a, b| natord::compare_ignore_case(&a.name, &b.name)))
+                .map(|e| e.name);
+            quick += t.elapsed();
+            let t = std::time::Instant::now();
+            let listed = crate::archive::list(p).ok().and_then(|l| l.pages.first().cloned());
+            full += t.elapsed();
+            match (picked, listed) {
+                // The same page, whatever a RAR 4 name's plain form makes of a dash.
+                (Some(a), Some(b)) if a == b || a.chars().filter(char::is_ascii_digit).eq(b.chars().filter(char::is_ascii_digit)) => same += 1,
+                (Some(a), Some(b)) => {
+                    differ += 1;
+                    println!("differs: {} | quick {a} | full {b}", p.display());
+                }
+                _ => skipped += 1,
+            }
+            if same + differ + skipped >= most {
+                break;
+            }
+        }
+        println!("{same} same, {differ} differ, {skipped} skipped | quick {quick:?}, full {full:?}");
+        assert_eq!(differ, 0);
     }
 
     /// Every CBR under AION_TEST_ROOT: as many files as unrar finds, the same sizes, and pages got

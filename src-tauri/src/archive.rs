@@ -628,6 +628,48 @@ impl Archives {
     }
 
     /// First page without kicking off a full RAR extraction (used for covers).
+    /// The page a cover is made from. A RAR not opened yet isn't listed in full for it: a listing
+    /// reads every page's header twice (once by unrar for the names, once more for where each page
+    /// sits), a seek apiece on a hard drive. Its headers are read once instead, names and all, and
+    /// the first page by name taken straight out: the same page a listing starts with. (Its first
+    /// few headers alone won't do: many CBRs keep their cover further in.)
+    pub fn cover_page(&self, id: i64, path: &Path) -> Result<Vec<u8>> {
+        let listed = self.listings.lock().unwrap().get(id).is_some() || self.saved_listing(id, path).is_some();
+        if !listed && detect(path).ok() == Some(Kind::Rar) {
+            if let Some(page) = self.rar_cover(path) {
+                return Ok(page);
+            }
+        }
+        self.first_page(id, path)
+    }
+
+    fn rar_cover(&self, path: &Path) -> Option<Vec<u8>> {
+        use std::io::{Seek, SeekFrom};
+        let ix = crate::rarindex::entries(path).ok()?;
+        let first = ix
+            .files
+            .iter()
+            .filter(|e| is_image(&e.name))
+            .min_by(|a, b| natord::compare_ignore_case(&a.name, &b.name))?;
+        match (first.stored, first.alone) {
+            (Some((at, len)), _) => {
+                let mut f = File::open(path).ok()?;
+                f.seek(SeekFrom::Start(at)).ok()?;
+                let mut buf = vec![0u8; len as usize];
+                f.read_exact(&mut buf).ok()?;
+                Some(buf)
+            }
+            (None, true) => {
+                let n = self.scratch.fetch_add(1, Ordering::Relaxed);
+                let _ = fs::create_dir_all(&self.pages_dir);
+                let tmp = self.pages_dir.join(format!("cover-{n}.rar"));
+                crate::rarindex::unpack_alone(path, ix.head, first.block, &tmp).ok()
+            }
+            // Solid: unpacking means starting from the top anyway.
+            (None, false) => None,
+        }
+    }
+
     pub fn first_page(&self, id: i64, path: &Path) -> Result<Vec<u8>> {
         let listing = self.listing(id, path)?;
         match listing.kind {

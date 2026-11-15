@@ -1519,7 +1519,11 @@ fn cover(state: &AppState, id: i64) -> anyhow::Result<Vec<u8>> {
         return Ok(b);
     }
     let (path, _) = state.comic_path(id)?;
-    let (thumb, ratio) = archive::make_thumbnail(&state.archives.first_page(id, &path)?)?;
+    // The quick way to its first page first (see `cover_page`); the full one if that won't do.
+    let (thumb, ratio) = match state.archives.cover_page(id, &path).and_then(|p| archive::make_thumbnail(&p)) {
+        Ok(t) => t,
+        Err(_) => archive::make_thumbnail(&state.archives.first_page(id, &path)?)?,
+    };
     let _ = std::fs::write(&cached, &thumb);
     let color = archive::cover_color(&thumb).ok();
     let conn = state.conn.lock().unwrap();
