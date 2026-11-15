@@ -1,5 +1,5 @@
-//! Library scanning: walk the comics folder, mirror it into the database,
-//! and pull metadata + reading progress from an existing YACReader library.
+//! Library scanning: walk the comics folder and mirror it into the database. Nothing is taken from
+//! other comic readers' libraries.
 //!
 //! Folder convention: `Collection / Series / [sections…] / file`, read loosely (see `lay_out`) so
 //! other ways of keeping comics work too. Nothing on disk is ever rearranged to fit.
@@ -11,7 +11,7 @@ use std::time::{SystemTime, UNIX_EPOCH};
 
 use anyhow::Result;
 use regex::Regex;
-use rusqlite::{params, Connection, OpenFlags, OptionalExtension};
+use rusqlite::{params, Connection, OptionalExtension};
 use serde::Serialize;
 use walkdir::WalkDir;
 
@@ -25,7 +25,6 @@ pub struct ScanStats {
     pub collections: i64,
     pub added: i64,
     pub removed: i64,
-    pub yac_matched: i64,
     pub seconds: f64,
     pub finished_at: i64,
     /// Books that looked missing but were kept, because too much went missing at once to be real.
@@ -272,119 +271,6 @@ fn hidden_or_system(_: &std::fs::Metadata) -> bool {
     false
 }
 
-// ---------- YACReader import ----------
-
-pub(crate) struct Yac {
-    title: Option<String>,
-    number: Option<String>,
-    volume: Option<String>,
-    date: Option<String>,
-    writer: Option<String>,
-    publisher: Option<String>,
-    synopsis: Option<String>,
-    cv_id: Option<String>,
-    hash: Option<String>,
-    num_pages: Option<i64>,
-    pub(crate) current_page: Option<i64>,
-    pub(crate) read: bool,
-    pub(crate) last_opened: Option<i64>,
-    added: Option<i64>,
-    /// How YACReader reads it: 0 comic, 1 manga, 2 left-to-right manga, 3 webtoon.
-    kind: Option<i64>,
-    /// Credits and story details, as AionComics field name -> value.
-    extra: Vec<(&'static str, String)>,
-}
-
-/// YACReader columns beyond the basics, and the AionComics fields they fill. Only the ones present
-/// in this YACReader database are read, so an older YACReader never breaks the import.
-const YAC_EXTRA: [(&str, &str); 12] = [
-    ("penciller", "penciller"),
-    ("inker", "inker"),
-    ("colorist", "colorist"),
-    ("letterer", "letterer"),
-    ("coverArtist", "cover_artist"),
-    ("characters", "characters"),
-    ("teams", "teams"),
-    ("locations", "locations"),
-    ("storyArc", "story_arc"),
-    ("arcNumber", "arc_number"),
-    ("arcCount", "arc_count"),
-    ("genere", "genre"),
-];
-
-/// Any SQLite value as text (YACReader stores some numbers as integers).
-fn as_text(v: rusqlite::types::Value) -> Option<String> {
-    use rusqlite::types::Value;
-    let s = match v {
-        Value::Text(t) => t,
-        Value::Integer(i) => i.to_string(),
-        Value::Real(f) => f.to_string(),
-        _ => return None,
-    };
-    let s = s.trim().to_string();
-    (!s.is_empty()).then_some(s)
-}
-
-pub(crate) fn read_yac(root: &Path) -> HashMap<String, Yac> {
-    let mut map = HashMap::new();
-    let db = root.join(".yacreaderlibrary").join("library.ydb");
-    if !db.exists() {
-        return map;
-    }
-    let Ok(conn) = Connection::open_with_flags(&db, OpenFlags::SQLITE_OPEN_READ_ONLY) else {
-        return map;
-    };
-    let present: Vec<String> = conn
-        .prepare("SELECT name FROM pragma_table_info('comic_info')")
-        .and_then(|mut st| st.query_map([], |r| r.get(0))?.collect())
-        .unwrap_or_default();
-    let extras: Vec<(&str, &'static str)> =
-        YAC_EXTRA.iter().copied().filter(|(col, _)| present.iter().any(|p| p == col)).collect();
-    let extra_cols: String = extras.iter().map(|(col, _)| format!(", ci.{col}")).collect();
-    // Older YACReaders don't have reading types.
-    let kind_col = if present.iter().any(|p| p == "type") { "ci.type" } else { "NULL" };
-    let sql = format!(
-        "SELECT c.path, ci.title, ci.number, ci.volume, ci.date, ci.writer, ci.publisher, ci.synopsis,
-           ci.comicVineID, ci.hash, ci.numPages, ci.currentPage, ci.read, ci.lastTimeOpened, ci.added, {kind_col}{extra_cols}
-         FROM comic c JOIN comic_info ci ON ci.id=c.comicInfoId"
-    );
-    let Ok(mut st) = conn.prepare(&sql) else { return map };
-    let rows = st.query_map([], |r| {
-        let path: String = r.get(0)?;
-        Ok((
-            path.trim_start_matches('/').to_string(),
-            Yac {
-                title: r.get(1)?,
-                number: r.get(2)?,
-                volume: r.get(3)?,
-                date: r.get(4)?,
-                writer: r.get(5)?,
-                publisher: r.get(6)?,
-                synopsis: r.get(7)?,
-                cv_id: r.get(8)?,
-                hash: r.get(9)?,
-                num_pages: r.get(10)?,
-                current_page: r.get(11)?,
-                read: r.get::<_, Option<bool>>(12)?.unwrap_or(false),
-                last_opened: r.get(13)?,
-                added: r.get(14)?,
-                kind: r.get(15)?,
-                extra: extras
-                    .iter()
-                    .enumerate()
-                    .filter_map(|(i, (_, field))| r.get::<_, rusqlite::types::Value>(16 + i).ok().and_then(as_text).map(|v| (*field, v)))
-                    .collect(),
-            },
-        ))
-    });
-    if let Ok(rows) = rows {
-        for (p, y) in rows.flatten() {
-            map.insert(p, y);
-        }
-    }
-    map
-}
-
 // ---------- labels ----------
 
 static GROUPS: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"\s*[\(\[][^\)\]]*[\)\]]").unwrap());
@@ -397,17 +283,6 @@ static ISSUE_NUM: LazyLock<Regex> =
 static YEAR: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"\((\d{4})\)").unwrap());
 
 /// Strip scene tags like "(2015) (Digital) (Group)" from a file stem.
-/// YACReader keeps dates as "day/month/year"; Comic Vine and AionComics use "year-month-day".
-fn iso_date(d: &str) -> Option<String> {
-    let d = d.trim();
-    let parts: Vec<&str> = d.split('/').collect();
-    match parts.as_slice() {
-        [day, month, year] if year.len() == 4 => Some(format!("{year}-{:0>2}-{:0>2}", month, day)),
-        _ if !d.is_empty() => Some(d.to_string()),
-        _ => None,
-    }
-}
-
 pub(crate) fn clean_name(stem: &str) -> String {
     let s = GROUPS.replace_all(stem, "");
     s.trim().trim_end_matches(['-', '–', '_']).trim().to_string()
@@ -422,30 +297,14 @@ fn trim_num(n: &str) -> String {
     }
 }
 
-fn label_for(file_name: &str, series: &str, is_manga: bool, yac: Option<&Yac>) -> String {
+fn label_for(file_name: &str, series: &str, is_manga: bool) -> String {
     let stem = Path::new(file_name)
         .file_stem()
         .map(|s| s.to_string_lossy().into_owned())
         .unwrap_or_default();
     let clean = clean_name(&stem);
-    let vol = VOLUME.captures(&clean).map(|c| trim_num(&c[1]));
-    let yac_num = yac
-        .and_then(|y| y.number.clone())
-        .filter(|n| !n.trim().is_empty());
-    if is_manga {
-        if let Some(v) = vol {
-            return format!("Vol. {v}");
-        }
-        if let Some(n) = yac_num {
-            return format!("Vol. {}", trim_num(n.trim()));
-        }
-    } else {
-        if let Some(n) = yac_num {
-            return format!("#{}", trim_num(n.trim()));
-        }
-        if let Some(v) = vol {
-            return format!("Vol. {v}");
-        }
+    if let Some(v) = VOLUME.captures(&clean).map(|c| trim_num(&c[1])) {
+        return format!("Vol. {v}");
     }
     // A number right after the series name ("Saga 054 - …") or at the end, but not one that's
     // part of the series' own name ("Marvel 1985", "Ben 10 001").
@@ -460,17 +319,8 @@ fn label_for(file_name: &str, series: &str, is_manga: bool, yac: Option<&Yac>) -
     clean
 }
 
-fn year_for(file_name: &str, yac: Option<&Yac>) -> Option<String> {
-    yac.and_then(|y| y.date.as_deref())
-        .and_then(|d| d.rsplit('/').next())
-        .filter(|y| y.len() == 4)
-        .map(str::to_string)
-        .or_else(|| YEAR.captures(file_name).map(|c| c[1].to_string()))
-}
-
-fn clean_title(t: Option<&String>) -> Option<String> {
-    t.map(|s| s.trim().trim_matches('"').trim().to_string())
-        .filter(|s| !s.is_empty())
+fn year_for(file_name: &str) -> Option<String> {
+    YEAR.captures(file_name).map(|c| c[1].to_string())
 }
 
 // ---------- scan ----------
@@ -504,7 +354,6 @@ pub fn scan(conn: &mut Connection, root: &Path) -> Result<ScanStats> {
     if found.is_empty() && known > 0 && !new_root {
         anyhow::bail!("No comics were found in {}. Nothing was changed.", root.display());
     }
-    let yac = read_yac(root);
     let mut stats = ScanStats::default();
     let highest: i64 = crate::db::get_setting(conn, HIGHEST_BOOK)?.and_then(|v| v.parse().ok()).unwrap_or(0);
     let mut next_book = highest.max(conn.query_row("SELECT COALESCE(MAX(id), 0) FROM comics", [], |r| r.get(0))?) + 1;
@@ -521,7 +370,7 @@ pub fn scan(conn: &mut Connection, root: &Path) -> Result<ScanStats> {
              ON CONFLICT(rel_path) DO UPDATE SET name=excluded.name, collection_id=excluded.collection_id RETURNING id, reading",
         )?;
         let mut existing = tx.prepare(
-            "SELECT id, read, last_read_at, yac_read FROM comics WHERE rel_path=?1",
+            "SELECT id FROM comics WHERE rel_path=?1",
         )?;
         let mut insert = tx.prepare(
             "INSERT INTO comics(id, series_id, section, rel_path, file_name, size, mtime, added_at)
@@ -530,22 +379,16 @@ pub fn scan(conn: &mut Connection, root: &Path) -> Result<ScanStats> {
         let mut update_file = tx.prepare(
             "UPDATE comics SET series_id=?2, section=?3, file_name=?4, size=?5, mtime=?6, seen=1 WHERE id=?1",
         )?;
-        let mut update_meta = tx.prepare(
-            "UPDATE comics SET label=?2, title=?3, number=?4, volume=?5, year=?6, writer=?7, publisher=?8,
-               synopsis=?9, cv_id=?10, yac_hash=?11, num_pages=COALESCE(num_pages, ?12), meta_base=?13,
-               date=?14, penciller=?15, inker=?16, colorist=?17, letterer=?18, cover_artist=?19,
-               characters=?20, teams=?21, locations=?22, story_arc=?23, arc_number=?24, arc_count=?25,
-               genre=?26, yac_type=?27, cv_volume_id=NULL WHERE id=?1",
-        )?;
+        // A book new to the library starts with what its file name says; details in the file
+        // itself, from Comic Vine and your own edits are laid over that (see `db::apply_meta`).
+        let mut first_meta = tx.prepare("UPDATE comics SET label=?2, year=?3, meta_base=?4 WHERE id=?1")?;
         let mut update_progress = tx.prepare(
             "UPDATE comics SET current_page=?2, read=?3, last_read_at=?4 WHERE id=?1",
         )?;
-        let mut note_yac_read = tx.prepare("UPDATE comics SET yac_read=?2 WHERE id=?1")?;
         // A book that's disappeared, and one that's appeared with its name and size, or for a big
         // file its size and date, is the same book moved or renamed: it keeps its place, details and
         // number. Only when exactly one could be it.
         let mut move_book = tx.prepare("UPDATE comics SET rel_path=?2 WHERE id=?1")?;
-        let mut moved_book = tx.prepare("SELECT read, last_read_at, yac_read FROM comics WHERE id=?1")?;
         const BIG_ENOUGH: i64 = 1 << 20;
         let here: HashSet<&str> = found.iter().map(|f| f.rel.as_str()).collect();
         let mut by_name: HashMap<(String, i64), Option<i64>> = HashMap::new();
@@ -597,15 +440,13 @@ pub fn scan(conn: &mut Connection, root: &Path) -> Result<ScanStats> {
             };
             // Your say for the series comes before its library's name.
             let is_manga = reading.map_or(is_manga, |r| r == "manga");
-            let y = yac.get(&f.rel);
-            let prior: Option<(i64, bool, Option<i64>, Option<bool>)> = existing
-                .query_row([&f.rel], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?)))
-                .optional()?;
-            let (id, ours_read, ours_last_read, yac_read_before) = match prior {
-                Some((id, read, last, yac_read)) => {
+            let prior: Option<i64> = existing.query_row([&f.rel], |r| r.get(0)).optional()?;
+            match prior {
+                // Known already: it keeps its details as they are.
+                Some(id) => {
                     update_file.execute(params![id, series_id, f.section, f.file_name, f.size, f.mtime])?;
-                    (id, read, last, yac_read)
                 }
+                // Moved or renamed: the same, at its new place.
                 None if let Some(id) = by_name
                     .get(&(f.file_name.clone(), f.size))
                     .copied()
@@ -615,16 +456,21 @@ pub fn scan(conn: &mut Connection, root: &Path) -> Result<ScanStats> {
                 {
                     move_book.execute(params![id, f.rel])?;
                     update_file.execute(params![id, series_id, f.section, f.file_name, f.size, f.mtime])?;
-                    let (read, last, yac_read) = moved_book.query_row([id], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)))?;
-                    (id, read, last, yac_read)
                 }
                 None => {
-                    let added = y.and_then(|y| y.added).filter(|a| *a > 0).unwrap_or(f.mtime.max(1));
                     // Never a number a book has had: covers and details are kept by it.
                     let id = next_book;
                     next_book += 1;
-                    insert.execute(params![id, series_id, f.section, f.rel, f.file_name, f.size, f.mtime, added])?;
+                    insert.execute(params![id, series_id, f.section, f.rel, f.file_name, f.size, f.mtime, f.mtime.max(1)])?;
                     stats.added += 1;
+                    let label = label_for(&f.file_name, &f.series, is_manga);
+                    let year = year_for(&f.file_name);
+                    let mut base = serde_json::Map::new();
+                    base.insert("label".into(), serde_json::Value::String(label.clone()));
+                    if let Some(y) = &year {
+                        base.insert("year".into(), serde_json::Value::String(y.clone()));
+                    }
+                    first_meta.execute(params![id, label, year, serde_json::to_string(&base)?])?;
                     // Back from being hidden: where you'd read to.
                     let back: Option<(i64, bool, Option<i64>)> = was_hidden
                         .query_row([&f.rel], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)))
@@ -632,84 +478,7 @@ pub fn scan(conn: &mut Connection, root: &Path) -> Result<ScanStats> {
                     if let Some((page, read, last)) = back {
                         update_progress.execute(params![id, page, read, last])?;
                     }
-                    (id, false, None, None)
                 }
-            };
-            // What the scan imports is also kept as the base layer that Comic Vine data and hand edits sit on.
-            let label = label_for(&f.file_name, &f.series, is_manga, y);
-            let title = clean_title(y.and_then(|y| y.title.as_ref()));
-            let number = y.and_then(|y| y.number.clone());
-            let volume = y.and_then(|y| y.volume.clone());
-            let year = year_for(&f.file_name, y);
-            let writer = y.and_then(|y| y.writer.clone());
-            let publisher = y.and_then(|y| y.publisher.clone());
-            let synopsis = y.and_then(|y| y.synopsis.clone());
-            let cv_id = y.and_then(|y| y.cv_id.clone()).filter(|s| !s.is_empty());
-            let date = y.and_then(|y| y.date.as_deref()).and_then(iso_date);
-            let extra = |field: &str| y.and_then(|y| y.extra.iter().find(|(f, _)| *f == field).map(|(_, v)| v.clone()));
-            let mut base = serde_json::Map::new();
-            let mut put = |k: &str, v: &Option<String>| {
-                if let Some(v) = v {
-                    base.insert(k.to_string(), serde_json::Value::String(v.clone()));
-                }
-            };
-            put("label", &Some(label.clone()));
-            put("title", &title);
-            put("number", &number);
-            put("volume", &volume);
-            put("year", &year);
-            put("date", &date);
-            put("writer", &writer);
-            put("publisher", &publisher);
-            put("synopsis", &synopsis);
-            put("cv_id", &cv_id);
-            for (_, field) in YAC_EXTRA {
-                put(field, &extra(field));
-            }
-            let base = serde_json::to_string(&base)?;
-            update_meta.execute(params![
-                id,
-                label,
-                title,
-                number,
-                volume,
-                year,
-                writer,
-                publisher,
-                synopsis,
-                cv_id,
-                y.and_then(|y| y.hash.clone()),
-                y.and_then(|y| y.num_pages).filter(|n| *n > 0),
-                base,
-                date,
-                extra("penciller"),
-                extra("inker"),
-                extra("colorist"),
-                extra("letterer"),
-                extra("cover_artist"),
-                extra("characters"),
-                extra("teams"),
-                extra("locations"),
-                extra("story_arc"),
-                extra("arc_number"),
-                extra("arc_count"),
-                extra("genre"),
-                y.and_then(|y| y.kind),
-            ])?;
-            if let Some(y) = y {
-                stats.yac_matched += 1;
-                // Take YACReader's progress when it's newer than ours.
-                let yac_opened = y.last_opened.unwrap_or(0);
-                let has_progress = y.read || y.current_page.unwrap_or(1) > 1;
-                // A book marked read in YACReader without opening it has no time to compare, so
-                // the mark is taken when it's new there: not again once you've marked it unread here.
-                let marked = y.read && yac_opened == 0 && !ours_read && yac_read_before != Some(true);
-                if has_progress && (yac_opened > ours_last_read.unwrap_or(0) || marked) {
-                    let page = (y.current_page.unwrap_or(1) - 1).max(0);
-                    let last = if yac_opened > 0 { Some(yac_opened) } else { ours_last_read };
-                    update_progress.execute(params![id, page, y.read, last])?;
-                }
-                note_yac_read.execute(params![id, y.read])?;
             }
         }
         for name in &empties {
@@ -750,25 +519,19 @@ pub fn scan(conn: &mut Connection, root: &Path) -> Result<ScanStats> {
     Ok(stats)
 }
 
-/// Record each cover's shape (height / width) so grids can show covers at
-/// their real proportions without jumping as images load. Reads only image
-/// headers from YACReader's cover cache; covers AionComics generates itself get
-/// their ratio when the thumbnail is made.
-/// Work out the color of every cover that's been made (by AionComics or YACReader) but not yet looked at.
-pub fn cover_colors(conn: &mut Connection, root: &Path, thumbs: &Path) -> Result<usize> {
-    let yac = root.join(".yacreaderlibrary").join("covers");
-    let todo: Vec<(i64, Option<String>)> = conn
-        .prepare("SELECT id, yac_hash FROM comics WHERE cover_color IS NULL")?
-        .query_map([], |r| Ok((r.get(0)?, r.get(1)?)))?
+/// Work out the color of every cover AionComics has made but not yet looked at. (A cover's shape is
+/// recorded as it's made.)
+pub fn cover_colors(conn: &mut Connection, thumbs: &Path) -> Result<usize> {
+    let todo: Vec<i64> = conn
+        .prepare("SELECT id FROM comics WHERE cover_color IS NULL")?
+        .query_map([], |r| r.get(0))?
         .collect::<rusqlite::Result<_>>()?;
     let mut done = 0;
     for chunk in todo.chunks(250) {
         let found: Vec<(i64, String)> = chunk
             .iter()
-            .filter_map(|(id, hash)| {
-                let bytes = std::fs::read(thumbs.join(format!("{id}.jpg")))
-                    .ok()
-                    .or_else(|| hash.as_ref().and_then(|h| std::fs::read(yac.join(format!("{h}.jpg"))).ok()))?;
+            .filter_map(|id| {
+                let bytes = std::fs::read(thumbs.join(format!("{id}.jpg"))).ok()?;
                 Some((*id, crate::archive::cover_color(&bytes).ok()?))
             })
             .collect();
@@ -778,31 +541,6 @@ pub fn cover_colors(conn: &mut Connection, root: &Path, thumbs: &Path) -> Result
         }
         tx.commit()?;
         done += found.len();
-    }
-    Ok(done)
-}
-
-pub fn cover_ratios(conn: &mut Connection, root: &Path) -> Result<usize> {
-    let covers = root.join(".yacreaderlibrary").join("covers");
-    let todo: Vec<(i64, String)> = conn
-        .prepare("SELECT id, yac_hash FROM comics WHERE cover_ratio IS NULL AND yac_hash IS NOT NULL")?
-        .query_map([], |r| Ok((r.get(0)?, r.get(1)?)))?
-        .collect::<rusqlite::Result<_>>()?;
-    let mut done = 0;
-    for chunk in todo.chunks(250) {
-        let tx = conn.transaction()?;
-        for (id, hash) in chunk {
-            let path = covers.join(format!("{hash}.jpg"));
-            let dims = image::ImageReader::open(&path)
-                .and_then(|r| r.with_guessed_format())
-                .ok()
-                .and_then(|r| r.into_dimensions().ok());
-            if let Some((w, h)) = dims.filter(|(w, _)| *w > 0) {
-                crate::db::set_cover_ratio(&tx, *id, h as f64 / w as f64)?;
-                done += 1;
-            }
-        }
-        tx.commit()?;
     }
     Ok(done)
 }
@@ -831,118 +569,23 @@ mod tests {
     use super::*;
 
     #[test]
-    fn dates() {
-        assert_eq!(iso_date("01/12/2021").as_deref(), Some("2021-12-01"));
-        assert_eq!(iso_date("5/3/1999").as_deref(), Some("1999-03-05"));
-        assert_eq!(iso_date("2021-12-01").as_deref(), Some("2021-12-01"));
-        assert_eq!(iso_date(" "), None);
-    }
-
-    #[test]
     fn labels() {
         assert_eq!(
-            label_for("A Certain Scientific Accelerator v01 (F2) (2015) (Digital) (DigitalMangaFan).cbz", "A Certain Scientific Accelerator", true, None),
+            label_for("A Certain Scientific Accelerator v01 (F2) (2015) (Digital) (DigitalMangaFan).cbz", "A Certain Scientific Accelerator", true),
             "Vol. 1"
         );
         assert_eq!(
-            label_for("All Star Batman & Robin, The Boy Wonder 001 (2005) (digital) (Minutemen-PhD).cbr", "All Star Batman & Robin, The Boy Wonder", false, None),
+            label_for("All Star Batman & Robin, The Boy Wonder 001 (2005) (digital) (Minutemen-PhD).cbr", "All Star Batman & Robin, The Boy Wonder", false),
             "#1"
         );
-        assert_eq!(label_for("Doctor Strange - The Oath.cbr", "Doctor Strange - The Oath", false, None), "Doctor Strange - The Oath");
-        assert_eq!(label_for("Saga 054 (2018).cbz", "Saga", false, None), "#54");
-        assert_eq!(label_for("Ben 10 004 (2026) (digital) (Pyrate-DCP).cbz", "Ben 10", false, None), "#4");
-        assert_eq!(label_for("Marvel 1985 (2009) (Digital) (Asgard-Empire).cbz", "Marvel 1985", false, None), "Marvel 1985");
+        assert_eq!(label_for("Doctor Strange - The Oath.cbr", "Doctor Strange - The Oath", false), "Doctor Strange - The Oath");
+        assert_eq!(label_for("Saga 054 (2018).cbz", "Saga", false), "#54");
+        assert_eq!(label_for("Ben 10 004 (2026) (digital) (Pyrate-DCP).cbz", "Ben 10", false), "#4");
+        assert_eq!(label_for("Marvel 1985 (2009) (Digital) (Asgard-Empire).cbz", "Marvel 1985", false), "Marvel 1985");
         assert_eq!(
-            label_for("Hellboy and the B.P.R.D.- 1952 - 1954 (2021) (digital).cbz", "Hellboy and the B.P.R.D. - 1952 – 1954", false, None),
+            label_for("Hellboy and the B.P.R.D.- 1952 - 1954 (2021) (digital).cbz", "Hellboy and the B.P.R.D. - 1952 – 1954", false),
             "Hellboy and the B.P.R.D.- 1952 - 1954"
         );
-    }
-}
-
-#[cfg(test)]
-mod yacreader_marks {
-    use super::*;
-
-    /// Books marked read in YACReader without being opened (no time to go by) come across once
-    /// each, when the mark is new there; marking one unread here sticks.
-    #[test]
-    fn read_marks_without_a_time() {
-        let base = std::env::temp_dir().join(format!("aion-yac-marks-{}", std::process::id()));
-        let _ = std::fs::remove_dir_all(&base);
-        let root = base.join("Comics");
-        let series = root.join("Manga").join("Test Series");
-        std::fs::create_dir_all(&series).unwrap();
-        std::fs::create_dir_all(root.join(".yacreaderlibrary")).unwrap();
-        let yac = Connection::open(root.join(".yacreaderlibrary").join("library.ydb")).unwrap();
-        yac.execute_batch(
-            "CREATE TABLE comic(id INTEGER PRIMARY KEY, comicInfoId INTEGER, path TEXT);
-             CREATE TABLE comic_info(id INTEGER PRIMARY KEY, title TEXT, number TEXT, volume TEXT, date TEXT,
-               writer TEXT, publisher TEXT, synopsis TEXT, comicVineID TEXT, hash TEXT, numPages INTEGER,
-               currentPage INTEGER DEFAULT 1, read BOOLEAN DEFAULT 0, lastTimeOpened INTEGER, added INTEGER);",
-        )
-        .unwrap();
-        for i in 1..=3 {
-            std::fs::write(series.join(format!("Test Series v{i:02}.cbz")), b"PK").unwrap();
-            yac.execute(
-                "INSERT INTO comic_info(id, read) VALUES(?1, ?2)",
-                params![i, i < 3],
-            )
-            .unwrap();
-            yac.execute("INSERT INTO comic VALUES(?1, ?1, ?2)", params![i, format!("/Manga/Test Series/Test Series v{i:02}.cbz")]).unwrap();
-        }
-        let mut conn = crate::db::open(&base.join("t.db")).unwrap();
-        let read = |c: &Connection, i: i64| -> (bool, Option<i64>) {
-            c.query_row(
-                "SELECT read, last_read_at FROM comics WHERE file_name=?1",
-                [format!("Test Series v{i:02}.cbz")],
-                |r| Ok((r.get(0)?, r.get(1)?)),
-            )
-            .unwrap()
-        };
-        scan(&mut conn, &root).unwrap();
-        // Read, without a time: they don't jump to the top of what you've been reading.
-        assert_eq!((read(&conn, 1), read(&conn, 2), read(&conn, 3)), ((true, None), (true, None), (false, None)));
-
-        let id: i64 = conn.query_row("SELECT id FROM comics WHERE file_name='Test Series v01.cbz'", [], |r| r.get(0)).unwrap();
-        crate::db::set_read(&conn, id, false, 500).unwrap();
-        scan(&mut conn, &root).unwrap();
-        assert_eq!(read(&conn, 1), (false, None), "marked unread here, it stays unread");
-
-        yac.execute("UPDATE comic_info SET read=1 WHERE id=3", []).unwrap();
-        scan(&mut conn, &root).unwrap();
-        assert!(read(&conn, 3).0, "marked read in YACReader since");
-        let _ = std::fs::remove_dir_all(&base);
-    }
-
-    /// A scan of your real library into a copy of your database: lists every book whose reading
-    /// it changes. Nothing real is written. `cargo test --lib real_rescan -- --ignored --nocapture`
-    #[test]
-    #[ignore]
-    fn real_rescan() {
-        let real = Path::new(&std::env::var("APPDATA").unwrap()).join("com.aion.comics").join("library.db");
-        let copy = std::env::temp_dir().join("aion-real-rescan.db");
-        let _ = std::fs::remove_file(&copy);
-        Connection::open_with_flags(&real, rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY)
-            .unwrap()
-            .execute("VACUUM INTO ?1", [copy.to_string_lossy()])
-            .unwrap();
-        let mut conn = crate::db::open(&copy).unwrap();
-        let reading = |c: &Connection| -> HashMap<String, (bool, i64, Option<i64>)> {
-            let mut st = c.prepare("SELECT rel_path, read, current_page, last_read_at FROM comics").unwrap();
-            st.query_map([], |r| Ok((r.get(0)?, (r.get(1)?, r.get(2)?, r.get(3)?)))).unwrap().map(Result::unwrap).collect()
-        };
-        let before = reading(&conn);
-        scan(&mut conn, Path::new(r"H:\Comics")).unwrap();
-        let after = reading(&conn);
-        let mut changed: Vec<_> = after.iter().filter(|(p, v)| before.get(*p) != Some(v)).collect();
-        changed.sort();
-        for (p, v) in &changed {
-            println!("{p}: {:?} -> {v:?}", before.get(*p));
-        }
-        println!("{} books' reading changed", changed.len());
-        // A second scan changes nothing more.
-        scan(&mut conn, Path::new(r"H:\Comics")).unwrap();
-        assert_eq!(reading(&conn), after);
     }
 }
 
@@ -1033,7 +676,7 @@ mod layouts {
                 )
                 .unwrap();
             let f = crate::db::reading_facts(c, id).unwrap();
-            crate::db::reads_as(f.said.as_deref(), f.yac_type, false, manga)
+            crate::db::reads_as(f.said.as_deref(), false, manga)
         };
         let label = |c: &Connection, file: &str| -> String {
             c.query_row("SELECT label FROM comics WHERE file_name=?1", [file], |r| r.get(0)).unwrap()

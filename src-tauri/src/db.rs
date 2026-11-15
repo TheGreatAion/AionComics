@@ -1401,14 +1401,13 @@ pub fn set_series_read(conn: &Connection, series: i64, read: bool, now: i64) -> 
 
 pub struct ComicFile {
     pub rel_path: String,
-    pub yac_hash: Option<String>,
 }
 
 pub fn comic_file(conn: &Connection, id: i64) -> Result<ComicFile> {
     Ok(conn.query_row(
-        "SELECT rel_path, yac_hash FROM comics WHERE id=?1",
+        "SELECT rel_path FROM comics WHERE id=?1",
         [id],
-        |r| Ok(ComicFile { rel_path: r.get(0)?, yac_hash: r.get(1)? }),
+        |r| Ok(ComicFile { rel_path: r.get(0)? }),
     )?)
 }
 
@@ -1507,22 +1506,20 @@ pub fn set_read(conn: &Connection, id: i64, read: bool, now: i64) -> Result<Vec<
     Ok(before)
 }
 
-/// How YACReader says a book reads, if it says.
-/// What's known about how a book reads: your say for its series, YACReader's mark, whether its pages
-/// are long (when looked at), and its cover's shape.
+/// What's known about how a book reads: your say for its series, whether its pages are long (when
+/// looked at), and its cover's shape.
 pub struct ReadingFacts {
     pub said: Option<String>,
-    pub yac_type: Option<i64>,
     pub tall: Option<bool>,
     pub cover_ratio: Option<f64>,
 }
 
 pub fn reading_facts(conn: &Connection, id: i64) -> Result<ReadingFacts> {
     Ok(conn.query_row(
-        "SELECT COALESCE(s.reading, col.reading), c.yac_type, c.tall, c.cover_ratio FROM comics c
+        "SELECT COALESCE(s.reading, col.reading), c.tall, c.cover_ratio FROM comics c
          JOIN series s ON s.id=c.series_id JOIN collections col ON col.id=s.collection_id WHERE c.id=?1",
         [id],
-        |r| Ok(ReadingFacts { said: r.get(0)?, yac_type: r.get(1)?, tall: r.get(2)?, cover_ratio: r.get(3)? }),
+        |r| Ok(ReadingFacts { said: r.get(0)?, tall: r.get(1)?, cover_ratio: r.get(2)? }),
     )?)
 }
 
@@ -1532,19 +1529,14 @@ pub fn set_tall(conn: &Connection, id: i64, tall: bool) -> Result<()> {
 }
 
 /// How a book reads: (right to left, a webtoon). Your say comes first, for its series or else its
-/// library, then YACReader's mark, then long pages, then the library's name.
-pub fn reads_as(said: Option<&str>, yac_type: Option<i64>, tall: bool, in_manga: bool) -> (bool, bool) {
+/// library, then long pages, then the library's name.
+pub fn reads_as(said: Option<&str>, tall: bool, in_manga: bool) -> (bool, bool) {
     match said {
         Some("comic") => (false, false),
         Some("manga") => (true, false),
         Some("webtoon") => (false, true),
-        _ => match yac_type {
-            Some(1) => (true, false),
-            Some(2) => (false, false),
-            Some(3) => (false, true),
-            _ if tall => (false, true),
-            _ => (in_manga, false),
-        },
+        _ if tall => (false, true),
+        _ => (in_manga, false),
     }
 }
 

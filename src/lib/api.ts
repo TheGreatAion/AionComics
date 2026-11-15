@@ -446,9 +446,9 @@ export interface ReaderInfo {
   bookmarks: number[];
   /** Opened from outside the library: progress, bookmarks and panel edits aren't kept. */
   external: boolean;
-  /** Reads right to left: manga, unless YACReader says it's left-to-right manga or a webtoon. */
+  /** Reads right to left: manga, unless you've said it reads otherwise or it's a webtoon. */
   rtl: boolean;
-  /** A webtoon, as YACReader says: one long strip, read scrolling. */
+  /** A webtoon (as you've said, or by its long pages): one long strip, read scrolling. */
   webtoon: boolean;
   /** The panel the book was left on in Guided View. */
   guidedSpot: GuidedSpot | null;
@@ -494,7 +494,6 @@ export interface ScanStats {
   collections: number;
   added: number;
   removed: number;
-  yacMatched: number;
   seconds: number;
   finishedAt: number;
   /** Books that seemed missing but were kept, because too many vanished at once. */
@@ -686,8 +685,8 @@ export interface RemoteStatus {
 // Custom protocol: Windows' WebView2 exposes it as http://aion.localhost. On another device, the
 // same pictures come from AionComics' web server.
 const base = remote ? "/img" : navigator.userAgent.includes("Windows") ? "http://aion.localhost" : "aion://localhost";
-// "?v=2": covers once came through broken (see `cover` in lib.rs) and the window keeps a cover for a
-// year, so the address changed for it to ask again.
+// "?v=2": some covers once came through broken, and the window keeps a cover for a year, so the
+// address changed for it to ask again.
 export const coverUrl = (id: number) => `${base}/cover/${id}?v=2`;
 export const pageUrl = (id: number, n: number) => `${base}/page/${id}/${n}`;
 export const thumbUrl = (id: number, n: number) => `${base}/thumb/${id}/${n}`;

@@ -88,7 +88,7 @@ impl AppState {
         if id < 0 {
             let ext = self.external.lock().unwrap();
             let path = ext.get((-id - 1) as usize).ok_or_else(|| anyhow::anyhow!("Unknown book"))?;
-            return Ok((path.clone(), db::ComicFile { rel_path: String::new(), yac_hash: None }));
+            return Ok((path.clone(), db::ComicFile { rel_path: String::new() }));
         }
         let root = self.root().ok_or_else(|| anyhow::anyhow!("No library folder set"))?;
         let f = db::comic_file(&self.conn.lock().unwrap(), id)?;
@@ -289,14 +289,8 @@ fn start_scan(app: &AppHandle, state: &Shared) {
                         let _ = state.archives.listing(card.id, &path);
                     }
                 }
-                // Cover shapes are a slower second pass over the drive.
-                // And their colors, from the covers already made (new covers get theirs as they're made).
-                if let Ok(n) = scan::cover_colors(&mut c, &root, &state.thumbs_dir) {
-                    if n > 0 {
-                        let _ = app.emit("library-changed", ());
-                    }
-                }
-                if let Ok(n) = scan::cover_ratios(&mut c, &root) {
+                // Covers' colors, from the covers already made (new covers get theirs as they're made).
+                if let Ok(n) = scan::cover_colors(&mut c, &state.thumbs_dir) {
                     if n > 0 {
                         let _ = app.emit("library-changed", ());
                     }
@@ -1256,7 +1250,7 @@ async fn open_comic(state: State<'_, Shared>, id: i64, screen: Option<u32>) -> C
         let facts = db::reading_facts(&conn, id)?;
         drop(conn);
         // Long pages only matter, and are only looked at once, when nothing else has said how it reads.
-        let unsaid = facts.said.is_none() && !matches!(facts.yac_type, Some(1..=3));
+        let unsaid = facts.said.is_none();
         let tall = match facts.tall {
             Some(tall) => tall,
             None if unsaid => {
@@ -1266,7 +1260,7 @@ async fn open_comic(state: State<'_, Shared>, id: i64, screen: Option<u32>) -> C
             }
             None => false,
         };
-        let (rtl, webtoon) = db::reads_as(facts.said.as_deref(), facts.yac_type, tall, comic.is_manga);
+        let (rtl, webtoon) = db::reads_as(facts.said.as_deref(), tall, comic.is_manga);
         warm::start(&state, id, n, start, screen);
         let s = state.clone();
         std::thread::spawn(move || tidy_cache(&s, Some(id)));
@@ -1465,17 +1459,8 @@ fn cover(state: &AppState, id: i64) -> anyhow::Result<Vec<u8>> {
     if let Ok(b) = std::fs::read(&cached) {
         return Ok(b);
     }
-    let (path, file) = state.comic_path(id)?;
-    // Reuse YACReader's cover cache when it has one, if what's there is really a picture: some of
-    // its files are scrambled, and passed on they showed as a broken picture. Otherwise we make our own.
-    if let (Some(hash), Some(root)) = (file.yac_hash.as_ref(), state.root()) {
-        let yac = root.join(".yacreaderlibrary").join("covers").join(format!("{hash}.jpg"));
-        if let Ok(b) = std::fs::read(yac) {
-            if is_picture(&b) {
-                return Ok(b);
-            }
-        }
-    }
+    // Always made here, from the book itself.
+    let (path, _) = state.comic_path(id)?;
     let (thumb, ratio) = archive::make_thumbnail(&state.archives.first_page(id, &path)?)?;
     let _ = std::fs::write(&cached, &thumb);
     let color = archive::cover_color(&thumb).ok();
@@ -1485,23 +1470,6 @@ fn cover(state: &AppState, id: i64) -> anyhow::Result<Vec<u8>> {
         let _ = db::set_cover_color(&conn, id, &c);
     }
     Ok(thumb)
-}
-
-/// Whether bytes start the way a JPEG, PNG or WebP picture does.
-fn is_picture(b: &[u8]) -> bool {
-    b.starts_with(&[0xFF, 0xD8, 0xFF]) || b.starts_with(&[0x89, b'P', b'N', b'G']) || (b.len() > 12 && &b[..4] == b"RIFF" && &b[8..12] == b"WEBP")
-}
-
-#[cfg(test)]
-mod picture_tests {
-    #[test]
-    fn scrambled_covers_are_not_pictures() {
-        assert!(super::is_picture(&[0xFF, 0xD8, 0xFF, 0xE0, 0, 0x10]));
-        assert!(super::is_picture(&[0x89, b'P', b'N', b'G', 0x0D, 0x0A]));
-        assert!(super::is_picture(b"RIFF\x10\x00\x00\x00WEBPVP8 "));
-        assert!(!super::is_picture(&[0x86, 0x27, 0x54, 0x8A, 0x14, 0x2F]));
-        assert!(!super::is_picture(&[]));
-    }
 }
 
 /// Where a cover's print is kept (see `archive::make_print`).
@@ -1979,7 +1947,7 @@ mod real_queries {
     #[test]
     #[ignore]
     fn home_rows() {
-        let mut conn = db::open(Path::new(&std::env::var("AION_TEST_DB").unwrap())).unwrap();
+        let conn = db::open(Path::new(&std::env::var("AION_TEST_DB").unwrap())).unwrap();
         let now = scan::now();
         let show = |name: &str, v: &[db::ComicCard]| {
             println!("{name} ({}): {}", v.len(), v.iter().take(6).map(|c| format!("{} {}", c.series_name, c.label)).collect::<Vec<_>>().join(" | "));
@@ -1991,8 +1959,5 @@ mod real_queries {
         let v = db::series_view(&conn, vin).unwrap();
         println!("vinland backfill: {:?}", v.backfill.map(|b| (b.before_label, b.count)));
         println!("search yukimura: {:?}", db::search_all(&conn, "yukimura").unwrap().creators.iter().map(|s| s.name.clone()).collect::<Vec<_>>());
-        let t = std::time::Instant::now();
-        let n = scan::cover_ratios(&mut conn, Path::new(&std::env::var("AION_TEST_ROOT").unwrap())).unwrap();
-        println!("cover ratios: {n} in {:?}", t.elapsed());
     }
 }

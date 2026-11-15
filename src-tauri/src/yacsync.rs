@@ -338,29 +338,5 @@ mod tests {
         println!("{queued} books read in AionComics; {sent} changed in YACReader");
         assert_eq!(pending(&c), 0);
 
-        let yac = crate::scan::read_yac(&root);
-        let mut st = c
-            .prepare("SELECT rel_path, read, current_page, last_read_at FROM comics WHERE last_read_at IS NOT NULL")
-            .unwrap();
-        let rows: Vec<(String, bool, i64, i64)> =
-            st.query_map([], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?))).unwrap().map(Result::unwrap).collect();
-        let (mut same, mut yac_newer, mut missing) = (0, 0, 0);
-        for (path, read, page, last) in rows {
-            let Some(y) = yac.get(&path) else {
-                missing += 1;
-                continue;
-            };
-            if y.last_opened.unwrap_or(0) > last {
-                yac_newer += 1;
-                println!("  YACReader's is newer: {path}");
-                continue;
-            }
-            assert_eq!(y.read, read, "{path}");
-            if !read {
-                assert_eq!(y.current_page.unwrap_or(1) - 1, page, "{path}");
-            }
-            same += 1;
-        }
-        println!("{same} read back the same; {yac_newer} newer in YACReader (left alone); {missing} not in YACReader");
     }
 }

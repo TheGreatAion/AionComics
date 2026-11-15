@@ -5,7 +5,7 @@
   import Cover from "./Cover.svelte";
   import Icon from "./Icon.svelte";
 
-  // Edit any book's details by hand. Your edits win over Comic Vine and the YACReader import,
+  // Edit any book's details by hand. Your edits win over Comic Vine and the details in the file,
   // and the undo arrow next to an edited field brings back the value underneath it.
   let { id }: { id: number } = $props();
 
@@ -41,7 +41,7 @@
   let error = $state("");
   let saving = $state(false);
 
-  // Synopses arrive as HTML from Comic Vine and YACReader; edit them as plain text.
+  // Synopses can arrive as HTML from Comic Vine; edit them as plain text.
   const shown = (k: MetaField, v: string | null) => (k === "synopsis" ? plainText(v) : (v ?? ""));
 
   function load(m: ComicMeta) {
