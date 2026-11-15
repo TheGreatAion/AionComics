@@ -1050,11 +1050,37 @@ fn cv_open_site() -> CmdResult<()> {
     Ok(())
 }
 
-/// Whether this copy was put in by the installer (it can update itself) or is the portable exe
-/// run from wherever it was saved (it can only point you to the download).
+/// How this copy gets new versions. "here": put in by the installer, it updates itself. "elsewhere":
+/// an exe run from wherever it was saved, with AionComics also installed on this PC; the installer
+/// updates that copy (it goes where the last install went) and opens it. "none": nothing installed,
+/// so it can only point you to the download.
 #[tauri::command]
-fn installed() -> bool {
-    std::env::current_exe().ok().and_then(|p| p.parent().map(|d| d.join("uninstall.exe").exists())).unwrap_or(false)
+fn install_kind() -> &'static str {
+    let here = std::env::current_exe().ok().and_then(|p| p.parent().map(|d| d.join("uninstall.exe").exists()));
+    if here == Some(true) {
+        "here"
+    } else if installed_elsewhere() {
+        "elsewhere"
+    } else {
+        "none"
+    }
+}
+
+/// Whether Windows lists AionComics as installed, and its uninstaller is still where it says.
+#[cfg(windows)]
+fn installed_elsewhere() -> bool {
+    use winreg::enums::{HKEY_CURRENT_USER, HKEY_LOCAL_MACHINE};
+    [HKEY_CURRENT_USER, HKEY_LOCAL_MACHINE].into_iter().any(|root| {
+        winreg::RegKey::predef(root)
+            .open_subkey(r"Software\Microsoft\Windows\CurrentVersion\Uninstall\AionComics")
+            .and_then(|k| k.get_value::<String, _>("InstallLocation"))
+            .is_ok_and(|dir| std::path::Path::new(dir.trim_matches('"')).join("uninstall.exe").exists())
+    })
+}
+
+#[cfg(not(windows))]
+fn installed_elsewhere() -> bool {
+    false
 }
 
 /// A release's page on GitHub, in your browser: for the portable copy, to download a new version.
@@ -1929,7 +1955,7 @@ pub fn run() {
             set_editions,
             restore_editions,
             cv_set_key,
-            installed,
+            install_kind,
             open_release,
             rate_book,
             rate_series,

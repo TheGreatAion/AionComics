@@ -47,6 +47,7 @@ dependencies = [
  "ureq",
  "walkdir",
  "windows",
+ "winreg",
  "zip",
 ]
 

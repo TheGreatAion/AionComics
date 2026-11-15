@@ -628,7 +628,9 @@
                 <small>
                   {updates.portable
                     ? "This copy runs without installing: it tells you when a new version is out, and you download it"
-                    : "New versions download in the background. They install when you restart from here or the top bar"}
+                    : updates.elsewhere
+                      ? "New versions download in the background. This copy isn't installed, so restarting from here or the top bar updates the AionComics installed on this PC and opens it"
+                      : "New versions download in the background. They install when you restart from here or the top bar"}
                 </small>
               </div>
               {@render toggle(updates.auto, () => setAuto(!updates.auto), "Get updates by themselves")}

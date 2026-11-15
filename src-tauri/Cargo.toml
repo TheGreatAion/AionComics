@@ -61,6 +61,8 @@ opt-level = 2
 # PDF pages come from the reader built into Windows.
 [target.'cfg(windows)'.dependencies]
 windows = { version = "0.62", features = ["Data_Pdf", "Foundation", "Storage", "Storage_Streams", "Win32_System_Com"] }
+# Finding the installed copy, for updating it from a copy that isn't installed.
+winreg = "0.56"
 
 [dev-dependencies]
 sevenz-rust2 = { version = "0.24.2", default-features = false, features = ["compress"] }

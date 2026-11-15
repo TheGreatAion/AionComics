@@ -18,8 +18,11 @@ export const updates = $state({
   /** While downloading, 0 to 1. */
   progress: 0,
   error: "",
-  /** The portable exe can't replace itself; it sends you to the download instead. */
+  /** A copy that isn't installed, with none installed on this PC either: it can't update, so it
+   * sends you to the download instead. */
   portable: false,
+  /** A copy that isn't installed, with one installed on this PC: updating updates that one. */
+  elsewhere: false,
   /** Download new versions without being asked (Settings). */
   auto: true,
   /** The What's new sheet: about a version waiting to install, or the one just installed. */
@@ -54,7 +57,9 @@ export async function startUpdates() {
   if (remote) return;
   updates.current = await getVersion();
   updates.auto = stored(AUTO) !== "0";
-  updates.portable = !(await api.installed().catch(() => true));
+  const kind = await api.installKind().catch(() => "here" as const);
+  updates.portable = kind === "none";
+  updates.elsewhere = kind === "elsewhere";
   // The first start after an update: what changed.
   const seen = stored(SEEN);
   if (seen && seen !== updates.current && notesFor(updates.current)) updates.sheet = "after";
@@ -115,7 +120,8 @@ export async function download() {
   }
 }
 
-/** Install what's downloaded (downloading it first if need be) and start again on the new version. */
+/** Install what's downloaded (downloading it first if need be) and start again on the new version.
+ * From a copy that isn't installed, the installer updates the installed one and opens that. */
 export async function install() {
   if (updates.portable) {
     if (updates.next) await api.openRelease(updates.next.version);

@@ -67,13 +67,17 @@
         </div>
         <button class="link" onclick={close}>Hide</button>
       {:else if updates.phase === "installing"}
-        <span class="fine">Installing. AionComics opens again in a moment.</span>
+        <span class="fine">Installing. {updates.elsewhere ? "Your installed AionComics opens" : "AionComics opens again"} in a moment.</span>
       {:else if updates.phase === "error"}
         <span class="fine err"><Icon name="alert" size={14} />{updates.error || "The update didn't download."}</span>
         <span class="grow"></span>
         <button class="pill" onclick={install}><Icon name="rescan" size={15} />Try again</button>
       {:else}
-        <span class="fine">Takes a few seconds. AionComics opens again afterward.</span>
+        <span class="fine">
+          {updates.elsewhere
+            ? "Takes a few seconds. This copy isn't installed, so the AionComics installed on this PC is updated and opens afterward."
+            : "Takes a few seconds. AionComics opens again afterward."}
+        </span>
         <span class="grow"></span>
         <button class="link" onclick={close}>Later</button>
         <button class="pill" onclick={install}><Icon name="rescan" size={15} />Restart and update</button>
