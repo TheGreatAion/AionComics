@@ -97,13 +97,19 @@
   const letters = $derived(data ? [...data.name].filter((ch) => ch !== " ").length : 0);
   const seed = Math.floor(Math.random() * 2 ** 32);
   const shuffled = (n: number) => Math.imul(n ^ seed, 2654435761) >>> 0;
-  const letterCovers = $derived.by(() =>
-    (data?.series ?? [])
+  // Covers already made come first, so the letters are filled straight away; the pick is made once
+  // a visit, so letters don't change as more covers are made.
+  let picked: number[] | null = null;
+  const letterCovers = $derived.by(() => {
+    if (picked?.length) return picked;
+    const pick = (data?.series ?? [])
       .filter((s) => s.coverId != null)
-      .sort((a, b) => shuffled(a.id) - shuffled(b.id))
+      .sort((a, b) => Number(b.coverReady) - Number(a.coverReady) || shuffled(a.id) - shuffled(b.id))
       .slice(0, letters)
-      .map((s) => s.coverId!),
-  );
+      .map((s) => s.coverId!);
+    if (pick.length) picked = pick;
+    return pick;
+  });
 
   // Behind the headline, one more cover, blown up and printed in a single ink of its own color: a
   // fresh one each visit, like the letters, and one the letters aren't using when there's a choice.

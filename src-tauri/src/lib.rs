@@ -224,7 +224,7 @@ fn make_covers(state: &Shared, ids: Vec<i64>) {
         if state.scanning.load(Ordering::SeqCst) {
             return;
         }
-        let _ = cover(state, id);
+        let _ = make_cover(state, id, true);
     }
 }
 
@@ -834,6 +834,7 @@ fn collection(state: State<Shared>, id: i64) -> CmdResult<db::CollectionView> {
     let mut view = db::collection_view(&state.conn.lock().unwrap(), id).map_err(err)?;
     for s in &mut view.series {
         s.printed = s.cover_id.is_some_and(|c| print_path(&state, c).exists());
+        s.cover_ready = s.cover_id.is_some_and(|c| state.thumbs_dir.join(format!("{c}.jpg")).exists());
     }
     Ok(view)
 }
@@ -1476,32 +1477,51 @@ fn respond(status: StatusCode, mime: &str, body: Vec<u8>, cache: bool) -> Respon
 
 /// How many covers are made from their books at once.
 const COVERS_AT_ONCE: usize = 3;
-static COVER_SLOTS: (Mutex<usize>, Condvar) = (Mutex::new(0), Condvar::new());
 
-/// A turn at making a cover, given back when dropped.
+/// Covers being made, and covers a page is waiting on.
+struct Slots {
+    busy: usize,
+    asked: usize,
+}
+static COVER_SLOTS: (Mutex<Slots>, Condvar) = (Mutex::new(Slots { busy: 0, asked: 0 }), Condvar::new());
+
+/// A turn at making a cover, given back when dropped. A cover a page is waiting on goes first: one
+/// made ahead in the background (`ahead`) only gets a turn when nothing else is being made or asked for.
 struct CoverSlot;
 
 impl CoverSlot {
-    fn take() -> CoverSlot {
-        let (busy, freed) = &COVER_SLOTS;
-        let mut n = busy.lock().unwrap();
-        while *n >= COVERS_AT_ONCE {
-            n = freed.wait(n).unwrap();
+    fn take(ahead: bool) -> CoverSlot {
+        let (slots, freed) = &COVER_SLOTS;
+        let mut s = slots.lock().unwrap();
+        if ahead {
+            while s.busy > 0 || s.asked > 0 {
+                s = freed.wait(s).unwrap();
+            }
+        } else {
+            s.asked += 1;
+            while s.busy >= COVERS_AT_ONCE {
+                s = freed.wait(s).unwrap();
+            }
+            s.asked -= 1;
         }
-        *n += 1;
+        s.busy += 1;
         CoverSlot
     }
 }
 
 impl Drop for CoverSlot {
     fn drop(&mut self) {
-        let (busy, freed) = &COVER_SLOTS;
-        *busy.lock().unwrap() -= 1;
-        freed.notify_one();
+        let (slots, freed) = &COVER_SLOTS;
+        slots.lock().unwrap().busy -= 1;
+        freed.notify_all();
     }
 }
 
 fn cover(state: &AppState, id: i64) -> anyhow::Result<Vec<u8>> {
+    make_cover(state, id, false)
+}
+
+fn make_cover(state: &AppState, id: i64, ahead: bool) -> anyhow::Result<Vec<u8>> {
     if id < 0 {
         // Outside books get fresh ids each session, so their covers aren't cached.
         let (path, _) = state.comic_path(id)?;
@@ -1513,7 +1533,7 @@ fn cover(state: &AppState, id: i64) -> anyhow::Result<Vec<u8>> {
     }
     // Always made here, from the book itself: a few at a time, the rest waiting their turn, since
     // a page asking for dozens at once had them all fighting over the drive and every one arrived late.
-    let _slot = CoverSlot::take();
+    let _slot = CoverSlot::take(ahead);
     // Made by another request while this one waited.
     if let Ok(b) = std::fs::read(&cached) {
         return Ok(b);

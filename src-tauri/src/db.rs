@@ -495,6 +495,8 @@ pub struct SeriesSummary {
     pub cover_color: Option<String>,
     /// Whether that cover's print is made (see `print` in lib.rs); filled in there.
     pub printed: bool,
+    /// Whether that cover is made (see `cover` in lib.rs); filled in there, on library pages.
+    pub cover_ready: bool,
     /// How you've said this series reads, if you have.
     pub reading: Option<String>,
     /// On your Want to read list (and not started since).
@@ -548,6 +550,7 @@ fn series_summary(r: &Row) -> rusqlite::Result<SeriesSummary> {
         last_added_at: r.get(9)?,
         cover_color: r.get(10)?,
         printed: false,
+        cover_ready: false,
         reading: r.get(11)?,
         wanted: r.get(12)?,
         stars: r.get(13)?,
@@ -557,13 +560,16 @@ fn series_summary(r: &Row) -> rusqlite::Result<SeriesSummary> {
 /// The covers pages will ask for a print of, for making those ahead of time. `printable` is the same
 /// test as the pages' (Series.svelte, Collection.svelte): some color, and never teal.
 /// Books whose covers are best made ahead. `first`: the ones pages show first, each series' first
-/// book (library pages, their titles, Home's panels) after what's on Home. Otherwise every other book.
+/// book (library pages, their titles, Home's panels) after what's on Home, every library's in turn
+/// in the order its page lists them (A to Z), so each one's first screenful is ready early.
+/// Otherwise every other book.
 pub fn covers_wanted(conn: &Connection, first: bool) -> Result<Vec<i64>> {
     let sql = if first {
         "SELECT id FROM (
            SELECT id, 0 AS k, -COALESCE(last_read_at, 0) AS o FROM comics WHERE read=0 AND current_page>0
            UNION ALL
-           SELECT (SELECT c2.id FROM comics c2 WHERE c2.series_id=s.id ORDER BY c2.section!='', c2.sort_key LIMIT 1), 1, s.id FROM series s
+           SELECT (SELECT c2.id FROM comics c2 WHERE c2.series_id=s.id ORDER BY c2.section!='', c2.sort_key LIMIT 1), 1,
+                  ROW_NUMBER() OVER (PARTITION BY s.collection_id ORDER BY s.name COLLATE NOCASE) FROM series s
          ) WHERE id IS NOT NULL GROUP BY id ORDER BY MIN(k), MIN(o)"
     } else {
         "SELECT id FROM comics ORDER BY series_id, section!='', sort_key"

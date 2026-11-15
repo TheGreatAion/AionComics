@@ -198,6 +198,8 @@ export interface SeriesSummary {
   reading: "comic" | "manga" | "webtoon" | null;
   /** On your Want to read list (and not started since). */
   wanted: boolean;
+  /** Whether its cover is made already (library pages only). */
+  coverReady: boolean;
   /** Your stars for it: your own rating of the series, else the average of its books you rated. */
   stars: number | null;
 }
